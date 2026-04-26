@@ -1,0 +1,9 @@
+.env
+*.env
+*config.php
+*db.php
+*.zip
+*.sql
+*.log
+backup*/
+public_html_backup*/
