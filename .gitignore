@@ -2,6 +2,7 @@
 *.env
 *config.php
 *db.php
+private_logs/
 *.zip
 *.sql
 *.log

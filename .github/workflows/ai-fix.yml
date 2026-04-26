@@ -1,0 +1,72 @@
+name: AI Fix Proposal
+
+on:
+  issues:
+    types:
+      - opened
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: write
+
+jobs:
+  create-proposal:
+    if: contains(github.event.issue.title, '[MVM hiba]') || contains(github.event.issue.body, '[MVM hiba]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create proposal pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          set -euo pipefail
+
+          timestamp="$(date -u +%Y%m%d%H%M%S)"
+          branch="fix/mvm-auto-error-${timestamp}"
+          proposal_file=".github/ai-fix-proposals/issue-${ISSUE_NUMBER}.md"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+
+          mkdir -p .github/ai-fix-proposals
+
+          {
+            echo "# MVM automatikus hibajavítási javaslat"
+            echo
+            echo "- Issue: #${ISSUE_NUMBER}"
+            echo "- Link: ${ISSUE_URL}"
+            echo "- Cím: ${ISSUE_TITLE}"
+            echo
+            echo "## Bejelentett hiba"
+            echo
+            printf '%s\n' "$ISSUE_BODY"
+            echo
+            echo "## Javasolt következő lépés"
+            echo
+            echo "Codex ellenőrizze a fájlt és készítsen javítási javaslatot."
+            echo
+            echo "## Biztonsági korlát"
+            echo
+            echo "Ez a workflow csak javaslati markdown fájlt hoz létre, éles PHP kódot közvetlenül nem módosít."
+          } > "$proposal_file"
+
+          git add "$proposal_file"
+          git commit -m "Add AI fix proposal for issue #${ISSUE_NUMBER}"
+          git push origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "MVM hiba javítási javaslat #${ISSUE_NUMBER}" \
+            --body "Automatikus javaslati PR a(z) #${ISSUE_NUMBER} issue alapján. Ez a PR csak markdown javaslatot tartalmaz, éles PHP kódot nem módosít."

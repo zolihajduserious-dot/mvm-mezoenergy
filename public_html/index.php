@@ -1,6 +1,12 @@
 <?php
 declare(strict_types=1);
 
+$errorMonitorPath = dirname(__DIR__) . '/includes/error-monitor.php';
+
+if (is_file($errorMonitorPath)) {
+    require_once $errorMonitorPath;
+}
+
 require_once __DIR__ . '/includes/config.php';
 
 $vendorAutoload = APP_ROOT . '/vendor/autoload.php';
