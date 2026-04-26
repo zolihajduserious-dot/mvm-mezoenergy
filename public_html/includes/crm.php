@@ -3916,19 +3916,81 @@ function mvm_document_types(bool $includeSystemTypes = true): array
         'accepted_request' => 'Elfogadott igény',
         'execution_plan' => 'Kiviteli terv dokumentáció',
         'intervention_sheet' => 'Új beavatkozási lap',
+        'completed_intervention_sheet' => 'Kész beavatkozási lap',
+        'construction_log' => 'Építési napló',
+        'technical_handover' => 'Műszaki átadás-átvételi jegyzőkönyv',
+        'technical_declaration' => 'Nyilatkozatok adatlap',
     ];
 
     if ($includeSystemTypes) {
         $types['complete_package'] = 'Komplett összefűzött dokumentum';
+        $types['technical_handover_package'] = 'Műszaki átadás csomag';
     }
 
     return $types;
+}
+
+function mvm_document_type_keys(): array
+{
+    return [
+        'submitted_request',
+        'accepted_request',
+        'execution_plan',
+        'intervention_sheet',
+        'completed_intervention_sheet',
+        'construction_log',
+        'technical_handover',
+        'technical_declaration',
+        'complete_package',
+        'technical_handover_package',
+    ];
+}
+
+function mvm_document_type_enum_sql(): string
+{
+    return "ENUM('" . implode("', '", mvm_document_type_keys()) . "')";
 }
 
 function mvm_document_schema_errors(): array
 {
     if (!db_table_exists('connection_request_documents')) {
         return ['Hianyzik a connection_request_documents tabla.'];
+    }
+
+    try {
+        $columnType = (string) (db_query(
+            'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+            [DB_NAME, 'connection_request_documents', 'document_type']
+        )->fetchColumn() ?: '');
+        $missingTypes = [];
+
+        foreach (mvm_document_type_keys() as $requiredType) {
+            if (!str_contains($columnType, "'" . $requiredType . "'")) {
+                $missingTypes[] = $requiredType;
+            }
+        }
+
+        if ($missingTypes === []) {
+            return [];
+        }
+
+        db_query('ALTER TABLE `connection_request_documents` MODIFY COLUMN `document_type` ' . mvm_document_type_enum_sql() . ' NOT NULL');
+        $updatedColumnType = (string) (db_query(
+            'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+            [DB_NAME, 'connection_request_documents', 'document_type']
+        )->fetchColumn() ?: '');
+
+        foreach (mvm_document_type_keys() as $requiredType) {
+            if (!str_contains($updatedColumnType, "'" . $requiredType . "'")) {
+                return ['A connection_request_documents.document_type mező frissítése szükséges. Futtasd újra a database/upgrade_connection_requests.sql fájlt.'];
+            }
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'A connection_request_documents.document_type automatikus frissítése nem sikerült: ' . $exception->getMessage()
+                : 'A connection_request_documents.document_type mező frissítése szükséges. Futtasd újra a database/upgrade_connection_requests.sql fájlt.',
+        ];
     }
 
     return [];
@@ -3952,6 +4014,7 @@ function mvm_contractor_templates(): array
             'supplier_number' => '38063',
             'template' => 'primavill_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'primavill_terv_sablon.docx',
+            'handover_template' => 'primavill_muszaki_atadas.docx',
             'plan_header_line_1' => 'Primavill Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => '5600 Békéscsaba, Víztározó u. 19. Tel.: 06 30 23 08 472',
         ],
@@ -3961,6 +4024,7 @@ function mvm_contractor_templates(): array
             'supplier_number' => '33716',
             'template' => 'kasosvill_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'kasosvill_terv_sablon.docx',
+            'handover_template' => 'kasosvill_muszaki_atadas.docx',
             'plan_header_line_1' => 'Kasosvill Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 33716',
         ],
@@ -3970,6 +4034,7 @@ function mvm_contractor_templates(): array
             'supplier_number' => '31945',
             'template' => 'szabowatt_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'szabowatt_terv_sablon.docx',
+            'handover_template' => 'szabowatt_muszaki_atadas.docx',
             'plan_header_line_1' => 'Szabó Watt és Társai Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 31945',
         ],
@@ -3979,6 +4044,7 @@ function mvm_contractor_templates(): array
             'supplier_number' => '33665',
             'template' => 't-tech-2000_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 't-tech-2000_terv_sablon.docx',
+            'handover_template' => 't-tech-2000_muszaki_atadas.docx',
             'plan_header_line_1' => 'T-tech 2000 Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 33665',
         ],
@@ -4047,6 +4113,23 @@ function mvm_plan_template_errors(?string $contractorKey = null): array
 
     return mvm_plan_template_path($contractorKey) === null
         ? ['Hiányzik a(z) ' . $contractor['label'] . ' terv DOCX sablon a templates/mvm/plan-templates mappából.']
+        : [];
+}
+
+function mvm_technical_handover_template_path(?string $contractorKey = null): ?string
+{
+    $contractor = mvm_contractor_definition($contractorKey);
+    $candidate = APP_ROOT . '/templates/mvm/handover-templates/' . (string) ($contractor['handover_template'] ?? '');
+
+    return is_file($candidate) ? $candidate : null;
+}
+
+function mvm_technical_handover_template_errors(?string $contractorKey = null): array
+{
+    $contractor = mvm_contractor_definition($contractorKey);
+
+    return mvm_technical_handover_template_path($contractorKey) === null
+        ? ['Hiányzik a(z) ' . $contractor['label'] . ' műszaki átadás DOCX sablon a templates/mvm/handover-templates mappából.']
         : [];
 }
 
@@ -5453,7 +5536,7 @@ function first_connection_request_image_file(int $requestId, string $fileType): 
         $path = (string) ($file['storage_path'] ?? '');
         $mimeType = (string) ($file['mime_type'] ?? '');
 
-        if ($path !== '' && is_file($path) && str_starts_with($mimeType, 'image/')) {
+        if ($path !== '' && is_file($path) && (str_starts_with($mimeType, 'image/') || @getimagesize($path) !== false)) {
             return $file;
         }
     }
@@ -5461,7 +5544,7 @@ function first_connection_request_image_file(int $requestId, string $fileType): 
     return null;
 }
 
-function prepare_mvm_docx_plan_photo_jpeg(string $sourcePath, int $canvasWidth, int $canvasHeight): string
+function prepare_mvm_docx_plan_photo_image(string $sourcePath, int $canvasWidth, int $canvasHeight, string $extension = 'jpg'): string
 {
     $imageInfo = getimagesize($sourcePath);
 
@@ -5509,12 +5592,24 @@ function prepare_mvm_docx_plan_photo_jpeg(string $sourcePath, int $canvasWidth, 
     $top = (int) floor(($canvasHeight - $renderHeight) / 2);
     imagecopyresampled($targetImage, $sourceImage, $left, $top, 0, 0, $renderWidth, $renderHeight, $sourceWidth, $sourceHeight);
 
-    $targetPath = tempnam(sys_get_temp_dir(), 'mezo_plan_photo_') . '.jpg';
-    imagejpeg($targetImage, $targetPath, 84);
+    $extension = strtolower($extension) === 'png' ? 'png' : 'jpg';
+    $targetPath = tempnam(sys_get_temp_dir(), 'mezo_plan_photo_') . '.' . $extension;
+
+    if ($extension === 'png') {
+        imagepng($targetImage, $targetPath, 6);
+    } else {
+        imagejpeg($targetImage, $targetPath, 84);
+    }
+
     imagedestroy($sourceImage);
     imagedestroy($targetImage);
 
     return $targetPath;
+}
+
+function prepare_mvm_docx_plan_photo_jpeg(string $sourcePath, int $canvasWidth, int $canvasHeight): string
+{
+    return prepare_mvm_docx_plan_photo_image($sourcePath, $canvasWidth, $canvasHeight, 'jpg');
 }
 
 function mvm_docx_relationship_targets(string $relsXml): array
@@ -5616,15 +5711,15 @@ function replace_mvm_execution_plan_photos(ZipArchive $zip, int $requestId): arr
 {
     $documentXml = $zip->getFromName('word/document.xml');
     $relsXml = $zip->getFromName('word/_rels/document.xml.rels');
-    $contentTypesXml = $zip->getFromName('[Content_Types].xml');
 
-    if ($documentXml === false || $relsXml === false || $contentTypesXml === false) {
+    if ($documentXml === false || $relsXml === false) {
         return ['temporary_paths' => [], 'inserted' => 0, 'missing' => array_values(mvm_plan_photo_placeholder_map())];
     }
 
     $relationshipTargets = mvm_docx_relationship_targets($relsXml);
     $temporaryPaths = [];
     $missing = [];
+    $insertedTypes = [];
     $inserted = 0;
 
     foreach (mvm_execution_plan_photo_slots($documentXml) as $slot) {
@@ -5637,25 +5732,39 @@ function replace_mvm_execution_plan_photos(ZipArchive $zip, int $requestId): arr
         }
 
         [$canvasWidth, $canvasHeight] = mvm_docx_photo_canvas_size_from_extent((int) $slot['extent_cx'], (int) $slot['extent_cy']);
-        $photoPath = prepare_mvm_docx_plan_photo_jpeg((string) $file['storage_path'], $canvasWidth, $canvasHeight);
+        $relationshipTarget = (string) ($relationshipTargets[(string) $slot['relationship_id']] ?? '');
+
+        if ($relationshipTarget === '' || str_contains($relationshipTarget, '..')) {
+            $missing[] = $fileType;
+            continue;
+        }
+
+        $targetExtension = strtolower(pathinfo($relationshipTarget, PATHINFO_EXTENSION));
+        $targetExtension = in_array($targetExtension, ['png', 'jpg', 'jpeg'], true) ? $targetExtension : 'jpg';
+        $photoPath = prepare_mvm_docx_plan_photo_image((string) $file['storage_path'], $canvasWidth, $canvasHeight, $targetExtension === 'png' ? 'png' : 'jpg');
         $temporaryPaths[] = $photoPath;
 
-        $target = 'media/plan-photo-' . $fileType . '-' . bin2hex(random_bytes(4)) . '.jpg';
-        $relsXml = replace_mvm_docx_relationship_target($relsXml, (string) $slot['relationship_id'], $target);
+        $targetZipPath = 'word/' . ltrim($relationshipTarget, '/');
 
-        if (!$zip->addFile($photoPath, 'word/' . $target)) {
+        if ($zip->locateName($targetZipPath) !== false) {
+            $zip->deleteName($targetZipPath);
+        }
+
+        if (!$zip->addFile($photoPath, $targetZipPath)) {
             throw new RuntimeException('A tervdokumentáció fotóját nem sikerült beilleszteni: ' . (string) ($file['original_name'] ?? $fileType));
         }
 
         $inserted++;
+        $insertedTypes[] = $fileType;
     }
 
-    if ($inserted > 0) {
-        $zip->addFromString('word/_rels/document.xml.rels', $relsXml);
-        $zip->addFromString('[Content_Types].xml', ensure_mvm_docx_jpeg_content_type($contentTypesXml));
-    }
-
-    return ['temporary_paths' => $temporaryPaths, 'inserted' => $inserted, 'missing' => $missing, 'relationship_targets' => $relationshipTargets];
+    return [
+        'temporary_paths' => $temporaryPaths,
+        'inserted' => $inserted,
+        'inserted_types' => $insertedTypes,
+        'missing' => $missing,
+        'relationship_targets' => $relationshipTargets,
+    ];
 }
 
 function generate_primavill_mvm_docx(int $requestId): array
@@ -5705,7 +5814,7 @@ function generate_primavill_mvm_docx(int $requestId): array
         return ['ok' => false, 'message' => 'A Word dokumentumot nem sikerült megnyitni szerkesztésre.', 'document_id' => null];
     }
 
-    $temporaryImages = [];
+    $temporaryImage = null;
 
     try {
         $placeholderMap = mvm_docx_placeholder_map($request, $values);
@@ -5873,11 +5982,14 @@ function generate_mvm_execution_plan_docx(int $requestId): array
         return ['ok' => false, 'message' => 'A terv Word dokumentumot nem sikerült megnyitni szerkesztésre.', 'document_id' => null];
     }
 
-    $temporaryImage = null;
+    $temporaryImages = [];
+    $planPhotoResult = ['inserted' => 0, 'missing' => []];
 
     try {
         $placeholderMap = mvm_docx_placeholder_map($request, $values);
         $executionPlanLiteralMap = mvm_execution_plan_literal_map($placeholderMap);
+        $planPhotoResult = replace_mvm_execution_plan_photos($zip, $requestId);
+        $temporaryImages = array_merge($temporaryImages, $planPhotoResult['temporary_paths']);
         $zipFileCount = $zip->numFiles;
 
         for ($index = 0; $index < $zipFileCount; $index++) {
@@ -5911,9 +6023,6 @@ function generate_mvm_execution_plan_docx(int $requestId): array
         if (!$zip->addFile($temporaryImage, $sketchImagePath)) {
             throw new RuntimeException('A skicc képet nem sikerült beilleszteni a tervdokumentációba.');
         }
-
-        $photoResult = replace_mvm_execution_plan_photos($zip, $requestId);
-        $temporaryImages = array_merge($temporaryImages, $photoResult['temporary_paths']);
 
         $zip->close();
     } catch (Throwable $exception) {
@@ -5958,9 +6067,33 @@ function generate_mvm_execution_plan_docx(int $requestId): array
         ]
     );
 
+    $message = 'A kitöltött ' . $contractor['short_label'] . ' terv Word dokumentum elkészült.';
+
+    $definitions = connection_request_upload_definitions();
+
+    if (!empty($planPhotoResult['inserted_types'])) {
+        $insertedLabels = [];
+
+        foreach ((array) $planPhotoResult['inserted_types'] as $insertedType) {
+            $insertedLabels[] = (string) ($definitions[(string) $insertedType]['label'] ?? $insertedType);
+        }
+
+        $message .= ' Beillesztett fotók: ' . implode(', ', array_unique($insertedLabels)) . '.';
+    }
+
+    if (!empty($planPhotoResult['missing'])) {
+        $missingLabels = [];
+
+        foreach ((array) $planPhotoResult['missing'] as $missingType) {
+            $missingLabels[] = (string) ($definitions[(string) $missingType]['label'] ?? $missingType);
+        }
+
+        $message .= ' Hiányzó fotók: ' . implode(', ', array_unique($missingLabels)) . '.';
+    }
+
     return [
         'ok' => true,
-        'message' => 'A kitöltött ' . $contractor['short_label'] . ' terv Word dokumentum elkészült.',
+        'message' => $message,
         'document_id' => (int) db()->lastInsertId(),
     ];
 }
@@ -6866,7 +6999,166 @@ function generate_mvm_execution_plan_pdf(int $requestId): array
 
     return [
         'ok' => true,
-        'message' => 'A kitöltött ' . $contractor['short_label'] . ' terv PDF dokumentum elkészült.',
+        'message' => 'A kitöltött ' . $contractor['short_label'] . ' terv PDF dokumentum elkészült. ' . (string) ($docxResult['message'] ?? ''),
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
+function generate_mvm_technical_handover_docx(int $requestId): array
+{
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $form = connection_request_mvm_form($requestId);
+
+    if ($form === null) {
+        return ['ok' => false, 'message' => 'Előbb mentsd az MVM űrlap adatait.', 'document_id' => null];
+    }
+
+    $values = connection_request_mvm_form_values($request);
+    $contractorKey = normalize_mvm_contractor_key($values['mvm_contractor'] ?? null);
+    $contractor = mvm_contractor_definition($contractorKey);
+    $templatePath = mvm_technical_handover_template_path($contractorKey);
+
+    if ($templatePath === null) {
+        return ['ok' => false, 'message' => 'Hiányzik a(z) ' . $contractor['label'] . ' műszaki átadás DOCX sablon a templates/mvm/handover-templates mappából.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-technical-handover-docx';
+    ensure_storage_dir($targetDir);
+
+    $storedName = $contractorKey . '-muszaki-atadas-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $targetPath = $targetDir . '/' . $storedName;
+
+    if (!copy($templatePath, $targetPath)) {
+        return ['ok' => false, 'message' => 'A műszaki átadás Word sablont nem sikerült előkészíteni.', 'document_id' => null];
+    }
+
+    $zip = new ZipArchive();
+
+    if ($zip->open($targetPath) !== true) {
+        return ['ok' => false, 'message' => 'A műszaki átadás Word dokumentumot nem sikerült megnyitni szerkesztésre.', 'document_id' => null];
+    }
+
+    try {
+        $placeholderMap = mvm_docx_placeholder_map($request, $values);
+        $zipFileCount = $zip->numFiles;
+
+        for ($index = 0; $index < $zipFileCount; $index++) {
+            $name = $zip->getNameIndex($index);
+
+            if (!is_string($name) || !preg_match('#^word/(document|header\d+|footer\d+)\.xml$#', $name)) {
+                continue;
+            }
+
+            $xml = $zip->getFromName($name);
+
+            if ($xml === false) {
+                continue;
+            }
+
+            $xml = replace_docx_placeholders_in_xml($xml, $placeholderMap);
+            $zip->addFromString($name, strtr($xml, array_map('mvm_docx_xml_value', $placeholderMap)));
+        }
+
+        $zip->close();
+    } catch (Throwable $exception) {
+        $zip->close();
+
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+
+        return ['ok' => false, 'message' => 'A műszaki átadás Word dokumentum generálása sikertelen: ' . $exception->getMessage(), 'document_id' => null];
+    }
+
+    clearstatcache(true, $targetPath);
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'technical_handover',
+            $contractor['short_label'] . ' műszaki átadás-átvételi jegyzőkönyv - kitöltött Word dokumentum',
+            $storedName,
+            $storedName,
+            $targetPath,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            is_file($targetPath) ? (int) filesize($targetPath) : 0,
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött ' . $contractor['short_label'] . ' műszaki átadás Word dokumentum elkészült.',
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
+function generate_mvm_technical_handover_pdf(int $requestId): array
+{
+    $docxResult = generate_mvm_technical_handover_docx($requestId);
+
+    if (!$docxResult['ok']) {
+        return $docxResult;
+    }
+
+    $document = find_connection_request_document((int) $docxResult['document_id']);
+
+    if ($document === null) {
+        return ['ok' => false, 'message' => 'A műszaki átadás Word dokumentum elkészült, de a mentett dokumentumrekord nem található.', 'document_id' => null];
+    }
+
+    $pdfResult = convert_mvm_docx_document_to_pdf($document);
+
+    if (!$pdfResult['ok'] || empty($pdfResult['path']) || !is_file((string) $pdfResult['path'])) {
+        return ['ok' => false, 'message' => $pdfResult['message'], 'document_id' => (int) $document['id']];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $values = connection_request_mvm_form_values($request);
+    $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
+    $pdfPath = (string) $pdfResult['path'];
+    $storedName = basename($pdfPath);
+
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'technical_handover',
+            $contractor['short_label'] . ' műszaki átadás-átvételi jegyzőkönyv - kitöltött PDF',
+            $storedName,
+            $storedName,
+            $pdfPath,
+            'application/pdf',
+            (int) filesize($pdfPath),
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött ' . $contractor['short_label'] . ' műszaki átadás PDF dokumentum elkészült.',
         'document_id' => (int) db()->lastInsertId(),
     ];
 }
@@ -6901,6 +7193,14 @@ function validate_connection_request_document_upload(string $documentType, array
 
             if ((int) ($file['size'] ?? 0) > 5 * 1024 * 1024) {
                 $errors[] = 'A komplett összefűzött dokumentum legfeljebb 5 MB lehet.';
+            }
+        }
+
+        if (in_array($documentType, ['completed_intervention_sheet', 'construction_log', 'technical_declaration', 'technical_handover_package'], true)) {
+            $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+
+            if (!in_array($extension, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true)) {
+                $errors[] = 'A műszaki átadás csomagba kerülő feltöltések csak PDF vagy kép fájlok lehetnek.';
             }
         }
     }
@@ -6999,17 +7299,34 @@ function connection_request_complete_packages(int $requestId): array
     )->fetchAll();
 }
 
-function latest_connection_request_mvm_source_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+function connection_request_technical_handover_packages(int $requestId): array
 {
     if (!db_table_exists('connection_request_documents')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `connection_request_documents`
+         WHERE `connection_request_id` = ? AND `document_type` = ?
+         ORDER BY `created_at` DESC, `id` DESC',
+        [$requestId, 'technical_handover_package']
+    )->fetchAll();
+}
+
+function latest_connection_request_document_by_types(int $requestId, array $documentTypes, bool $packageCompatibleOnly = true): ?array
+{
+    $documentTypes = array_values(array_filter(array_unique(array_map('strval', $documentTypes))));
+
+    if (!db_table_exists('connection_request_documents') || $documentTypes === []) {
         return null;
     }
 
+    $placeholders = implode(', ', array_fill(0, count($documentTypes), '?'));
     $documents = db_query(
         'SELECT * FROM `connection_request_documents`
-         WHERE `connection_request_id` = ? AND `document_type` <> ?
+         WHERE `connection_request_id` = ? AND `document_type` IN (' . $placeholders . ')
          ORDER BY `created_at` DESC, `id` DESC',
-        [$requestId, 'complete_package']
+        array_merge([$requestId], $documentTypes)
     )->fetchAll();
 
     foreach ($documents as $document) {
@@ -7021,20 +7338,68 @@ function latest_connection_request_mvm_source_document(int $requestId, bool $pac
     return null;
 }
 
+function latest_connection_request_mvm_source_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types(
+        $requestId,
+        ['accepted_request', 'submitted_request', 'intervention_sheet'],
+        $packageCompatibleOnly
+    );
+}
+
+function latest_connection_request_execution_plan_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types($requestId, ['execution_plan'], $packageCompatibleOnly);
+}
+
+function latest_connection_request_technical_handover_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types($requestId, ['technical_handover'], $packageCompatibleOnly);
+}
+
+function latest_connection_request_technical_document(int $requestId, string $documentType, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types($requestId, [$documentType], $packageCompatibleOnly);
+}
+
+function connection_request_document_package_part(array $document, string $group, string $fallbackLabel): array
+{
+    return [
+        'group' => $group,
+        'label' => (string) ($document['title'] ?: $fallbackLabel),
+        'original_name' => (string) $document['original_name'],
+        'path' => (string) $document['storage_path'],
+        'mime_type' => (string) $document['mime_type'],
+        'source' => 'mvm',
+    ];
+}
+
+function connection_request_work_file_package_part(array $file, string $group): array
+{
+    return [
+        'group' => $group,
+        'label' => (string) ($file['label'] ?? $group),
+        'original_name' => (string) $file['original_name'],
+        'path' => (string) $file['storage_path'],
+        'mime_type' => (string) $file['mime_type'],
+        'source' => 'work_file',
+        'file_type' => (string) ($file['file_type'] ?? ''),
+    ];
+}
+
 function connection_request_complete_package_parts(int $requestId): array
 {
     $parts = [];
     $mvmDocument = latest_connection_request_mvm_source_document($requestId);
 
     if ($mvmDocument !== null) {
-        $parts[] = [
-            'group' => 'MVM dokumentum',
-            'label' => (string) ($mvmDocument['title'] ?: 'MVM dokumentum'),
-            'original_name' => (string) $mvmDocument['original_name'],
-            'path' => (string) $mvmDocument['storage_path'],
-            'mime_type' => (string) $mvmDocument['mime_type'],
-            'source' => 'mvm',
-        ];
+        $parts[] = connection_request_document_package_part($mvmDocument, 'MVM dokumentum', 'MVM dokumentum');
+    }
+
+    $executionPlan = latest_connection_request_execution_plan_document($requestId);
+
+    if ($executionPlan !== null) {
+        $parts[] = connection_request_document_package_part($executionPlan, 'Kiviteli terv', 'Kiviteli terv dokumentáció');
     }
 
     $definitions = connection_request_upload_definitions();
@@ -7094,6 +7459,148 @@ function connection_request_complete_package_missing_items(int $requestId): arra
 
     if (!connection_request_has_file_type($requestId, 'authorization')) {
         $missing[] = 'Meghatalmazás';
+    }
+
+    return $missing;
+}
+
+function latest_completed_intervention_sheet_part(int $requestId): ?array
+{
+    $document = latest_connection_request_technical_document($requestId, 'completed_intervention_sheet');
+
+    if ($document !== null) {
+        return connection_request_document_package_part($document, 'Kész beavatkozási lap', 'Kész beavatkozási lap');
+    }
+
+    if (!db_table_exists('connection_request_work_files')) {
+        return null;
+    }
+
+    $file = db_query(
+        'SELECT * FROM `connection_request_work_files`
+         WHERE `connection_request_id` = ? AND `stage` = ? AND `file_type` = ?
+         ORDER BY `created_at` DESC, `id` DESC
+         LIMIT 1',
+        [$requestId, 'after', 'completed_intervention_sheet']
+    )->fetch();
+
+    if (!is_array($file) || (!pdf_package_file_is_pdf($file) && !pdf_package_file_is_image($file))) {
+        return null;
+    }
+
+    return connection_request_work_file_package_part($file, 'Kész beavatkozási lap');
+}
+
+function connection_request_after_work_photo_parts(int $requestId): array
+{
+    if (!db_table_exists('connection_request_work_files')) {
+        return [];
+    }
+
+    $files = db_query(
+        'SELECT * FROM `connection_request_work_files`
+         WHERE `connection_request_id` = ? AND `stage` = ?
+         ORDER BY `created_at` ASC, `id` ASC',
+        [$requestId, 'after']
+    )->fetchAll();
+    $byType = [];
+
+    foreach ($files as $file) {
+        $fileType = (string) ($file['file_type'] ?? '');
+
+        if ($fileType === 'completed_intervention_sheet') {
+            continue;
+        }
+
+        if (pdf_package_file_is_pdf($file) || pdf_package_file_is_image($file)) {
+            $byType[$fileType][] = $file;
+        }
+    }
+
+    $orderedTypes = ['meter_far', 'meter_close', 'utility_pole', 'roof_hook', 'seals'];
+    $parts = [];
+
+    foreach ($orderedTypes as $fileType) {
+        foreach ($byType[$fileType] ?? [] as $file) {
+            $parts[] = connection_request_work_file_package_part($file, 'Fotók');
+        }
+    }
+
+    foreach ($byType as $fileType => $typedFiles) {
+        if (in_array($fileType, $orderedTypes, true)) {
+            continue;
+        }
+
+        foreach ($typedFiles as $file) {
+            $parts[] = connection_request_work_file_package_part($file, 'Fotók');
+        }
+    }
+
+    return $parts;
+}
+
+function connection_request_technical_handover_package_parts(int $requestId): array
+{
+    $parts = [];
+    $completedInterventionSheet = latest_completed_intervention_sheet_part($requestId);
+
+    if ($completedInterventionSheet !== null) {
+        $parts[] = $completedInterventionSheet;
+    }
+
+    $constructionLog = latest_connection_request_technical_document($requestId, 'construction_log');
+
+    if ($constructionLog !== null) {
+        $parts[] = connection_request_document_package_part($constructionLog, 'Építési napló', 'Építési napló');
+    }
+
+    $technicalHandover = latest_connection_request_technical_handover_document($requestId);
+
+    if ($technicalHandover !== null) {
+        $parts[] = connection_request_document_package_part($technicalHandover, 'Műszaki átadás', 'Műszaki átadás-átvételi jegyzőkönyv');
+    }
+
+    $technicalDeclaration = latest_connection_request_technical_document($requestId, 'technical_declaration');
+
+    if ($technicalDeclaration !== null) {
+        $parts[] = connection_request_document_package_part($technicalDeclaration, 'Nyilatkozatok adatlap', 'Nyilatkozatok adatlap');
+    }
+
+    return array_merge($parts, connection_request_after_work_photo_parts($requestId));
+}
+
+function connection_request_technical_handover_package_missing_items(int $requestId): array
+{
+    $missing = [];
+
+    if (latest_completed_intervention_sheet_part($requestId) === null) {
+        $missing[] = 'Kész beavatkozási lap';
+    }
+
+    if (latest_connection_request_technical_document($requestId, 'construction_log') === null) {
+        $missing[] = 'Építési napló';
+    }
+
+    if (latest_connection_request_technical_handover_document($requestId) === null) {
+        $missing[] = 'Műszaki átadás PDF';
+    }
+
+    if (latest_connection_request_technical_document($requestId, 'technical_declaration') === null) {
+        $missing[] = 'Nyilatkozatok adatlap';
+    }
+
+    $requiredAfterPhotos = [
+        'meter_far' => 'Mérő távolról',
+        'meter_close' => 'Mérő közelről',
+        'utility_pole' => 'Villanyoszlop',
+        'roof_hook' => 'Tetőtartó',
+        'seals' => 'Plombák',
+    ];
+
+    foreach ($requiredAfterPhotos as $fileType => $label) {
+        if (!connection_request_has_work_file_type($requestId, 'after', $fileType)) {
+            $missing[] = 'Kivitelezés utáni fotó: ' . $label;
+        }
     }
 
     return $missing;
@@ -7330,6 +7837,76 @@ function generate_connection_request_complete_package(int $requestId): array
         return [
             'ok' => false,
             'message' => 'A komplett dokumentum generálása sikertelen: ' . $exception->getMessage(),
+            'document_id' => null,
+        ];
+    }
+}
+
+function generate_connection_request_technical_handover_package(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $missingItems = connection_request_technical_handover_package_missing_items($requestId);
+
+    if ($missingItems !== []) {
+        return ['ok' => false, 'message' => 'A műszaki átadás csomaghoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
+    }
+
+    $parts = connection_request_technical_handover_package_parts($requestId);
+
+    if ($parts === []) {
+        return ['ok' => false, 'message' => 'Nincs összefűzhető műszaki átadás dokumentum.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/technical-handover-package';
+    ensure_storage_dir($targetDir);
+
+    $storedName = 'muszaki-atadas-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $finalPath = $targetDir . '/' . $storedName;
+
+    try {
+        $result = render_connection_request_complete_package_pdf($parts, $finalPath, 72);
+
+        if (!is_file((string) $result['path'])) {
+            return ['ok' => false, 'message' => 'A műszaki átadás PDF nem készült el.', 'document_id' => null];
+        }
+
+        db_query(
+            'INSERT INTO `connection_request_documents`
+                (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+                 `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $requestId,
+                (int) $request['customer_id'],
+                'technical_handover_package',
+                'Műszaki átadás csomag',
+                $storedName,
+                $storedName,
+                $finalPath,
+                'application/pdf',
+                (int) filesize($finalPath),
+                is_array(current_user()) ? (int) current_user()['id'] : null,
+            ]
+        );
+
+        return [
+            'ok' => true,
+            'message' => 'A műszaki átadás csomag elkészült: ' . format_bytes((int) filesize($finalPath)) . '.',
+            'document_id' => (int) db()->lastInsertId(),
+        ];
+    } catch (Throwable $exception) {
+        if (is_file($finalPath)) {
+            unlink($finalPath);
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'A műszaki átadás csomag generálása sikertelen: ' . $exception->getMessage(),
             'document_id' => null,
         ];
     }
