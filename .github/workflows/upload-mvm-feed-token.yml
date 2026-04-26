@@ -1,0 +1,45 @@
+name: Upload MVM dashboard feed token
+
+on:
+  workflow_dispatch:
+    inputs:
+      feed_token:
+        description: Dashboard feed token
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  upload-token:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mask token
+        run: echo "::add-mask::${FEED_TOKEN}"
+        env:
+          FEED_TOKEN: ${{ inputs.feed_token }}
+
+      - name: Create token file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy-private
+          printf '%s' "${FEED_TOKEN}" > .deploy-private/dashboard-feed-token.txt
+        env:
+          FEED_TOKEN: ${{ inputs.feed_token }}
+
+      - name: Upload token file to MVM private_logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --ftp-ssl-reqd \
+            --user "${FTP_USER}:${FTP_PASS}" \
+            --ftp-create-dirs \
+            -T .deploy-private/dashboard-feed-token.txt \
+            "ftp://${FTP_HOST}/private_logs/dashboard-feed-token.txt"
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
