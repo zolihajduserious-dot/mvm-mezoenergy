@@ -7347,6 +7347,30 @@ function latest_connection_request_mvm_source_document(int $requestId, bool $pac
     );
 }
 
+function latest_connection_request_mvm_request_pdf_document(int $requestId): ?array
+{
+    if (!db_table_exists('connection_request_documents')) {
+        return null;
+    }
+
+    foreach (['submitted_request', 'accepted_request'] as $documentType) {
+        $documents = db_query(
+            'SELECT * FROM `connection_request_documents`
+             WHERE `connection_request_id` = ? AND `document_type` = ?
+             ORDER BY `created_at` DESC, `id` DESC',
+            [$requestId, $documentType]
+        )->fetchAll();
+
+        foreach ($documents as $document) {
+            if (pdf_package_file_is_pdf($document)) {
+                return $document;
+            }
+        }
+    }
+
+    return null;
+}
+
 function latest_connection_request_execution_plan_document(int $requestId, bool $packageCompatibleOnly = true): ?array
 {
     return latest_connection_request_document_by_types($requestId, ['execution_plan'], $packageCompatibleOnly);
@@ -7585,8 +7609,11 @@ function connection_request_technical_handover_package_missing_items(int $reques
         $missing[] = 'Műszaki átadás PDF';
     }
 
-    if (latest_connection_request_technical_document($requestId, 'technical_declaration') === null) {
-        $missing[] = 'Nyilatkozatok adatlap';
+    if (
+        latest_connection_request_technical_document($requestId, 'technical_declaration') === null
+        && latest_connection_request_mvm_request_pdf_document($requestId) === null
+    ) {
+        $missing[] = 'Nyilatkozatok adatlaphoz MVM igénybejelentő PDF (9-11. oldal)';
     }
 
     $requiredAfterPhotos = [
@@ -7752,6 +7779,100 @@ function render_connection_request_complete_package_pdf(array $parts, string $ta
     ];
 }
 
+function extract_connection_request_pdf_pages(array $sourceDocument, string $targetPath, int $startPage, int $endPage): void
+{
+    if (!class_exists('\\setasign\\Fpdi\\Fpdi')) {
+        throw new RuntimeException('Az FPDI nincs telepítve. Futtasd: composer install, majd töltsd fel a vendor mappát.');
+    }
+
+    $sourcePath = (string) ($sourceDocument['storage_path'] ?? '');
+
+    if ($sourcePath === '' || !is_file($sourcePath) || !pdf_package_file_is_pdf($sourceDocument)) {
+        throw new RuntimeException('A forrás MVM igénybejelentő PDF nem található.');
+    }
+
+    $pdf = new \setasign\Fpdi\Fpdi();
+    $pageCount = $pdf->setSourceFile($sourcePath);
+
+    if ($pageCount < $endPage) {
+        throw new RuntimeException('Az MVM igénybejelentő PDF csak ' . $pageCount . ' oldalas, ezért a 9-11. oldal nem nyerhető ki.');
+    }
+
+    for ($page = $startPage; $page <= $endPage; $page++) {
+        $templateId = $pdf->importPage($page);
+        $size = $pdf->getTemplateSize($templateId);
+        $orientation = ((float) $size['width'] > (float) $size['height']) ? 'L' : 'P';
+        $pdf->AddPage($orientation, [(float) $size['width'], (float) $size['height']]);
+        $pdf->useTemplate($templateId);
+    }
+
+    $pdf->Output('F', $targetPath);
+}
+
+function generate_connection_request_technical_declaration(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $sourceDocument = latest_connection_request_mvm_request_pdf_document($requestId);
+
+    if ($sourceDocument === null) {
+        return ['ok' => false, 'message' => 'A nyilatkozatok adatlap kinyeréséhez előbb legyen MVM igénybejelentő PDF az igényhez.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/technical-declaration';
+    ensure_storage_dir($targetDir);
+
+    $storedName = 'nyilatkozatok-adatlap-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $targetPath = $targetDir . '/' . $storedName;
+
+    try {
+        extract_connection_request_pdf_pages($sourceDocument, $targetPath, 9, 11);
+
+        if (!is_file($targetPath)) {
+            return ['ok' => false, 'message' => 'A nyilatkozatok adatlap PDF nem készült el.', 'document_id' => null];
+        }
+
+        db_query(
+            'INSERT INTO `connection_request_documents`
+                (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+                 `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $requestId,
+                (int) $request['customer_id'],
+                'technical_declaration',
+                'Nyilatkozatok adatlap - igénybejelentőből kinyerve',
+                $storedName,
+                $storedName,
+                $targetPath,
+                'application/pdf',
+                (int) filesize($targetPath),
+                is_array(current_user()) ? (int) current_user()['id'] : null,
+            ]
+        );
+
+        return [
+            'ok' => true,
+            'message' => 'A nyilatkozatok adatlap elkészült az MVM igénybejelentő 9-11. oldalából.',
+            'document_id' => (int) db()->lastInsertId(),
+        ];
+    } catch (Throwable $exception) {
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'A nyilatkozatok adatlap kinyerése sikertelen: ' . $exception->getMessage(),
+            'document_id' => null,
+        ];
+    }
+}
+
 function generate_connection_request_complete_package(int $requestId): array
 {
     $request = find_connection_request($requestId);
@@ -7854,6 +7975,18 @@ function generate_connection_request_technical_handover_package(int $requestId):
 
     if ($missingItems !== []) {
         return ['ok' => false, 'message' => 'A műszaki átadás csomaghoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
+    }
+
+    if (latest_connection_request_technical_document($requestId, 'technical_declaration') === null) {
+        $declarationResult = generate_connection_request_technical_declaration($requestId);
+
+        if (!$declarationResult['ok']) {
+            return [
+                'ok' => false,
+                'message' => 'A műszaki átadás csomaghoz nem sikerült előállítani a nyilatkozatok adatlapot. ' . (string) $declarationResult['message'],
+                'document_id' => null,
+            ];
+        }
     }
 
     $parts = connection_request_technical_handover_package_parts($requestId);

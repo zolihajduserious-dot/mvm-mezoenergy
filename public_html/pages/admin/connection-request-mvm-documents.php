@@ -107,6 +107,14 @@ if (is_post()) {
 
             $errors[] = (string) $result['message'];
         }
+    } elseif ($action === 'generate_technical_declaration') {
+        if ($schemaErrors !== []) {
+            $errors = array_merge($errors, $schemaErrors);
+        } else {
+            $result = generate_connection_request_technical_declaration((int) $request['id']);
+            set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+        }
     } elseif ($action === 'send_package') {
         $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
         $document = $documentId ? find_connection_request_document($documentId) : null;
@@ -507,8 +515,12 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">Műszaki átadás</p>
                     <h2>Átadás-átvételi PDF csomag</h2>
-                    <p>A minta szerinti sorrend: kész beavatkozási lap, építési napló, műszaki átadás-átvételi jegyzőkönyv, nyilatkozatok adatlap, majd a kivitelezés utáni fotók. Az építési naplót és a kész beavatkozási lapot PDF-ként vagy képként töltsd fel.</p>
+                    <p>A minta szerinti sorrend: kész beavatkozási lap, építési napló, műszaki átadás-átvételi jegyzőkönyv, nyilatkozatok adatlap, majd a kivitelezés utáni fotók. A nyilatkozatok adatlap az MVM igénybejelentő PDF 9-11. oldalából készül külön PDF-ként.</p>
                 </div>
+                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                    <?= csrf_field(); ?>
+                    <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || latest_connection_request_mvm_request_pdf_document((int) $request['id']) === null) ? 'disabled' : ''; ?>>Nyilatkozatok adatlap kinyerése</button>
+                </form>
                 <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
                     <?= csrf_field(); ?>
                     <button class="button" name="action" value="build_handover_package" type="submit" <?= ($technicalHandoverMissingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Műszaki átadás csomag generálása</button>
