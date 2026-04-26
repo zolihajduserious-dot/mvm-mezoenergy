@@ -4005,6 +4005,637 @@ function mvm_form_schema_errors(): array
     return [];
 }
 
+function mvm_config_value(string $key, string $default = ''): string
+{
+    $environmentValue = getenv($key);
+
+    if ($environmentValue !== false && $environmentValue !== '') {
+        return (string) $environmentValue;
+    }
+
+    static $localConfig = null;
+
+    if ($localConfig === null) {
+        $localConfig = [];
+        $localConfigPath = defined('STORAGE_PATH') ? STORAGE_PATH . '/config/local.php' : '';
+
+        if ($localConfigPath !== '' && is_file($localConfigPath)) {
+            $loadedLocalConfig = require $localConfigPath;
+
+            if (is_array($loadedLocalConfig)) {
+                $localConfig = $loadedLocalConfig;
+            }
+        }
+    }
+
+    return array_key_exists($key, $localConfig) ? (string) $localConfig[$key] : $default;
+}
+
+function mvm_mail_reply_address(): string
+{
+    $configured = trim(mvm_config_value('MVM_REPLY_EMAIL', mvm_config_value('MVM_MAILBOX_USER', 'csatlakozo@mvm-mezoenergy.hu')));
+
+    return $configured !== '' ? $configured : MAIL_FROM;
+}
+
+function mvm_mail_schema_errors(): array
+{
+    try {
+        if (!db_table_exists('mvm_email_threads')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `mvm_email_threads` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `connection_request_id` INT UNSIGNED NOT NULL,
+                    `connection_request_document_id` INT UNSIGNED NULL,
+                    `token` VARCHAR(90) NOT NULL,
+                    `mvm_recipient` VARCHAR(190) NOT NULL,
+                    `subject` VARCHAR(255) NOT NULL,
+                    `document_label` VARCHAR(190) NOT NULL,
+                    `status` ENUM('sent', 'replied', 'failed') NOT NULL DEFAULT 'sent',
+                    `sent_message_id` VARCHAR(255) DEFAULT NULL,
+                    `last_message_at` DATETIME DEFAULT NULL,
+                    `created_by_user_id` INT UNSIGNED NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `ux_mvm_email_threads_token` (`token`),
+                    KEY `idx_mvm_email_threads_request` (`connection_request_id`, `created_at`),
+                    KEY `idx_mvm_email_threads_document` (`connection_request_document_id`),
+                    KEY `idx_mvm_email_threads_status` (`status`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+
+        if (!db_table_exists('mvm_email_messages')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `mvm_email_messages` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `thread_id` INT UNSIGNED NOT NULL,
+                    `connection_request_id` INT UNSIGNED NOT NULL,
+                    `direction` ENUM('outbound', 'inbound') NOT NULL,
+                    `mailbox_uid` VARCHAR(190) DEFAULT NULL,
+                    `message_id` VARCHAR(255) DEFAULT NULL,
+                    `in_reply_to` TEXT DEFAULT NULL,
+                    `sender_email` VARCHAR(190) DEFAULT NULL,
+                    `sender_name` VARCHAR(190) DEFAULT NULL,
+                    `recipient_email` VARCHAR(190) DEFAULT NULL,
+                    `subject` VARCHAR(255) NOT NULL,
+                    `body_text` MEDIUMTEXT DEFAULT NULL,
+                    `body_html` MEDIUMTEXT DEFAULT NULL,
+                    `raw_headers` MEDIUMTEXT DEFAULT NULL,
+                    `received_at` DATETIME DEFAULT NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `ux_mvm_email_messages_uid` (`mailbox_uid`),
+                    KEY `idx_mvm_email_messages_thread` (`thread_id`, `created_at`),
+                    KEY `idx_mvm_email_messages_request` (`connection_request_id`, `created_at`),
+                    KEY `idx_mvm_email_messages_message_id` (`message_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'Az MVM levelezési táblák automatikus létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'Az MVM levelezési táblák létrehozása szükséges.',
+        ];
+    }
+
+    return [];
+}
+
+function mvm_email_schema_is_ready(): bool
+{
+    return mvm_mail_schema_errors() === [];
+}
+
+function mvm_email_human_identifier(array $request): string
+{
+    $parts = [
+        $request['requester_name'] ?? '',
+        trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? '')),
+        connection_request_type_label($request['request_type'] ?? null),
+    ];
+    $label = trim(implode('_', array_filter(array_map('trim', $parts))));
+    $label = (string) preg_replace('/[^\p{L}\p{N}]+/u', '_', $label);
+    $label = trim($label, '_');
+
+    if ($label === '') {
+        $label = 'igeny_' . (int) ($request['id'] ?? 0);
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($label, 0, 120, 'UTF-8');
+    }
+
+    return substr($label, 0, 120);
+}
+
+function mvm_email_token(int $requestId, int $documentId): string
+{
+    return 'MEZO-IGENY-' . $requestId . '-DOK-' . $documentId . '-' . strtoupper(bin2hex(random_bytes(3)));
+}
+
+function mvm_recipient_config_key_for_document_type(string $documentType): string
+{
+    $normalized = strtoupper((string) preg_replace('/[^A-Za-z0-9]+/', '_', $documentType));
+
+    return 'MVM_RECIPIENT_' . trim($normalized, '_');
+}
+
+function default_mvm_document_recipient(string $documentType): string
+{
+    $specific = trim(mvm_config_value(mvm_recipient_config_key_for_document_type($documentType), ''));
+
+    if ($specific !== '') {
+        return $specific;
+    }
+
+    return trim(mvm_config_value('MVM_DEFAULT_RECIPIENT', ''));
+}
+
+function mvm_email_thread_status_labels(): array
+{
+    return [
+        'sent' => 'Elküldve, válaszra vár',
+        'replied' => 'MVM válasz érkezett',
+        'failed' => 'Küldési hiba',
+    ];
+}
+
+function mvm_email_threads_for_request(int $requestId): array
+{
+    if (!mvm_email_schema_is_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `mvm_email_threads`
+         WHERE `connection_request_id` = ?
+         ORDER BY COALESCE(`last_message_at`, `created_at`) DESC, `id` DESC',
+        [$requestId]
+    )->fetchAll();
+}
+
+function mvm_email_messages_for_thread(int $threadId): array
+{
+    if (!mvm_email_schema_is_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `mvm_email_messages`
+         WHERE `thread_id` = ?
+         ORDER BY COALESCE(`received_at`, `created_at`) ASC, `id` ASC',
+        [$threadId]
+    )->fetchAll();
+}
+
+function mvm_email_threads_with_messages(int $requestId): array
+{
+    $threads = mvm_email_threads_for_request($requestId);
+
+    foreach ($threads as &$thread) {
+        $thread['messages'] = mvm_email_messages_for_thread((int) $thread['id']);
+    }
+    unset($thread);
+
+    return $threads;
+}
+
+function latest_mvm_email_message_preview(array $thread): string
+{
+    $messages = is_array($thread['messages'] ?? null) ? $thread['messages'] : [];
+    $last = $messages !== [] ? $messages[array_key_last($messages)] : null;
+    $body = is_array($last) ? trim(strip_tags((string) (($last['body_text'] ?? '') ?: ($last['body_html'] ?? '')))) : '';
+
+    if ($body === '') {
+        return 'Még nincs beérkezett válasz ehhez a küldéshez.';
+    }
+
+    $body = preg_replace('/\s+/', ' ', $body) ?: $body;
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($body, 0, 240, 'UTF-8');
+    }
+
+    return substr($body, 0, 240);
+}
+
+function send_connection_request_document_to_mvm(int $documentId, string $recipientEmail, string $note = ''): array
+{
+    $schemaErrors = mvm_mail_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    $document = find_connection_request_document($documentId);
+
+    if ($document === null) {
+        return ['ok' => false, 'message' => 'A küldendő dokumentum nem található.'];
+    }
+
+    $request = find_connection_request((int) $document['connection_request_id']);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.'];
+    }
+
+    $recipientEmail = trim($recipientEmail);
+
+    if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Adj meg érvényes MVM email címet.'];
+    }
+
+    if (!is_file((string) $document['storage_path'])) {
+        return ['ok' => false, 'message' => 'A dokumentum fájlja nem található a tárhelyen.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $types = mvm_document_types();
+    $documentLabel = $types[$document['document_type']] ?? (string) $document['title'];
+    $token = mvm_email_token((int) $request['id'], $documentId);
+    $subject = 'MVM dokumentum - ' . mvm_email_human_identifier($request) . ' - [' . $token . ']';
+    $replyAddress = mvm_mail_reply_address();
+    $emailLead = 'Csatolva küldjük az adott mérőhelyi igényhez tartozó dokumentumot. Kérjük, válaszában hagyja változatlanul a tárgyban szereplő azonosítót, hogy a válasz automatikusan az ügyfél adatlapjára kerüljön.';
+    $sections = [
+        [
+            'title' => 'Igény azonosítása',
+            'rows' => [
+                ['label' => 'CRM azonosító', 'value' => '#' . (int) $request['id']],
+                ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                ['label' => 'Feladat', 'value' => connection_request_type_label($request['request_type'] ?? null)],
+                ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                ['label' => 'Dokumentum', 'value' => $documentLabel . "\n" . ($document['original_name'] ?? '-')],
+                ['label' => 'Válaszazonosító', 'value' => $token],
+            ],
+        ],
+    ];
+
+    if (trim($note) !== '') {
+        $sections[] = [
+            'title' => 'Megjegyzés',
+            'rows' => [
+                ['label' => 'Üzenet', 'value' => trim($note)],
+            ],
+        ];
+    }
+
+    $user = current_user();
+    db_query(
+        'INSERT INTO `mvm_email_threads`
+            (`connection_request_id`, `connection_request_document_id`, `token`, `mvm_recipient`, `subject`, `document_label`, `status`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            (int) $request['id'],
+            $documentId,
+            $token,
+            $recipientEmail,
+            $subject,
+            $documentLabel,
+            'failed',
+            is_array($user) ? (int) $user['id'] : null,
+        ]
+    );
+    $threadId = (int) db()->lastInsertId();
+
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom($replyAddress, MAIL_FROM_NAME);
+        $mail->addAddress($recipientEmail);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
+        $mail->Subject = $subject;
+        apply_branded_email($mail, 'MVM dokumentum küldése', $emailLead, $sections);
+        $mail->addAttachment((string) $document['storage_path'], (string) $document['original_name']);
+        $mail->send();
+
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+        db_query(
+            'UPDATE `mvm_email_threads`
+             SET `status` = ?, `sent_message_id` = ?, `last_message_at` = NOW()
+             WHERE `id` = ?',
+            ['sent', $messageId !== '' ? $messageId : null, $threadId]
+        );
+        db_query(
+            'INSERT INTO `mvm_email_messages`
+                (`thread_id`, `connection_request_id`, `direction`, `message_id`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `body_html`, `received_at`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+            [
+                $threadId,
+                (int) $request['id'],
+                'outbound',
+                $messageId !== '' ? $messageId : null,
+                $replyAddress,
+                MAIL_FROM_NAME,
+                $recipientEmail,
+                $subject,
+                branded_email_text('MVM dokumentum küldése', $emailLead, $sections),
+                branded_email_html('MVM dokumentum küldése', $emailLead, $sections),
+            ]
+        );
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+
+        return ['ok' => true, 'message' => 'A dokumentum elküldve az MVM részére.'];
+    } catch (Throwable $exception) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
+        );
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az MVM email küldése sikertelen.'];
+    }
+}
+
+function mvm_imap_mailbox_string(): string
+{
+    $host = trim(mvm_config_value('MVM_IMAP_HOST', 'mail.nethely.hu'));
+    $port = (int) mvm_config_value('MVM_IMAP_PORT', '993');
+    $folder = trim(mvm_config_value('MVM_IMAP_FOLDER', 'INBOX'));
+    $encryption = strtolower(trim(mvm_config_value('MVM_IMAP_ENCRYPTION', 'ssl')));
+    $noValidate = filter_var(mvm_config_value('MVM_IMAP_NOVALIDATE_CERT', '0'), FILTER_VALIDATE_BOOLEAN);
+    $flags = '/imap';
+
+    if ($encryption === 'ssl' || $encryption === 'tls') {
+        $flags .= '/' . $encryption;
+    } elseif ($encryption === 'none') {
+        $flags .= '/notls';
+    }
+
+    if ($noValidate) {
+        $flags .= '/novalidate-cert';
+    }
+
+    return '{' . $host . ':' . $port . $flags . '}' . $folder;
+}
+
+function mvm_decode_mime_header(string $value): string
+{
+    if (!function_exists('imap_mime_header_decode')) {
+        return trim($value);
+    }
+
+    $parts = @imap_mime_header_decode($value);
+
+    if (!is_array($parts)) {
+        return trim($value);
+    }
+
+    $decoded = '';
+
+    foreach ($parts as $part) {
+        $text = (string) ($part->text ?? '');
+        $charset = strtoupper((string) ($part->charset ?? ''));
+
+        if ($charset !== '' && $charset !== 'DEFAULT' && $charset !== 'UTF-8' && function_exists('iconv')) {
+            $converted = @iconv($charset, 'UTF-8//IGNORE', $text);
+            $text = $converted !== false ? $converted : $text;
+        }
+
+        $decoded .= $text;
+    }
+
+    return trim($decoded);
+}
+
+function mvm_decode_imap_body(string $body, int $encoding): string
+{
+    return match ($encoding) {
+        3 => (string) base64_decode($body, true),
+        4 => quoted_printable_decode($body),
+        default => $body,
+    };
+}
+
+function mvm_imap_collect_body_parts(object $structure, string $prefix = ''): array
+{
+    $parts = [];
+
+    if (empty($structure->parts) || !is_array($structure->parts)) {
+        $subtype = strtolower((string) ($structure->subtype ?? 'plain'));
+        $parts[] = [
+            'part' => $prefix !== '' ? $prefix : '1',
+            'type' => strtolower((string) ($structure->type ?? 0)) === '1' ? 'multipart' : 'text/' . $subtype,
+            'encoding' => (int) ($structure->encoding ?? 0),
+        ];
+
+        return $parts;
+    }
+
+    foreach ($structure->parts as $index => $part) {
+        $partNumber = $prefix === '' ? (string) ($index + 1) : $prefix . '.' . ($index + 1);
+        $type = (int) ($part->type ?? 0);
+        $subtype = strtolower((string) ($part->subtype ?? 'plain'));
+
+        if ($type === 0 && in_array($subtype, ['plain', 'html'], true)) {
+            $parts[] = [
+                'part' => $partNumber,
+                'type' => 'text/' . $subtype,
+                'encoding' => (int) ($part->encoding ?? 0),
+            ];
+            continue;
+        }
+
+        if (!empty($part->parts)) {
+            $parts = array_merge($parts, mvm_imap_collect_body_parts($part, $partNumber));
+        }
+    }
+
+    return $parts;
+}
+
+function mvm_fetch_imap_message_bodies($imap, int $uid): array
+{
+    $plain = '';
+    $html = '';
+    $structure = @imap_fetchstructure($imap, (string) $uid, FT_UID);
+
+    if (is_object($structure)) {
+        foreach (mvm_imap_collect_body_parts($structure) as $part) {
+            $body = @imap_fetchbody($imap, (string) $uid, (string) $part['part'], FT_UID | FT_PEEK);
+
+            if (!is_string($body) || $body === '') {
+                continue;
+            }
+
+            $decoded = mvm_decode_imap_body($body, (int) $part['encoding']);
+
+            if ($part['type'] === 'text/plain' && $plain === '') {
+                $plain = $decoded;
+            } elseif ($part['type'] === 'text/html' && $html === '') {
+                $html = $decoded;
+            }
+        }
+    }
+
+    if ($plain === '' && $html === '') {
+        $body = @imap_body($imap, (string) $uid, FT_UID | FT_PEEK);
+        $plain = is_string($body) ? $body : '';
+    }
+
+    if ($plain === '' && $html !== '') {
+        $plain = trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    return ['plain' => trim($plain), 'html' => trim($html)];
+}
+
+function mvm_extract_email_address(string $value): string
+{
+    if (preg_match('/<([^>]+)>/', $value, $matches)) {
+        return trim($matches[1]);
+    }
+
+    return trim($value);
+}
+
+function mvm_find_email_thread_for_message(string $subject, string $body, string $headers): ?array
+{
+    if (!mvm_email_schema_is_ready()) {
+        return null;
+    }
+
+    $haystack = $subject . "\n" . $body . "\n" . $headers;
+
+    if (preg_match('/MEZO-IGENY-\d+-DOK-\d+-[A-F0-9]{6}/i', $haystack, $matches)) {
+        $statement = db_query('SELECT * FROM `mvm_email_threads` WHERE `token` = ? LIMIT 1', [strtoupper($matches[0])]);
+        $thread = $statement->fetch();
+
+        if (is_array($thread)) {
+            return $thread;
+        }
+    }
+
+    if (preg_match_all('/<[^>]+>/', $headers, $matches)) {
+        foreach (array_unique($matches[0]) as $messageId) {
+            $statement = db_query('SELECT * FROM `mvm_email_threads` WHERE `sent_message_id` = ? LIMIT 1', [$messageId]);
+            $thread = $statement->fetch();
+
+            if (is_array($thread)) {
+                return $thread;
+            }
+        }
+    }
+
+    return null;
+}
+
+function sync_mvm_mailbox_replies(int $limit = 80): array
+{
+    $schemaErrors = mvm_mail_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors), 'matched' => 0, 'ignored' => 0];
+    }
+
+    if (!function_exists('imap_open')) {
+        return ['ok' => false, 'message' => 'A PHP IMAP bővítmény nincs bekapcsolva a tárhelyen.', 'matched' => 0, 'ignored' => 0];
+    }
+
+    $user = trim(mvm_config_value('MVM_IMAP_USER', mvm_mail_reply_address()));
+    $password = (string) mvm_config_value('MVM_IMAP_PASS', '');
+
+    if ($user === '' || $password === '') {
+        return ['ok' => false, 'message' => 'Nincs beállítva az MVM_IMAP_USER és MVM_IMAP_PASS a storage/config/local.php fájlban.', 'matched' => 0, 'ignored' => 0];
+    }
+
+    $imap = @imap_open(mvm_imap_mailbox_string(), $user, $password);
+
+    if ($imap === false) {
+        return ['ok' => false, 'message' => 'Nem sikerült csatlakozni az MVM válasz postafiókhoz: ' . implode(' ', imap_errors() ?: []), 'matched' => 0, 'ignored' => 0];
+    }
+
+    $since = date('d-M-Y', strtotime('-90 days'));
+    $uids = @imap_search($imap, 'SINCE "' . $since . '"', SE_UID);
+    $matched = 0;
+    $ignored = 0;
+
+    if (is_array($uids)) {
+        rsort($uids, SORT_NUMERIC);
+        $uids = array_slice($uids, 0, max(1, $limit));
+
+        foreach ($uids as $uid) {
+            $mailboxUid = sha1($user . '|' . (string) $uid);
+            $exists = db_query('SELECT 1 FROM `mvm_email_messages` WHERE `mailbox_uid` = ? LIMIT 1', [$mailboxUid])->fetchColumn();
+
+            if ($exists) {
+                continue;
+            }
+
+            $overview = @imap_fetch_overview($imap, (string) $uid, FT_UID);
+            $overviewItem = is_array($overview) && isset($overview[0]) ? $overview[0] : null;
+            $subject = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->subject ?? '')) : '';
+            $from = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->from ?? '')) : '';
+            $to = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->to ?? '')) : '';
+            $messageId = is_object($overviewItem) ? trim((string) ($overviewItem->message_id ?? '')) : '';
+            $date = is_object($overviewItem) ? trim((string) ($overviewItem->date ?? '')) : '';
+            $headers = @imap_fetchheader($imap, (string) $uid, FT_UID | FT_PEEK);
+            $headers = is_string($headers) ? $headers : '';
+            $bodies = mvm_fetch_imap_message_bodies($imap, (int) $uid);
+            $thread = mvm_find_email_thread_for_message($subject, $bodies['plain'] . "\n" . $bodies['html'], $headers);
+
+            if ($thread === null) {
+                $ignored++;
+                continue;
+            }
+
+            $receivedAt = null;
+
+            if ($date !== '') {
+                try {
+                    $receivedAt = (new DateTimeImmutable($date))->format('Y-m-d H:i:s');
+                } catch (Throwable) {
+                    $receivedAt = null;
+                }
+            }
+
+            db_query(
+                'INSERT INTO `mvm_email_messages`
+                    (`thread_id`, `connection_request_id`, `direction`, `mailbox_uid`, `message_id`, `in_reply_to`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `body_html`, `raw_headers`, `received_at`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    (int) $thread['id'],
+                    (int) $thread['connection_request_id'],
+                    'inbound',
+                    $mailboxUid,
+                    $messageId !== '' ? $messageId : null,
+                    $headers,
+                    mvm_extract_email_address($from),
+                    $from,
+                    mvm_extract_email_address($to),
+                    $subject,
+                    $bodies['plain'],
+                    $bodies['html'],
+                    $headers,
+                    $receivedAt,
+                ]
+            );
+            db_query(
+                'UPDATE `mvm_email_threads`
+                 SET `status` = ?, `last_message_at` = COALESCE(?, NOW())
+                 WHERE `id` = ?',
+                ['replied', $receivedAt, (int) $thread['id']]
+            );
+            $matched++;
+        }
+    }
+
+    @imap_close($imap);
+
+    return [
+        'ok' => true,
+        'message' => 'MVM válaszok szinkronizálva. Találat: ' . $matched . ', nem kapcsolható levél: ' . $ignored . '.',
+        'matched' => $matched,
+        'ignored' => $ignored,
+    ];
+}
+
 function mvm_contractor_templates(): array
 {
     return [

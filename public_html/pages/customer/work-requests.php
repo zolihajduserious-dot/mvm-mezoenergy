@@ -19,6 +19,7 @@ $emailStatusLabels = [
     'sent' => 'Admin értesítve',
     'failed' => 'Küldési hiba',
 ];
+$mvmThreadStatusLabels = mvm_email_thread_status_labels();
 ?>
 <section class="admin-section">
     <div class="container">
@@ -64,6 +65,7 @@ $emailStatusLabels = [
                     $acceptedQuote = accepted_quote_for_connection_request((int) $request['id']);
                     $latestQuote = $quotes[0] ?? null;
                     $quoteState = quote_state_summary($latestQuote, $acceptedQuote, connection_request_quote_missing_reason($request));
+                    $mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
                     $requestStatus = (string) ($request['request_status'] ?? 'finalized');
                     $emailStatus = (string) ($request['email_status'] ?? 'pending');
                     $isEditable = connection_request_is_editable($request);
@@ -193,6 +195,26 @@ $emailStatusLabels = [
                                             <div class="inline-link-list">
                                                 <a href="<?= h(url_path('/customer/quotes/view') . '?id=' . (int) $quote['id']); ?>">Megnyitás</a>
                                             </div>
+                                        </article>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ($mvmEmailThreads !== []): ?>
+                            <div class="portal-card-files">
+                                <h3>MVM levelezés</h3>
+                                <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
+                                    <?php foreach ($mvmEmailThreads as $thread): ?>
+                                        <article class="mvm-mail-thread">
+                                            <div class="mvm-mail-thread-head">
+                                                <div>
+                                                    <span class="portal-kicker"><?= h((string) $thread['document_label']); ?></span>
+                                                    <strong><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></strong>
+                                                </div>
+                                                <span><?= h((string) ($thread['last_message_at'] ?: $thread['created_at'])); ?></span>
+                                            </div>
+                                            <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
                                         </article>
                                     <?php endforeach; ?>
                                 </div>

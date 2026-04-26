@@ -14,6 +14,7 @@ if ($request === null) {
 
 $schemaErrors = mvm_document_schema_errors();
 $mvmFormSchemaErrors = mvm_form_schema_errors();
+$mvmMailSchemaErrors = mvm_mail_schema_errors();
 $types = mvm_document_types();
 $uploadTypes = mvm_document_types();
 $errors = [];
@@ -126,6 +127,29 @@ if (is_post()) {
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
             redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
         }
+    } elseif ($action === 'send_mvm_document') {
+        $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
+        $recipientEmail = trim((string) ($_POST['mvm_recipient'] ?? ''));
+        $note = trim((string) ($_POST['mvm_note'] ?? ''));
+        $document = $documentId ? find_connection_request_document($documentId) : null;
+
+        if ($mvmMailSchemaErrors !== []) {
+            $errors = array_merge($errors, $mvmMailSchemaErrors);
+        } elseif ($document === null || (int) $document['connection_request_id'] !== (int) $request['id']) {
+            $errors[] = 'A küldendő MVM dokumentum nem található.';
+        } else {
+            $result = send_connection_request_document_to_mvm((int) $document['id'], $recipientEmail, $note);
+            set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id'] . '#mvm-mailbox');
+        }
+    } elseif ($action === 'sync_mvm_mailbox') {
+        if ($mvmMailSchemaErrors !== []) {
+            $errors = array_merge($errors, $mvmMailSchemaErrors);
+        } else {
+            $result = sync_mvm_mailbox_replies();
+            set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id'] . '#mvm-mailbox');
+        }
     } else {
         $uploadedFiles = uploaded_files_for_key($_FILES, 'mvm_documents');
 
@@ -160,6 +184,8 @@ $packageParts = connection_request_complete_package_parts((int) $request['id']);
 $missingItems = connection_request_complete_package_missing_items((int) $request['id']);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
+$mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
+$mvmThreadStatusLabels = mvm_email_thread_status_labels();
 $mvmFormRow = connection_request_mvm_form((int) $request['id']);
 $pdfMergeAvailable = class_exists('\\setasign\\Fpdi\\Fpdi');
 $flash = get_flash();
@@ -198,6 +224,13 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
             <div class="alert alert-info">
                 <p>Az MVM DOCX űrlapmezőkhöz futtasd le phpMyAdminban a <strong>database/mvm_docx_form.sql</strong> fájlt.</p>
                 <?php foreach ($mvmFormSchemaErrors as $schemaError): ?><p><?= h($schemaError); ?></p><?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($mvmMailSchemaErrors !== []): ?>
+            <div class="alert alert-info">
+                <p>Az MVM levelezési naplóhoz automatikus adatbázis-tábla létrehozás szükséges.</p>
+                <?php foreach ($mvmMailSchemaErrors as $schemaError): ?><p><?= h($schemaError); ?></p><?php endforeach; ?>
             </div>
         <?php endif; ?>
 
@@ -576,6 +609,63 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
+        <section id="mvm-mailbox" class="auth-panel form-block mvm-mail-panel">
+            <div class="admin-header">
+                <div>
+                    <p class="eyebrow">MVM levelezés</p>
+                    <h2>Küldések és válaszok</h2>
+                    <p>A CRM-ből küldött MVM levelek tárgyába egy egyedi azonosító kerül. Ha az MVM erre válaszol, a válasz csak ennél az igénynél jelenik meg.</p>
+                </div>
+                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id'] . '#mvm-mailbox'); ?>">
+                    <?= csrf_field(); ?>
+                    <button class="button button-secondary" name="action" value="sync_mvm_mailbox" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>MVM válaszok szinkronizálása</button>
+                </form>
+            </div>
+
+            <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
+                <div class="alert alert-info">
+                    <p>A válaszok automatikus beolvasásához állítsd be a <strong>MVM_IMAP_HOST</strong>, <strong>MVM_IMAP_USER</strong> és <strong>MVM_IMAP_PASS</strong> értékeket a <strong>storage/config/local.php</strong> fájlban. A jelszót ne írd be a chatbe.</p>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($mvmEmailThreads === []): ?>
+                <p class="muted-text">Még nincs MVM-nek küldött dokumentum ehhez az igényhez.</p>
+            <?php else: ?>
+                <div class="mvm-mail-thread-list">
+                    <?php foreach ($mvmEmailThreads as $thread): ?>
+                        <?php $messages = is_array($thread['messages'] ?? null) ? $thread['messages'] : []; ?>
+                        <article class="mvm-mail-thread">
+                            <div class="mvm-mail-thread-head">
+                                <div>
+                                    <span class="portal-kicker"><?= h((string) $thread['token']); ?></span>
+                                    <h3><?= h((string) $thread['document_label']); ?></h3>
+                                    <p><?= h((string) $thread['subject']); ?></p>
+                                </div>
+                                <span class="status-badge status-badge-<?= h((string) $thread['status']); ?>"><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></span>
+                            </div>
+                            <dl class="admin-request-data-list admin-request-data-list-compact">
+                                <div><dt>MVM címzett</dt><dd><?= h((string) $thread['mvm_recipient']); ?></dd></div>
+                                <div><dt>Utolsó levél</dt><dd><?= h((string) ($thread['last_message_at'] ?: $thread['created_at'])); ?></dd></div>
+                            </dl>
+                            <?php if ($messages !== []): ?>
+                                <div class="mvm-mail-message-list">
+                                    <?php foreach ($messages as $message): ?>
+                                        <article class="mvm-mail-message mvm-mail-message-<?= h((string) $message['direction']); ?>">
+                                            <div>
+                                                <strong><?= h((string) $message['subject']); ?></strong>
+                                                <span><?= h((string) ($message['sender_name'] ?: $message['sender_email'] ?: '-')); ?> · <?= h((string) ($message['received_at'] ?: $message['created_at'])); ?></span>
+                                            </div>
+                                            <p><?= nl2br(h(latest_mvm_email_message_preview(['messages' => [$message]]))); ?></p>
+                                        </article>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+
         <section class="form-block">
             <?php if ($documents === []): ?>
                 <div class="empty-state">
@@ -591,15 +681,26 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                                 <th>Dokumentum</th>
                                 <th>Datum</th>
                                 <th>Fájl</th>
+                                <th>MVM küldés</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($documents as $document): ?>
+                                <?php $defaultRecipient = default_mvm_document_recipient((string) $document['document_type']); ?>
                                 <tr>
                                     <td><?= h($types[$document['document_type']] ?? $document['document_type']); ?></td>
                                     <td><strong><?= h($document['title']); ?></strong></td>
                                     <td><?= h($document['created_at']); ?></td>
                                     <td><a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h($document['original_name']); ?></a></td>
+                                    <td>
+                                        <form class="mvm-send-form" method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id'] . '#mvm-mailbox'); ?>">
+                                            <?= csrf_field(); ?>
+                                            <input type="hidden" name="document_id" value="<?= (int) $document['id']; ?>">
+                                            <input name="mvm_recipient" type="email" value="<?= h($defaultRecipient); ?>" placeholder="mvm@email.hu" required>
+                                            <textarea name="mvm_note" rows="2" placeholder="Rövid megjegyzés az MVM-nek (opcionális)"></textarea>
+                                            <button class="button button-secondary" name="action" value="send_mvm_document" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>Küldés MVM-nek</button>
+                                        </form>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>

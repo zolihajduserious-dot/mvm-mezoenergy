@@ -103,6 +103,8 @@ $workQuoteStatus = $workQuote !== null ? (string) ($workQuote['status'] ?? 'draf
 $quoteState = quote_state_summary($latestQuote, $acceptedQuote, $request !== null ? connection_request_quote_missing_reason($request) : '');
 $quoteSummaryLabel = (string) $quoteState['status'];
 $quoteSummaryAmount = (string) $quoteState['amount'];
+$mvmEmailThreads = $request !== null ? mvm_email_threads_with_messages((int) $request['id']) : [];
+$mvmThreadStatusLabels = mvm_email_thread_status_labels();
 ?>
 <section class="admin-section">
     <div class="container admin-requests-container">
@@ -330,6 +332,29 @@ $quoteSummaryAmount = (string) $quoteState['amount'];
                             <?php endif; ?>
                         <?php endif; ?>
                     </section>
+
+                    <?php if ($mvmEmailThreads !== []): ?>
+                        <section class="admin-request-panel admin-request-documents">
+                            <div class="admin-request-section-title">
+                                <h3>MVM levelezés</h3>
+                                <span><?= count($mvmEmailThreads); ?> db</span>
+                            </div>
+                            <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
+                                <?php foreach ($mvmEmailThreads as $thread): ?>
+                                    <article class="mvm-mail-thread">
+                                        <div class="mvm-mail-thread-head">
+                                            <div>
+                                                <span class="portal-kicker"><?= h((string) $thread['document_label']); ?></span>
+                                                <strong><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></strong>
+                                            </div>
+                                            <span><?= h((string) ($thread['last_message_at'] ?: $thread['created_at'])); ?></span>
+                                        </div>
+                                        <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
+                                    </article>
+                                <?php endforeach; ?>
+                            </div>
+                        </section>
+                    <?php endif; ?>
 
             <?php foreach (['before' => 'Kivitelezés előtti kötelező fotók', 'after' => 'Kivitelezés utáni kötelező fotók'] as $stage => $stageTitle): ?>
                 <?php
