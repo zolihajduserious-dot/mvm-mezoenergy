@@ -1,0 +1,124 @@
+name: MVM dashboard test error
+
+on:
+  workflow_dispatch:
+    inputs:
+      feed_token:
+        description: Dashboard feed token
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-error:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mask token
+        run: echo "::add-mask::${FEED_TOKEN}"
+        env:
+          FEED_TOKEN: ${{ inputs.feed_token }}
+
+      - name: Create temporary test endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy-test
+          cat > .deploy-test/mvm-dashboard-test-error.php <<'PHP'
+          <?php
+
+          declare(strict_types=1);
+
+          error_reporting(E_ALL);
+          ini_set('display_errors', '0');
+          ini_set('log_errors', '1');
+
+          $projectRoot = dirname(__DIR__, 2);
+          $tokenFile = $projectRoot . DIRECTORY_SEPARATOR . 'private_logs' . DIRECTORY_SEPARATOR . 'dashboard-feed-token.txt';
+          $expectedToken = is_readable($tokenFile) ? trim((string)file_get_contents($tokenFile)) : '';
+          $requestToken = isset($_GET['token']) && is_string($_GET['token']) ? trim($_GET['token']) : '';
+
+          header('Content-Type: application/json; charset=utf-8');
+          header('X-Content-Type-Options: nosniff');
+          header('Cache-Control: no-store');
+
+          if ($expectedToken === '' || $requestToken === '' || !hash_equals($expectedToken, $requestToken)) {
+              http_response_code(403);
+              echo json_encode(['ok' => false, 'error' => 'Forbidden'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+              exit;
+          }
+
+          $monitor = $projectRoot . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'error-monitor.php';
+          if (is_file($monitor)) {
+              require_once $monitor;
+          }
+
+          trigger_error('MVM DASHBOARD TESZT ' . date('Y-m-d H:i:s'), E_USER_WARNING);
+
+          $checker = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'error-checker.php';
+          $checkerRan = false;
+
+          if (is_file($checker)) {
+              ob_start();
+              include $checker;
+              $checkerOutput = trim((string)ob_get_clean());
+              $checkerRan = true;
+          } else {
+              $checkerOutput = 'scripts/error-checker.php not found';
+          }
+
+          echo json_encode([
+              'ok' => true,
+              'triggered' => true,
+              'checker_ran' => $checkerRan,
+              'checker_output' => substr($checkerOutput, 0, 500),
+          ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+          PHP
+
+      - name: Upload temporary endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --ftp-ssl-reqd \
+            --user "${FTP_USER}:${FTP_PASS}" \
+            --ftp-create-dirs \
+            -T .deploy-test/mvm-dashboard-test-error.php \
+            "ftp://${FTP_HOST}/public_html/api/mvm-dashboard-test-error.php"
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+
+      - name: Trigger test error and checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded_token="$(python3 - <<'PY'
+          import os
+          import urllib.parse
+          print(urllib.parse.quote(os.environ["FEED_TOKEN"], safe=""))
+          PY
+          )"
+          curl --fail --silent --show-error \
+            --max-time 30 \
+            "https://mvm-mezoenergy.hu/api/mvm-dashboard-test-error.php?token=${encoded_token}" \
+            -o test-response.json
+          cat test-response.json
+        env:
+          FEED_TOKEN: ${{ inputs.feed_token }}
+
+      - name: Delete temporary endpoint
+        if: always()
+        shell: bash
+        run: |
+          curl --silent --show-error \
+            --ftp-ssl-reqd \
+            --user "${FTP_USER}:${FTP_PASS}" \
+            -Q "DELE /public_html/api/mvm-dashboard-test-error.php" \
+            "ftp://${FTP_HOST}/" || true
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
