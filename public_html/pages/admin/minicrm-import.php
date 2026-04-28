@@ -158,6 +158,7 @@ $totalItems = count($items);
                         <?php foreach ($items as $item): ?>
                             <?php
                             $documentLinks = minicrm_work_item_document_links($item);
+                            $rawFields = minicrm_work_item_raw_fields($item);
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
                             ?>
@@ -248,6 +249,22 @@ $totalItems = count($items);
                                                     <?php endif; ?>
                                                 <?php endforeach; ?>
                                             </div>
+                                        <?php endif; ?>
+                                    </section>
+
+                                    <section class="admin-request-panel admin-request-documents">
+                                        <div class="admin-request-section-title">
+                                            <h3>Osszes MiniCRM mezo</h3>
+                                            <span><?= count($rawFields); ?> db</span>
+                                        </div>
+                                        <?php if ($rawFields === []): ?>
+                                            <p class="request-admin-empty">Ehhez a tetelhez nincs reszletes MiniCRM mezo eltarolva.</p>
+                                        <?php else: ?>
+                                            <dl class="admin-request-data-list admin-request-data-list-compact">
+                                                <?php foreach ($rawFields as $rawField): ?>
+                                                    <div><dt><?= h((string) $rawField['label']); ?></dt><dd><?= h((string) $rawField['value']); ?></dd></div>
+                                                <?php endforeach; ?>
+                                            </dl>
                                         <?php endif; ?>
                                     </section>
                                 </article>

@@ -10029,6 +10029,123 @@ function minicrm_import_value(array $values, int $column): string
     return minicrm_import_clean($values[$column - 1] ?? '');
 }
 
+function minicrm_import_key(string $value): string
+{
+    $value = minicrm_import_lower(trim($value));
+    $value = preg_replace('/^adatlap:\s*/u', '', $value);
+    $value = strtr((string) $value, [
+        'á' => 'a',
+        'é' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ö' => 'o',
+        'ő' => 'o',
+        'ú' => 'u',
+        'ü' => 'u',
+        'ű' => 'u',
+    ]);
+    $value = strtr((string) $value, [
+        'á' => 'a',
+        'é' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ö' => 'o',
+        'ő' => 'o',
+        'ú' => 'u',
+        'ü' => 'u',
+        'ű' => 'u',
+    ]);
+    $value = preg_replace('/[^a-z0-9]+/u', ' ', (string) $value);
+
+    return trim((string) preg_replace('/\s+/', ' ', (string) $value));
+}
+
+function minicrm_import_header_label(string $header): string
+{
+    $header = trim(preg_replace('/^Adatlap:\s*/u', '', $header) ?? $header);
+
+    return $header !== '' ? $header : 'Oszlop';
+}
+
+function minicrm_import_header_map(array $headers): array
+{
+    $map = [];
+
+    foreach ($headers as $index => $header) {
+        $key = minicrm_import_key((string) $header);
+
+        if ($key === '') {
+            continue;
+        }
+
+        $map[$key][] = (int) $index;
+    }
+
+    return $map;
+}
+
+function minicrm_import_value_by_labels(array $headers, array $values, array $labels, bool $last = false): string
+{
+    $map = minicrm_import_header_map($headers);
+
+    foreach ($labels as $label) {
+        $indexes = $map[minicrm_import_key((string) $label)] ?? [];
+
+        if ($last) {
+            $indexes = array_reverse($indexes);
+        }
+
+        foreach ($indexes as $index) {
+            $value = minicrm_import_clean($values[$index] ?? '');
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+    }
+
+    return '';
+}
+
+function minicrm_import_values_for_labels(array $headers, array $values, array $labels): array
+{
+    $map = minicrm_import_header_map($headers);
+    $found = [];
+
+    foreach ($labels as $label) {
+        foreach ($map[minicrm_import_key((string) $label)] ?? [] as $index) {
+            $value = minicrm_import_clean($values[$index] ?? '');
+
+            if ($value !== '') {
+                $found[] = $value;
+            }
+        }
+    }
+
+    return $found;
+}
+
+function minicrm_import_selected_labels(array $headers, array $values, array $labels): array
+{
+    $selected = [];
+
+    foreach ($labels as $label) {
+        $value = minicrm_import_value_by_labels($headers, $values, [$label]);
+
+        if ($value === '') {
+            continue;
+        }
+
+        if (in_array(minicrm_import_key($value), ['nem', 'no', '0'], true)) {
+            continue;
+        }
+
+        $selected[] = (string) $label;
+    }
+
+    return $selected;
+}
+
 function minicrm_import_lower(string $value): string
 {
     return function_exists('mb_strtolower')
@@ -10056,16 +10173,24 @@ function minicrm_import_detect_request_type(string $workType, string $workKind, 
         return 'new_connection';
     }
 
-    return 'standardization';
+    if (str_contains($text, 'szabvĂˇny') || str_contains($text, 'szabvany')) {
+        return 'standardization';
+    }
+
+    return '';
 }
 
-function minicrm_import_build_site_address(array $values): string
+function minicrm_import_build_site_address(array $headers, array $values): string
 {
-    $city = minicrm_import_value($values, 51);
-    $street = minicrm_import_value($values, 52);
-    $houseNumber = minicrm_import_value($values, 53);
-    $floorDoor = minicrm_import_value($values, 54);
-    $usageAddress = minicrm_import_value($values, 49);
+    $city = minicrm_import_value_by_labels($headers, $values, ['VĂˇros']);
+    $street = minicrm_import_value_by_labels($headers, $values, ['Utca']);
+    $houseNumber = minicrm_import_value_by_labels($headers, $values, ['HĂˇzszĂˇm']);
+    $floorDoor = minicrm_import_value_by_labels($headers, $values, ['Emelet, AjtĂł']);
+    $usageAddress = minicrm_import_value_by_labels($headers, $values, ['FelhasznĂˇlĂˇsi cĂ­m (ir. nĂ©lkĂĽl)', 'FelhasznĂˇlĂˇsi cĂ­m']);
+    $city = $city !== '' ? $city : minicrm_import_value_by_labels($headers, $values, ['Varos']);
+    $houseNumber = $houseNumber !== '' ? $houseNumber : minicrm_import_value_by_labels($headers, $values, ['Hazszam']);
+    $floorDoor = $floorDoor !== '' ? $floorDoor : minicrm_import_value_by_labels($headers, $values, ['Emelet Ajto']);
+    $usageAddress = $usageAddress !== '' ? $usageAddress : minicrm_import_value_by_labels($headers, $values, ['Felhasznalasi cim ir nelkul', 'Felhasznalasi cim']);
     $streetLine = trim(implode(' ', array_filter([$street, $houseNumber, $floorDoor], static fn (string $part): bool => $part !== '')));
 
     if ($streetLine !== '') {
@@ -10100,7 +10225,7 @@ function minicrm_import_payload(array $headers, array $values): array
     return ['columns' => $columns];
 }
 
-function minicrm_import_document_links(array $values): array
+function minicrm_import_document_links(array $headers, array $values): array
 {
     $links = [];
 
@@ -10118,7 +10243,30 @@ function minicrm_import_document_links(array $values): array
         ];
     }
 
-    return $links;
+    foreach ($headers as $index => $header) {
+        $label = minicrm_import_header_label((string) $header);
+        $value = minicrm_import_clean($values[$index] ?? '');
+
+        if ($value === '') {
+            continue;
+        }
+
+        $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
+        $labelKey = minicrm_import_key($label);
+        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf)/', $labelKey);
+
+        if (!$looksLikeDocument) {
+            continue;
+        }
+
+        $links[] = [
+            'label' => $label,
+            'value' => $value,
+            'is_url' => $isUrl,
+        ];
+    }
+
+    return minicrm_import_unique_items($links, ['label', 'value']);
 }
 
 function minicrm_import_json(array $value): string
@@ -10130,47 +10278,268 @@ function minicrm_import_json(array $value): string
 
 function minicrm_import_row_data(array $headers, array $values): array
 {
-    $cardName = minicrm_import_value($values, 2);
-    $customerName = minicrm_import_value($values, 43);
-    $workType = minicrm_import_value($values, 37);
-    $workKind = minicrm_import_value($values, 38);
-    $siteAddress = minicrm_import_build_site_address($values);
+    $cardName = minicrm_import_value_by_labels($headers, $values, ['NĂ©v']);
+    $customerName = minicrm_import_value_by_labels($headers, $values, ['NĂ©v'], true);
+    $workType = minicrm_import_value_by_labels($headers, $values, [
+        'Munka tĂ­pusa',
+        'MVM DĂ©mĂˇsz munka tĂ­pusa',
+        'Munka rĂ¶vid leĂ­rĂˇsa/ IgĂ©nyelt amper',
+    ]);
+    $requestTypeSignals = minicrm_import_selected_labels($headers, $values, [
+        'Ăšj fogyasztĂł',
+        '1-3 fĂˇzisra ĂˇtĂˇllĂˇs',
+        'TeljesĂ­tmĂ©ny nĂ¶velĂ©s',
+        '"H" tarifa vagy mellĂ©szerelĂ©s',
+        'CsatlakozĂł berendezĂ©s helyreĂˇllĂ­tĂˇsa',
+    ]);
+
+    if ($workType === '' && $requestTypeSignals !== []) {
+        $workType = implode(', ', $requestTypeSignals);
+    }
+
+    $workKind = minicrm_import_value_by_labels($headers, $values, ['Munka jellege', 'MĂ©rĹ‘helyi munkĂˇlatok']);
+    $siteAddress = minicrm_import_build_site_address($headers, $values);
+    $meterSerials = minicrm_import_values_for_labels($headers, $values, ['MĂ©rĹ‘Ăłra gyĂˇri szĂˇma MN', 'Ăšj mĂ©rĹ‘ gyĂˇriszĂˇma']);
+    $meterSerial = implode(', ', array_values(array_unique($meterSerials)));
 
     return [
-        'source_id' => substr(minicrm_import_value($values, 1), 0, 80),
+        'source_id' => substr(minicrm_import_value_by_labels($headers, $values, ['AzonosĂ­tĂł']), 0, 80),
         'card_name' => $cardName !== '' ? $cardName : ($customerName !== '' ? 'MiniCRM munka - ' . $customerName : 'MiniCRM munka'),
         'customer_name' => $customerName !== '' ? $customerName : $cardName,
-        'responsible' => minicrm_import_value($values, 3),
-        'minicrm_status' => minicrm_import_value($values, 4),
+        'responsible' => minicrm_import_value_by_labels($headers, $values, ['FelelĹ‘s', 'MVM felelĹ‘s']),
+        'minicrm_status' => minicrm_import_value_by_labels($headers, $values, ['StĂˇtusz', 'Folyamat stĂˇtusz']),
         'work_type' => $workType,
         'work_kind' => $workKind,
         'request_type' => minicrm_import_detect_request_type($workType, $workKind, $cardName),
-        'date_value' => minicrm_import_value($values, 41),
-        'submitted_date' => minicrm_import_value($values, 42),
-        'birth_name' => minicrm_import_value($values, 44),
-        'birth_place' => minicrm_import_value($values, 45),
-        'birth_date' => minicrm_import_value($values, 46),
-        'mother_name' => minicrm_import_value($values, 47),
-        'mailing_address' => minicrm_import_value($values, 48),
-        'postal_code' => minicrm_import_value($values, 50),
-        'city' => minicrm_import_value($values, 51),
+        'date_value' => minicrm_import_value_by_labels($headers, $values, ['DĂˇtum', 'Egyeztetett idĹ‘pont']),
+        'submitted_date' => minicrm_import_value_by_labels($headers, $values, ['LeadĂˇs dĂˇtuma', 'KĂ©szrejelentĂ©s dĂˇtum', 'MVM DĂ©mĂˇsz bekĂ¶tĂ©si dĂˇtum']),
+        'birth_name' => minicrm_import_value_by_labels($headers, $values, ['SzĂĽletĂ©si nĂ©v']),
+        'birth_place' => minicrm_import_value_by_labels($headers, $values, ['SzĂĽletĂ©si hely']),
+        'birth_date' => minicrm_import_value_by_labels($headers, $values, ['SzĂĽletĂ©si idĹ‘']),
+        'mother_name' => minicrm_import_value_by_labels($headers, $values, ['Anyja neve']),
+        'mailing_address' => minicrm_import_value_by_labels($headers, $values, ['ĂśgyfĂ©l levelezĂ©si cĂ­me']),
+        'postal_code' => minicrm_import_value_by_labels($headers, $values, ['IrĂˇnyĂ­tĂł szĂˇm', 'IrĂˇnyĂ­tĂłszĂˇm']),
+        'city' => minicrm_import_value_by_labels($headers, $values, ['VĂˇros']),
         'site_address' => $siteAddress,
-        'street' => minicrm_import_value($values, 52),
-        'house_number' => minicrm_import_value($values, 53),
-        'floor_door' => minicrm_import_value($values, 54),
-        'hrsz' => minicrm_import_value($values, 55),
-        'consumption_place_id' => minicrm_import_value($values, 56),
-        'meter_serial' => minicrm_import_value($values, 57),
-        'controlled_meter_serial' => minicrm_import_value($values, 58),
-        'wire_type' => minicrm_import_value($values, 33),
-        'meter_cabinet' => minicrm_import_value($values, 34),
-        'meter_location' => minicrm_import_value($values, 35),
-        'pole_type' => minicrm_import_value($values, 36),
-        'wire_note' => minicrm_import_value($values, 39),
-        'cabinet_note' => minicrm_import_value($values, 40),
-        'document_links_json' => minicrm_import_json(minicrm_import_document_links($values)),
+        'street' => minicrm_import_value_by_labels($headers, $values, ['Utca']),
+        'house_number' => minicrm_import_value_by_labels($headers, $values, ['HĂˇzszĂˇm']),
+        'floor_door' => minicrm_import_value_by_labels($headers, $values, ['Emelet, AjtĂł']),
+        'hrsz' => minicrm_import_value_by_labels($headers, $values, ['Helyrajzi szĂˇm']),
+        'consumption_place_id' => minicrm_import_value_by_labels($headers, $values, ['FelhasznĂˇlĂˇsi hely azonosĂ­tĂł']),
+        'meter_serial' => $meterSerial,
+        'controlled_meter_serial' => minicrm_import_value_by_labels($headers, $values, ['MĂ©rĹ‘Ăłra gyĂˇri szĂˇma vezĂ©relt']),
+        'wire_type' => minicrm_import_value_by_labels($headers, $values, ['VezetĂ©k tĂ­pusa', 'KĂˇbel tĂ­pusa']),
+        'meter_cabinet' => minicrm_import_value_by_labels($headers, $values, ['MĂ©rĹ‘szekrĂ©ny', 'SzekrĂ©ny tĂ­pusa']),
+        'meter_location' => minicrm_import_value_by_labels($headers, $values, ['MĂ©rĹ‘Ăłra helye jelenleg']),
+        'pole_type' => minicrm_import_value_by_labels($headers, $values, ['Oszlop tĂ­pusa']),
+        'wire_note' => minicrm_import_value_by_labels($headers, $values, ['KockĂˇs papĂ­r vezetĂ©k', 'SzĂ¶veg']),
+        'cabinet_note' => minicrm_import_value_by_labels($headers, $values, ['KockĂˇs papĂ­r szekrĂ©ny']),
+        'document_links_json' => minicrm_import_json(minicrm_import_document_links($headers, $values)),
         'raw_payload' => minicrm_import_json(minicrm_import_payload($headers, $values)),
     ];
+}
+
+function minicrm_import_unique_items(array $items, array $keys): array
+{
+    $seen = [];
+    $unique = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $signatureParts = [];
+
+        foreach ($keys as $key) {
+            $signatureParts[] = minicrm_import_key((string) ($item[$key] ?? ''));
+        }
+
+        $signature = implode('|', $signatureParts);
+
+        if ($signature === '|' || isset($seen[$signature])) {
+            continue;
+        }
+
+        $seen[$signature] = true;
+        $unique[] = $item;
+    }
+
+    return $unique;
+}
+
+function minicrm_import_document_links_from_headers(array $headers, array $values): array
+{
+    $links = [];
+
+    foreach ($headers as $index => $header) {
+        $label = minicrm_import_header_label((string) $header);
+        $value = minicrm_import_clean($values[$index] ?? '');
+
+        if ($value === '') {
+            continue;
+        }
+
+        $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
+        $labelKey = minicrm_import_key($label);
+        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf)/', $labelKey);
+
+        if (!$looksLikeDocument) {
+            continue;
+        }
+
+        $links[] = [
+            'label' => $label,
+            'value' => $value,
+            'is_url' => $isUrl,
+        ];
+    }
+
+    return minicrm_import_unique_items($links, ['label', 'value']);
+}
+
+function minicrm_import_row_data_from_headers(array $headers, array $values): array
+{
+    $cardName = minicrm_import_value_by_labels($headers, $values, ['Nev']);
+    $customerName = minicrm_import_value_by_labels($headers, $values, ['Nev'], true);
+    $workType = minicrm_import_value_by_labels($headers, $values, [
+        'Munka tipusa',
+        'MVM Demasz munka tipusa',
+        'Munka rovid leirasa Igenyelt amper',
+    ]);
+    $requestTypeSignals = minicrm_import_selected_labels($headers, $values, [
+        'Uj fogyaszto',
+        '1 3 fazisra atallas',
+        'Teljesitmeny noveles',
+        'H tarifa vagy melleszereles',
+        'Csatlakozo berendezes helyreallitasa',
+    ]);
+
+    if ($workType === '' && $requestTypeSignals !== []) {
+        $workType = implode(', ', $requestTypeSignals);
+    }
+
+    $workKind = minicrm_import_value_by_labels($headers, $values, ['Munka jellege', 'Merohelyi munkalatok']);
+    $siteAddress = minicrm_import_build_site_address($headers, $values);
+    $meterSerials = minicrm_import_values_for_labels($headers, $values, ['Meroora gyari szama MN', 'Uj mero gyariszama']);
+    $meterSerial = implode(', ', array_values(array_unique($meterSerials)));
+
+    return [
+        'source_id' => substr(minicrm_import_value_by_labels($headers, $values, ['Azonosito']), 0, 80),
+        'card_name' => $cardName !== '' ? $cardName : ($customerName !== '' ? 'MiniCRM munka - ' . $customerName : 'MiniCRM munka'),
+        'customer_name' => $customerName !== '' ? $customerName : $cardName,
+        'responsible' => minicrm_import_value_by_labels($headers, $values, ['Felelos', 'MVM felelos']),
+        'minicrm_status' => minicrm_import_value_by_labels($headers, $values, ['Statusz', 'Folyamat statusz']),
+        'work_type' => $workType,
+        'work_kind' => $workKind,
+        'request_type' => minicrm_import_detect_request_type($workType, $workKind, $cardName),
+        'date_value' => minicrm_import_value_by_labels($headers, $values, ['Datum', 'Egyeztetett idopont']),
+        'submitted_date' => minicrm_import_value_by_labels($headers, $values, ['Leadas datuma', 'Keszrejelentes datum', 'MVM Demasz bekotesi datum']),
+        'birth_name' => minicrm_import_value_by_labels($headers, $values, ['Szuletesi nev']),
+        'birth_place' => minicrm_import_value_by_labels($headers, $values, ['Szuletesi hely']),
+        'birth_date' => minicrm_import_value_by_labels($headers, $values, ['Szuletesi ido']),
+        'mother_name' => minicrm_import_value_by_labels($headers, $values, ['Anyja neve']),
+        'mailing_address' => minicrm_import_value_by_labels($headers, $values, ['Ugyfel levelezesi cime']),
+        'postal_code' => minicrm_import_value_by_labels($headers, $values, ['Iranyito szam', 'Iranyitoszam']),
+        'city' => minicrm_import_value_by_labels($headers, $values, ['Varos']),
+        'site_address' => $siteAddress,
+        'street' => minicrm_import_value_by_labels($headers, $values, ['Utca']),
+        'house_number' => minicrm_import_value_by_labels($headers, $values, ['Hazszam']),
+        'floor_door' => minicrm_import_value_by_labels($headers, $values, ['Emelet Ajto']),
+        'hrsz' => minicrm_import_value_by_labels($headers, $values, ['Helyrajzi szam']),
+        'consumption_place_id' => minicrm_import_value_by_labels($headers, $values, ['Felhasznalasi hely azonosito']),
+        'meter_serial' => $meterSerial,
+        'controlled_meter_serial' => minicrm_import_value_by_labels($headers, $values, ['Meroora gyari szama vezerelt']),
+        'wire_type' => minicrm_import_value_by_labels($headers, $values, ['Vezetek tipusa', 'Kabel tipusa']),
+        'meter_cabinet' => minicrm_import_value_by_labels($headers, $values, ['Meroszekreny', 'Szekreny tipusa']),
+        'meter_location' => minicrm_import_value_by_labels($headers, $values, ['Meroora helye jelenleg']),
+        'pole_type' => minicrm_import_value_by_labels($headers, $values, ['Oszlop tipusa']),
+        'wire_note' => minicrm_import_value_by_labels($headers, $values, ['Kockas papir vezetek', 'Szoveg']),
+        'cabinet_note' => minicrm_import_value_by_labels($headers, $values, ['Kockas papir szekreny']),
+        'document_links_json' => minicrm_import_json(minicrm_import_document_links_from_headers($headers, $values)),
+        'raw_payload' => minicrm_import_json(minicrm_import_payload($headers, $values)),
+    ];
+}
+
+function minicrm_import_json_list(string|null $json): array
+{
+    $decoded = json_decode((string) $json, true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function minicrm_import_merge_payload_json(?string $existingJson, string $newJson): string
+{
+    $existing = minicrm_import_json_list($existingJson)['columns'] ?? [];
+    $new = minicrm_import_json_list($newJson)['columns'] ?? [];
+    $merged = [];
+    $seen = [];
+
+    foreach (array_merge(is_array($existing) ? $existing : [], is_array($new) ? $new : []) as $column) {
+        if (!is_array($column)) {
+            continue;
+        }
+
+        $header = minicrm_import_header_label((string) ($column['header'] ?? ''));
+        $value = minicrm_import_clean($column['value'] ?? '');
+
+        if ($value === '') {
+            continue;
+        }
+
+        $signature = minicrm_import_key($header) . '|' . minicrm_import_key($value);
+
+        if (isset($seen[$signature])) {
+            continue;
+        }
+
+        $seen[$signature] = true;
+        $merged[] = [
+            'index' => count($merged) + 1,
+            'header' => $header,
+            'value' => $value,
+        ];
+    }
+
+    return minicrm_import_json(['columns' => $merged]);
+}
+
+function minicrm_import_merge_document_json(?string $existingJson, string $newJson): string
+{
+    $existing = minicrm_import_json_list($existingJson);
+    $new = minicrm_import_json_list($newJson);
+
+    return minicrm_import_json(minicrm_import_unique_items(array_merge($existing, $new), ['label', 'value']));
+}
+
+function minicrm_import_merge_row_data(array $data, ?array $existing): array
+{
+    if ($existing === null) {
+        return $data;
+    }
+
+    foreach ($data as $key => $value) {
+        if (in_array($key, ['source_id', 'batch_id'], true)) {
+            continue;
+        }
+
+        if (in_array($key, ['document_links_json', 'raw_payload'], true)) {
+            continue;
+        }
+
+        if (minicrm_import_clean($value) === '' && !empty($existing[$key])) {
+            $data[$key] = (string) $existing[$key];
+        }
+    }
+
+    if (($data['request_type'] ?? '') === '' && !empty($existing['request_type'])) {
+        $data['request_type'] = (string) $existing['request_type'];
+    }
+
+    $data['document_links_json'] = minicrm_import_merge_document_json($existing['document_links_json'] ?? null, (string) $data['document_links_json']);
+    $data['raw_payload'] = minicrm_import_merge_payload_json($existing['raw_payload'] ?? null, (string) $data['raw_payload']);
+
+    return $data;
 }
 
 function minicrm_import_upload(array $file): array
@@ -10391,14 +10760,16 @@ function import_minicrm_workbook(string $path, string $originalName): array
             $rowCount++;
 
             try {
-                $data = minicrm_import_row_data($headers, $values);
+                $data = minicrm_import_row_data_from_headers($headers, $values);
 
                 if ($data['source_id'] === '') {
                     $skippedCount++;
                     continue;
                 }
 
-                $exists = (bool) db_query('SELECT 1 FROM `minicrm_work_items` WHERE `source_id` = ? LIMIT 1', [$data['source_id']])->fetchColumn();
+                $existingItem = db_query('SELECT * FROM `minicrm_work_items` WHERE `source_id` = ? LIMIT 1', [$data['source_id']])->fetch();
+                $existingItem = is_array($existingItem) ? $existingItem : null;
+                $data = minicrm_import_merge_row_data($data, $existingItem);
                 $params = [$batchId];
 
                 foreach (array_slice($columns, 1) as $column) {
@@ -10411,7 +10782,7 @@ function import_minicrm_workbook(string $path, string $originalName): array
 
                 db_query($sql, $params);
 
-                if ($exists) {
+                if ($existingItem !== null) {
                     $updatedCount++;
                 } else {
                     $importedCount++;
@@ -10512,6 +10883,33 @@ function minicrm_work_item_document_links(array $item): array
     $decoded = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
 
     return is_array($decoded) ? $decoded : [];
+}
+
+function minicrm_work_item_raw_fields(array $item): array
+{
+    $decoded = json_decode((string) ($item['raw_payload'] ?? '{}'), true);
+    $columns = is_array($decoded) && is_array($decoded['columns'] ?? null) ? $decoded['columns'] : [];
+    $fields = [];
+
+    foreach ($columns as $column) {
+        if (!is_array($column)) {
+            continue;
+        }
+
+        $label = minicrm_import_header_label((string) ($column['header'] ?? ''));
+        $value = minicrm_import_clean($column['value'] ?? '');
+
+        if ($label === '' || $value === '') {
+            continue;
+        }
+
+        $fields[] = [
+            'label' => $label,
+            'value' => $value,
+        ];
+    }
+
+    return $fields;
 }
 
 function minicrm_status_class(?string $status): string
