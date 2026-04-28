@@ -78,9 +78,9 @@ if (is_post()) {
     }
 }
 ?>
-<section class="admin-section">
+<section class="admin-section customer-crm-page customer-work-request-crm-page">
     <div class="container">
-        <div class="admin-header">
+        <div class="admin-header customer-crm-hero">
             <div>
                 <p class="eyebrow">Ügyfélportál</p>
                 <h1><?= $requestId ? 'Igény módosítása' : 'Új igény rögzítése'; ?></h1>
