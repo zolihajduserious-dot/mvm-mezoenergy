@@ -25,7 +25,7 @@ if (is_post() && in_array(($_POST['action'] ?? ''), ['import_minicrm_file', 'imp
 if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_document_zip') {
     require_valid_csrf_token();
 
-    $result = minicrm_import_document_zip($_FILES['minicrm_document_zip'] ?? null);
+    $result = minicrm_import_document_zips($_FILES);
 
     if ($result['ok'] ?? false) {
         set_flash('success', (string) $result['message']);
@@ -108,15 +108,15 @@ $documentZipCandidates = minicrm_document_zip_candidates();
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
                     <?= csrf_field(); ?>
                     <input type="hidden" name="action" value="import_minicrm_document_zip">
-                    <label for="minicrm_document_zip">MiniCRM dokumentum ZIP (opcionális)</label>
-                    <input id="minicrm_document_zip" name="minicrm_document_zip" type="file" accept=".zip,application/zip" <?= ($schemaErrors !== [] || !$deps['zip']) ? 'disabled' : ''; ?>>
+                    <label for="minicrm_document_zips">MiniCRM dokumentum ZIP-ek (opcionális)</label>
+                    <input id="minicrm_document_zips" name="minicrm_document_zips[]" type="file" multiple accept=".zip,application/zip" <?= ($schemaErrors !== [] || !$deps['zip']) ? 'disabled' : ''; ?>>
                     <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['zip']) ? 'disabled' : ''; ?>>ZIP dokumentumok összefűzése</button>
                 </form>
                 <div class="status-list">
                     <li><span class="status-label">Saját tárhelyes fájlok</span><span class="status-value"><?= $localDocumentFileCount; ?> db</span></li>
                     <li><span class="status-label">Mentett méret</span><span class="status-value"><?= number_format($localDocumentSizeTotal / 1024 / 1024, 1, ',', ' '); ?> MB</span></li>
                     <li><span class="status-label">ZIP motor</span><span class="status-value"><?= $deps['zip'] ? 'OK' : 'Hiányzik'; ?></span></li>
-                    <li><span class="status-label">FTP-s ZIP</span><span class="status-value"><?= $documentZipCandidates !== [] ? basename($documentZipCandidates[0]) : 'Nincs'; ?></span></li>
+                    <li><span class="status-label">FTP-s ZIP-ek</span><span class="status-value"><?= count($documentZipCandidates); ?> db</span></li>
                 </div>
             </section>
 

@@ -11114,8 +11114,129 @@ function minicrm_store_uploaded_document_zip(?array $file): ?string
     return $targetPath;
 }
 
+function minicrm_uploaded_document_zip_files(array $files): array
+{
+    $uploadedFiles = array_values(array_filter(
+        uploaded_files_for_key($files, 'minicrm_document_zips'),
+        static fn (?array $file): bool => uploaded_file_is_present($file)
+    ));
+
+    if ($uploadedFiles === []) {
+        $uploadedFiles = array_values(array_filter(
+            uploaded_files_for_key($files, 'minicrm_document_zip'),
+            static fn (?array $file): bool => uploaded_file_is_present($file)
+        ));
+    }
+
+    return $uploadedFiles;
+}
+
+function minicrm_import_document_zips(array $files): array
+{
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'message' => 'A szerveren nincs bekapcsolva a ZipArchive PHP kiegészítő.'];
+    }
+
+    if (minicrm_import_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Előbb hozd létre/frissítsd a MiniCRM import táblákat.'];
+    }
+
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(0);
+    }
+
+    $zipPaths = [];
+
+    foreach (minicrm_uploaded_document_zip_files($files) as $file) {
+        try {
+            $zipPath = minicrm_store_uploaded_document_zip($file);
+        } catch (Throwable $exception) {
+            return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A ZIP feltöltése sikertelen.'];
+        }
+
+        if ($zipPath !== null) {
+            $zipPaths[] = $zipPath;
+        }
+    }
+
+    if ($zipPaths === []) {
+        $zipPaths = minicrm_document_zip_candidates();
+    }
+
+    if ($zipPaths === []) {
+        return ['ok' => false, 'message' => 'Nem található feldolgozható ZIP. Töltsd fel a ZIP-eket a storage/imports mappába, vagy válaszd ki az űrlapon.'];
+    }
+
+    $projectMap = minicrm_project_work_map();
+
+    if ($projectMap === []) {
+        return ['ok' => false, 'message' => 'Előbb importáld a MiniCRM Excel fájlokat, hogy legyen mihez kötni a dokumentumokat.'];
+    }
+
+    $totals = [
+        'processed' => 0,
+        'imported' => 0,
+        'updated' => 0,
+        'existing' => 0,
+        'unmatched' => 0,
+        'unsupported' => 0,
+        'errors' => 0,
+    ];
+    $matchedWorks = [];
+    $failed = [];
+    $zipCount = 0;
+
+    foreach ($zipPaths as $zipPath) {
+        $result = minicrm_import_document_zip_path($zipPath, $projectMap);
+
+        if (!($result['ok'] ?? false)) {
+            $failed[] = basename($zipPath) . ': ' . (string) ($result['message'] ?? 'sikertelen feldolgozás');
+            continue;
+        }
+
+        $zipCount++;
+
+        foreach (array_keys($totals) as $key) {
+            $totals[$key] += (int) ($result[$key] ?? 0);
+        }
+
+        foreach (($result['matched_source_ids'] ?? []) as $sourceId) {
+            $matchedWorks[(string) $sourceId] = true;
+        }
+    }
+
+    if ($zipCount === 0) {
+        return ['ok' => false, 'message' => implode(' ', $failed)];
+    }
+
+    $message = 'MiniCRM dokumentum ZIP feldolgozva: ' . $zipCount . ' ZIP, ' . $totals['processed'] . ' fájl, '
+        . $totals['imported'] . ' új, ' . $totals['updated'] . ' újramentett, ' . $totals['existing'] . ' már meglévő, '
+        . $totals['unmatched'] . ' nem párosítható, ' . $totals['unsupported'] . ' nem támogatott, '
+        . $totals['errors'] . ' hibás. Érintett munkák: ' . count($matchedWorks) . '.';
+
+    if ($failed !== []) {
+        $message .= ' Sikertelen ZIP-ek: ' . implode(' ', $failed);
+    }
+
+    return array_merge([
+        'ok' => true,
+        'message' => $message,
+        'zip_count' => $zipCount,
+        'failed' => $failed,
+        'matched_works' => count($matchedWorks),
+    ], $totals);
+}
+
 function minicrm_import_document_zip(?array $uploadFile = null): array
 {
+    return minicrm_import_document_zips(['minicrm_document_zip' => $uploadFile ?? ['error' => UPLOAD_ERR_NO_FILE]]);
+}
+
+function minicrm_import_document_zip_path(string $zipPath, ?array $projectMap = null): array
+{
+    $givenZipPath = $zipPath;
+    $uploadFile = null;
+
     if (!class_exists('ZipArchive')) {
         return ['ok' => false, 'message' => 'A szerveren nincs bekapcsolva a ZipArchive PHP kiegészítő.'];
     }
@@ -11139,11 +11260,15 @@ function minicrm_import_document_zip(?array $uploadFile = null): array
         $zipPath = $candidates[0] ?? null;
     }
 
+    $zipPath = $givenZipPath;
+
     if ($zipPath === null || !is_file($zipPath)) {
         return ['ok' => false, 'message' => 'Nem található feldolgozható ZIP. Töltsd fel a storage/imports/minicrm-documents.zip fájlt, vagy válaszd ki az űrlapon.'];
     }
 
-    $projectMap = minicrm_project_work_map();
+    if ($projectMap === null) {
+        $projectMap = minicrm_project_work_map();
+    }
 
     if ($projectMap === []) {
         return ['ok' => false, 'message' => 'Előbb importáld a MiniCRM Excel fájlokat, hogy legyen mihez kötni a dokumentumokat.'];
@@ -11296,6 +11421,7 @@ function minicrm_import_document_zip(?array $uploadFile = null): array
         'unsupported' => $unsupported,
         'errors' => $errors,
         'matched_works' => count($matchedWorks),
+        'matched_source_ids' => array_keys($matchedWorks),
     ];
 }
 
