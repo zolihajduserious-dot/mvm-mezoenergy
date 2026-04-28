@@ -55,7 +55,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'assign_electrician') {
             if (!$requestHasQuote && $electricianUserId === null) {
                 assign_connection_request_to_electrician((int) $assignRequestId, null);
                 set_flash('success', 'Az árajánlat hiányának oka mentve. A munka nincs szerelőnek kiadva.');
-                redirect('/admin/connection-requests');
+                redirect(connection_crm_detail_path((int) $assignRequestId));
             }
 
             assign_connection_request_to_electrician((int) $assignRequestId, $electricianUserId);
@@ -67,7 +67,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'assign_electrician') {
             }
 
             set_flash('success', $assignmentMessage);
-            redirect('/admin/connection-requests');
+            redirect(connection_crm_detail_path((int) $assignRequestId));
         }
     }
 }
@@ -94,7 +94,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_workflow_stage') {
     if ($workflowErrors === []) {
         update_connection_request_admin_workflow_stage((int) $workflowRequestId, $selectedWorkflowStage);
         set_flash('success', 'A folyamatlépés frissítve.');
-        redirect('/admin/connection-requests');
+        redirect(connection_crm_detail_path((int) $workflowRequestId));
     }
 }
 
@@ -130,7 +130,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_intervention_sheet' && $ca
             }
 
             set_flash('success', $message);
-            redirect('/admin/connection-requests');
+            redirect(connection_crm_detail_path((int) $uploadRequestId));
         } catch (Throwable $exception) {
             $interventionErrors[] = APP_DEBUG ? $exception->getMessage() : 'A beavatkozási lap feltöltése sikertelen.';
         }
@@ -150,6 +150,7 @@ $emailStatusLabels = [
 $workflowStages = admin_workflow_stage_definitions();
 $workflowBuckets = array_fill_keys(array_keys($workflowStages), []);
 $requestContexts = [];
+$selectedRequestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
 
 $totalRequests = count($requests);
 $draftCount = 0;
@@ -173,6 +174,11 @@ foreach ($requests as $summaryRequest) {
 
 foreach ($requests as $workflowRequest) {
     $workflowRequestId = (int) $workflowRequest['id'];
+
+    if ($selectedRequestId === 0) {
+        $selectedRequestId = $workflowRequestId;
+    }
+
     $allMvmDocuments = $canManageMvmDocuments && $mvmSchemaErrors === [] ? connection_request_documents($workflowRequestId) : [];
     $quotes = quotes_for_connection_request($workflowRequestId);
     $acceptedQuote = accepted_quote_for_connection_request($workflowRequestId)
@@ -205,10 +211,29 @@ foreach ($requests as $workflowRequest) {
     ];
     $workflowBuckets[$workflowStage][] = $workflowRequest;
 }
+
+function connection_crm_short_text(string $value, int $length = 130): string
+{
+    $value = trim(preg_replace('/\s+/', ' ', $value) ?: '');
+    $stringLength = function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
+
+    if ($value === '' || $stringLength <= $length) {
+        return $value;
+    }
+
+    $substring = function_exists('mb_substr') ? mb_substr($value, 0, $length - 1) : substr($value, 0, $length - 1);
+
+    return rtrim($substring) . '…';
+}
+
+function connection_crm_detail_path(int $requestId): string
+{
+    return '/admin/connection-requests?request=' . $requestId . '#request-' . $requestId;
+}
 ?>
-<section class="admin-section">
+<section class="admin-section connection-crm-page">
     <div class="container admin-requests-container">
-        <div class="admin-header">
+        <div class="admin-header customer-crm-hero">
             <div>
                 <p class="eyebrow">Admin</p>
                 <h1>Mérőhelyi igények</h1>
@@ -264,6 +289,22 @@ foreach ($requests as $workflowRequest) {
         <?php endif; ?>
 
         <?php if ($requests !== []): ?>
+            <div class="minicrm-list-tools connection-crm-search">
+                <label for="connection-crm-search">Keresés munka, ügyfél, cím, felelős vagy státusz alapján</label>
+                <input id="connection-crm-search" type="search" placeholder="Keresés..." data-connection-crm-search>
+                <span data-connection-crm-count><?= count($requests); ?> db</span>
+            </div>
+
+            <nav class="minicrm-status-nav connection-crm-status-nav" aria-label="Folyamatlépések">
+                <?php foreach ($workflowStages as $stageKey => $stage): ?>
+                    <?php $stageCount = count($workflowBuckets[$stageKey] ?? []); ?>
+                    <a href="#workflow-stage-<?= h($stageKey); ?>">
+                        <?= (int) $stage['number']; ?>. <?= h((string) $stage['title']); ?>
+                        <strong><?= $stageCount; ?></strong>
+                    </a>
+                <?php endforeach; ?>
+            </nav>
+
             <div class="admin-grid summary-grid request-summary-grid">
                 <article class="metric-card metric-card-primary">
                     <span class="metric-label">Összes igény</span>
@@ -294,7 +335,7 @@ foreach ($requests as $workflowRequest) {
                 <p>Az ügyfelek által mentett piszkozatok és lezárt igények itt jelennek meg.</p>
             </div>
         <?php else: ?>
-            <div class="admin-workflow-board" aria-label="Admin folyamatlépések">
+            <div class="admin-workflow-board connection-crm-overview" aria-label="Admin folyamatlépések">
                 <?php foreach ($workflowStages as $stageKey => $stage): ?>
                     <?php $stageCount = count($workflowBuckets[$stageKey] ?? []); ?>
                     <a class="admin-workflow-card admin-workflow-card-<?= h((string) $stage['variant']); ?>" href="#workflow-stage-<?= h($stageKey); ?>">
@@ -305,26 +346,33 @@ foreach ($requests as $workflowRequest) {
                 <?php endforeach; ?>
             </div>
 
-            <div class="admin-workflow-list">
+            <div class="admin-workflow-list minicrm-status-groups connection-crm-list" data-connection-crm-list>
                 <?php foreach ($workflowStages as $stageKey => $stage): ?>
                     <?php $stageRequests = $workflowBuckets[$stageKey] ?? []; ?>
-                    <section class="admin-workflow-stage" id="workflow-stage-<?= h($stageKey); ?>">
-                        <div class="admin-workflow-stage-head">
+                    <section class="admin-workflow-stage minicrm-status-group" id="workflow-stage-<?= h($stageKey); ?>" data-connection-crm-status-group>
+                        <div class="admin-workflow-stage-head minicrm-status-group-head">
                             <div>
                                 <span class="portal-kicker"><?= (int) $stage['number']; ?>. lépés</span>
                                 <h2><?= h((string) $stage['title']); ?></h2>
                                 <p><?= h((string) $stage['description']); ?></p>
                             </div>
-                            <strong><?= count($stageRequests); ?> db</strong>
+                            <strong data-connection-crm-status-count><?= count($stageRequests); ?> látható</strong>
                         </div>
 
                         <?php if ($stageRequests === []): ?>
                             <p class="request-admin-empty">Ebben a folyamatlépésben most nincs igény.</p>
                         <?php else: ?>
-                            <div class="request-admin-list">
+                            <div class="request-admin-list minicrm-work-table">
+                                <div class="minicrm-work-table-head" role="row">
+                                    <span>Munka</span>
+                                    <span>Folyamat / ajánlat</span>
+                                    <span>Dátum</span>
+                                    <span>Anyag</span>
+                                </div>
                 <?php foreach ($stageRequests as $request): ?>
                     <?php
-                    $context = $requestContexts[(int) $request['id']] ?? [];
+                    $requestId = (int) $request['id'];
+                    $context = $requestContexts[$requestId] ?? [];
                     $files = $context['files'] ?? [];
                     $beforeWorkFiles = $context['before_work_files'] ?? [];
                     $afterWorkFiles = $context['after_work_files'] ?? [];
@@ -347,15 +395,29 @@ foreach ($requests as $workflowRequest) {
                     $workflowStageDefinition = $workflowStages[$workflowStage] ?? $stage;
                     $quoteSummaryLabel = (string) $quoteState['status'];
                     $quoteSummaryAmount = (string) $quoteState['amount'];
+                    $isSelectedRequest = $requestId === $selectedRequestId;
+                    $detailUrl = url_path('/admin/connection-requests') . '?request=' . $requestId . '#request-' . $requestId;
+                    $fileCount = count($files) + count($beforeWorkFiles) + count($afterWorkFiles);
+                    $materialCount = $fileCount + count($mvmDocuments) + count($quotes);
+                    $searchText = implode(' ', [
+                        (string) ($request['project_name'] ?? ''),
+                        (string) ($request['requester_name'] ?? ''),
+                        (string) ($request['email'] ?? ''),
+                        (string) ($request['phone'] ?? ''),
+                        (string) ($workflowStageDefinition['title'] ?? ''),
+                        (string) ($requestStatusLabels[$requestStatus] ?? $requestStatus),
+                        (string) ($request['electrician_name'] ?? ''),
+                        $siteAddress,
+                        $quoteSummaryAmount,
+                    ]);
                     $requestOwnerType = !empty($request['contractor_name']) ? 'Generálkivitelezőn keresztül' : 'Közvetlen ügyfél';
                     ?>
 
-                    <details class="admin-workflow-request">
-                        <summary class="admin-workflow-request-summary">
-                            <span class="admin-workflow-request-id">#<?= (int) $request['id']; ?></span>
+                    <details class="admin-workflow-request minicrm-work-row connection-crm-row" id="request-<?= $requestId; ?>" data-connection-crm-item data-connection-crm-search-text="<?= h($searchText); ?>" data-connection-crm-loaded="<?= $isSelectedRequest ? '1' : '0'; ?>" data-connection-crm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedRequest ? 'open' : ''; ?>>
+                        <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                             <span class="admin-workflow-request-main">
-                                <strong><?= h($request['project_name']); ?></strong>
-                                <small><?= h($request['requester_name']); ?> · <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></small>
+                                <strong><?= h(connection_crm_short_text((string) $request['project_name'], 90)); ?></strong>
+                                <small>#<?= $requestId; ?> · <?= h($request['requester_name']); ?> · <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></small>
                             </span>
                             <span class="admin-workflow-request-meta">
                                 <span><?= h((string) $workflowStageDefinition['title']); ?></span>
@@ -364,15 +426,20 @@ foreach ($requests as $workflowRequest) {
                                     <span><?= h(admin_workflow_assignment_due_text($request)); ?></span>
                                 <?php endif; ?>
                             </span>
+                            <span class="minicrm-work-date"><?= h((string) $dateValue); ?></span>
                             <span class="admin-workflow-request-badges">
-                                <span class="status-badge status-badge-<?= h($requestStatus); ?>"><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></span>
-                                <?php if ($schemaErrors === []): ?>
-                                    <span class="status-badge status-badge-<?= h((string) ($request['electrician_status'] ?? 'unassigned')); ?>"><?= h($electricianStatusLabels[$request['electrician_status'] ?? 'unassigned'] ?? (string) ($request['electrician_status'] ?? 'unassigned')); ?></span>
-                                <?php endif; ?>
+                                <strong><?= $materialCount; ?> anyag</strong>
+                                <small><?= count($mvmDocuments); ?> MVM · <?= $fileCount; ?> fájl · <?= count($quotes); ?> ajánlat</small>
                             </span>
                         </summary>
 
-                    <article class="request-admin-card">
+                    <?php if (!$isSelectedRequest): ?>
+                        <div class="request-admin-card minicrm-work-card connection-crm-card connection-crm-placeholder">
+                            <p class="request-admin-empty">A teljes adatlap külön töltődik be, hogy a munkalista gyors és áttekinthető maradjon.</p>
+                            <a class="button button-secondary" href="<?= h($detailUrl); ?>">Adatlap megnyitása</a>
+                        </div>
+                    <?php else: ?>
+                    <article class="request-admin-card minicrm-work-card connection-crm-card">
                         <div class="request-admin-card-head">
                             <div>
                                 <span class="portal-kicker">#<?= (int) $request['id']; ?> · <?= h($dateLabel); ?>: <?= h($dateValue); ?></span>
@@ -458,7 +525,7 @@ foreach ($requests as $workflowRequest) {
                                     <h3>Beavatkozási lap</h3>
                                     <span><?= count($mvmDocuments); ?> db</span>
                                 </div>
-                                <form class="intervention-upload-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/connection-requests')); ?>">
+                                <form class="intervention-upload-form" method="post" enctype="multipart/form-data" action="<?= h($detailUrl); ?>">
                                     <?= csrf_field(); ?>
                                     <input type="hidden" name="action" value="upload_intervention_sheet">
                                     <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
@@ -644,7 +711,7 @@ foreach ($requests as $workflowRequest) {
 
                             <div class="request-admin-actions">
                                 <?php if ($workflowStageSchemaReady): ?>
-                                    <form class="workflow-stage-form" method="post" action="<?= h(url_path('/admin/connection-requests')); ?>">
+                                    <form class="workflow-stage-form" method="post" action="<?= h($detailUrl); ?>">
                                         <?= csrf_field(); ?>
                                         <input type="hidden" name="action" value="update_workflow_stage">
                                         <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
@@ -660,7 +727,7 @@ foreach ($requests as $workflowRequest) {
                                     </form>
                                 <?php endif; ?>
                                 <?php if ($schemaErrors === []): ?>
-                                    <form class="assignment-form" method="post" action="<?= h(url_path('/admin/connection-requests')); ?>">
+                                    <form class="assignment-form" method="post" action="<?= h($detailUrl); ?>">
                                         <?= csrf_field(); ?>
                                         <input type="hidden" name="action" value="assign_electrician">
                                         <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
@@ -699,6 +766,7 @@ foreach ($requests as $workflowRequest) {
                             </div>
                         </div>
                     </article>
+                    <?php endif; ?>
                     </details>
                 <?php endforeach; ?>
                             </div>
@@ -709,3 +777,56 @@ foreach ($requests as $workflowRequest) {
         <?php endif; ?>
     </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.querySelector('[data-connection-crm-search]');
+    const count = document.querySelector('[data-connection-crm-count]');
+    const items = Array.from(document.querySelectorAll('[data-connection-crm-item]'));
+    const groups = Array.from(document.querySelectorAll('[data-connection-crm-status-group]'));
+
+    items.forEach((item) => {
+        item.addEventListener('toggle', () => {
+            if (!item.open || item.dataset.connectionCrmLoaded === '1' || !item.dataset.connectionCrmDetailUrl) {
+                return;
+            }
+
+            window.location.href = item.dataset.connectionCrmDetailUrl;
+        });
+    });
+
+    if (!input || !count || items.length === 0) {
+        return;
+    }
+
+    const searchable = items.map((item) => ({
+        item,
+        text: `${item.textContent} ${item.dataset.connectionCrmSearchText || ''}`.toLocaleLowerCase('hu-HU'),
+    }));
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim().toLocaleLowerCase('hu-HU');
+        let visible = 0;
+
+        searchable.forEach(({ item, text }) => {
+            const show = query === '' || text.includes(query);
+            item.hidden = !show;
+            visible += show ? 1 : 0;
+        });
+
+        groups.forEach((group) => {
+            const groupItems = Array.from(group.querySelectorAll('[data-connection-crm-item]'));
+            const groupVisible = groupItems.filter((item) => !item.hidden).length;
+            const groupCount = group.querySelector('[data-connection-crm-status-count]');
+
+            group.hidden = groupVisible === 0;
+
+            if (groupCount) {
+                groupCount.textContent = `${groupVisible} látható`;
+            }
+        });
+
+        count.textContent = `${visible} db`;
+    });
+});
+</script>
