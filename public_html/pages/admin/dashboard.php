@@ -15,6 +15,7 @@ $priceItemCount = null;
 $documentCount = null;
 $electricianCount = null;
 $staffUserCount = null;
+$minicrmImportCount = null;
 $workflowStages = admin_workflow_stage_definitions();
 $workflowStageCounts = array_fill_keys(array_keys($workflowStages), 0);
 
@@ -26,6 +27,7 @@ try {
     $documentCount = db_table_exists('download_documents') ? (int) db_query('SELECT COUNT(*) FROM `download_documents`')->fetchColumn() : 0;
     $electricianCount = db_table_exists('electricians') ? (int) db_query('SELECT COUNT(*) FROM `electricians`')->fetchColumn() : 0;
     $staffUserCount = users_table_exists() ? (int) db_query('SELECT COUNT(*) FROM `users` WHERE `role` IN (?, ?) OR `is_admin` = ?', ['admin', 'specialist', 1])->fetchColumn() : 0;
+    $minicrmImportCount = db_table_exists('minicrm_work_items') ? (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn() : 0;
 
     if (db_table_exists('connection_requests')) {
         foreach (all_connection_requests() as $workflowRequest) {
@@ -79,6 +81,13 @@ $dashboardCards = [
         'description' => 'Letölthető meghatalmazások, nyilatkozatok és ügyintézési dokumentumok.',
         'href' => '/admin/documents',
         'variant' => 'accent',
+    ],
+    [
+        'label' => 'MiniCRM munkák',
+        'value' => $minicrmImportCount ?? '-',
+        'description' => 'Excel exportból áthozott munkaállomány és MiniCRM dokumentumlinkek.',
+        'href' => '/admin/minicrm-import',
+        'variant' => 'system',
     ],
     [
         'label' => 'Ajánlatok',

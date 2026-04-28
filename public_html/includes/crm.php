@@ -9954,3 +9954,478 @@ function generate_minicrm_csv_export(): array
         'rows' => count($customers),
     ];
 }
+
+function minicrm_import_schema_errors(): array
+{
+    $errors = [];
+
+    if (!db_table_exists('minicrm_import_batches')) {
+        $errors[] = 'Hiányzik a minicrm_import_batches tábla.';
+    }
+
+    if (!db_table_exists('minicrm_work_items')) {
+        $errors[] = 'Hiányzik a minicrm_work_items tábla.';
+    }
+
+    return $errors;
+}
+
+function minicrm_import_document_column_map(): array
+{
+    return [
+        5 => 'Meghatalmazás feltöltése',
+        6 => 'Tulajdoni lap',
+        7 => 'Földhivatali térképmásolat',
+        8 => 'Tulajdonosi hozzájáruló nyilatkozat',
+        9 => 'Mérőállás kivitelezés előtt',
+        10 => 'Mérő kismegszakítóval',
+        11 => 'Mérőállás egyéb mérőről',
+        12 => 'Egyéb mérő kismegszakítóval',
+        13 => 'Plomba előtte 1',
+        14 => 'Plomba előtte 2',
+        15 => 'Plomba előtte 3',
+        16 => 'Plomba előtte 4',
+        17 => 'Mérő közelről',
+        18 => 'Mérőről távolról',
+        19 => 'Fotó a tetőtartóról',
+        20 => 'Fotó a villanyoszlopról',
+        21 => 'Plomba 1',
+        22 => 'Plomba 2',
+        23 => 'Plomba 3',
+        24 => 'Plomba 4',
+        25 => 'Plomba 5',
+        26 => 'Fotó a mérőről - közelről',
+        27 => 'Fotó a mérőről - távolról',
+        28 => 'Fotó egyéb mérőről - közelről',
+        29 => 'Fotó a tetőtartóról',
+        30 => 'Fotó a tetőtartótól 2',
+        31 => 'Fotó a csatlakozó vezetékről a tetőtartónál',
+        32 => 'Fotó a villanyoszlopról',
+        59 => 'Skicc feltöltése',
+    ];
+}
+
+function minicrm_import_clean(mixed $value): string
+{
+    if ($value instanceof DateTimeInterface) {
+        return $value->format('Y-m-d');
+    }
+
+    $value = trim((string) $value);
+    $value = preg_replace('/\s+/u', ' ', $value);
+
+    return is_string($value) ? $value : '';
+}
+
+function minicrm_import_nullable(string $value): ?string
+{
+    $value = trim($value);
+
+    return $value !== '' ? $value : null;
+}
+
+function minicrm_import_value(array $values, int $column): string
+{
+    return minicrm_import_clean($values[$column - 1] ?? '');
+}
+
+function minicrm_import_lower(string $value): string
+{
+    return function_exists('mb_strtolower')
+        ? mb_strtolower($value, 'UTF-8')
+        : strtolower($value);
+}
+
+function minicrm_import_detect_request_type(string $workType, string $workKind, string $cardName): string
+{
+    $text = minicrm_import_lower($workType . ' ' . $workKind . ' ' . $cardName);
+
+    if (str_contains($text, 'h tarifa') || str_contains($text, '"h" tarifa')) {
+        return 'h_tariff';
+    }
+
+    if (str_contains($text, '1-3') || str_contains($text, '3 fáz') || str_contains($text, '3 faz')) {
+        return 'phase_upgrade';
+    }
+
+    if (str_contains($text, 'teljesítmény') || str_contains($text, 'teljesitmeny')) {
+        return 'power_increase';
+    }
+
+    if (str_contains($text, 'új bekapcsol') || str_contains($text, 'uj bekapcsol') || str_contains($text, 'sötét cím') || str_contains($text, 'sotet cim')) {
+        return 'new_connection';
+    }
+
+    return 'standardization';
+}
+
+function minicrm_import_build_site_address(array $values): string
+{
+    $city = minicrm_import_value($values, 51);
+    $street = minicrm_import_value($values, 52);
+    $houseNumber = minicrm_import_value($values, 53);
+    $floorDoor = minicrm_import_value($values, 54);
+    $usageAddress = minicrm_import_value($values, 49);
+    $streetLine = trim(implode(' ', array_filter([$street, $houseNumber, $floorDoor], static fn (string $part): bool => $part !== '')));
+
+    if ($streetLine !== '') {
+        return $city !== '' && !str_contains(minicrm_import_lower($streetLine), minicrm_import_lower($city))
+            ? $city . ', ' . $streetLine
+            : $streetLine;
+    }
+
+    return $usageAddress;
+}
+
+function minicrm_import_payload(array $headers, array $values): array
+{
+    $columns = [];
+    $count = max(count($headers), count($values));
+
+    for ($index = 0; $index < $count; $index++) {
+        $header = minicrm_import_clean($headers[$index] ?? ('Oszlop ' . ($index + 1)));
+        $value = minicrm_import_clean($values[$index] ?? '');
+
+        if ($value === '') {
+            continue;
+        }
+
+        $columns[] = [
+            'index' => $index + 1,
+            'header' => $header,
+            'value' => $value,
+        ];
+    }
+
+    return ['columns' => $columns];
+}
+
+function minicrm_import_document_links(array $values): array
+{
+    $links = [];
+
+    foreach (minicrm_import_document_column_map() as $column => $label) {
+        $value = minicrm_import_value($values, $column);
+
+        if ($value === '') {
+            continue;
+        }
+
+        $links[] = [
+            'label' => $label,
+            'value' => $value,
+            'is_url' => str_starts_with($value, 'http://') || str_starts_with($value, 'https://'),
+        ];
+    }
+
+    return $links;
+}
+
+function minicrm_import_json(array $value): string
+{
+    $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    return is_string($json) ? $json : '{}';
+}
+
+function minicrm_import_row_data(array $headers, array $values): array
+{
+    $cardName = minicrm_import_value($values, 2);
+    $customerName = minicrm_import_value($values, 43);
+    $workType = minicrm_import_value($values, 37);
+    $workKind = minicrm_import_value($values, 38);
+    $siteAddress = minicrm_import_build_site_address($values);
+
+    return [
+        'source_id' => substr(minicrm_import_value($values, 1), 0, 80),
+        'card_name' => $cardName !== '' ? $cardName : ($customerName !== '' ? 'MiniCRM munka - ' . $customerName : 'MiniCRM munka'),
+        'customer_name' => $customerName !== '' ? $customerName : $cardName,
+        'responsible' => minicrm_import_value($values, 3),
+        'minicrm_status' => minicrm_import_value($values, 4),
+        'work_type' => $workType,
+        'work_kind' => $workKind,
+        'request_type' => minicrm_import_detect_request_type($workType, $workKind, $cardName),
+        'date_value' => minicrm_import_value($values, 41),
+        'submitted_date' => minicrm_import_value($values, 42),
+        'birth_name' => minicrm_import_value($values, 44),
+        'birth_place' => minicrm_import_value($values, 45),
+        'birth_date' => minicrm_import_value($values, 46),
+        'mother_name' => minicrm_import_value($values, 47),
+        'mailing_address' => minicrm_import_value($values, 48),
+        'postal_code' => minicrm_import_value($values, 50),
+        'city' => minicrm_import_value($values, 51),
+        'site_address' => $siteAddress,
+        'street' => minicrm_import_value($values, 52),
+        'house_number' => minicrm_import_value($values, 53),
+        'floor_door' => minicrm_import_value($values, 54),
+        'hrsz' => minicrm_import_value($values, 55),
+        'consumption_place_id' => minicrm_import_value($values, 56),
+        'meter_serial' => minicrm_import_value($values, 57),
+        'controlled_meter_serial' => minicrm_import_value($values, 58),
+        'wire_type' => minicrm_import_value($values, 33),
+        'meter_cabinet' => minicrm_import_value($values, 34),
+        'meter_location' => minicrm_import_value($values, 35),
+        'pole_type' => minicrm_import_value($values, 36),
+        'wire_note' => minicrm_import_value($values, 39),
+        'cabinet_note' => minicrm_import_value($values, 40),
+        'document_links_json' => minicrm_import_json(minicrm_import_document_links($values)),
+        'raw_payload' => minicrm_import_json(minicrm_import_payload($headers, $values)),
+    ];
+}
+
+function minicrm_import_upload(array $file): array
+{
+    if (minicrm_import_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Előbb futtasd le a database/minicrm_import.sql fájlt phpMyAdminban.'];
+    }
+
+    if (!class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
+        return ['ok' => false, 'message' => 'A PhpSpreadsheet nincs telepítve, ezért az Excel import nem futtatható.'];
+    }
+
+    if (!uploaded_file_is_present($file)) {
+        return ['ok' => false, 'message' => 'Válassz ki egy MiniCRM Excel fájlt.'];
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'message' => 'A fájl feltöltése sikertelen.'];
+    }
+
+    if (($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
+        return ['ok' => false, 'message' => 'Túl nagy fájl. Maximum 8 MB engedélyezett.'];
+    }
+
+    $originalName = (string) ($file['name'] ?? 'minicrm-import.xlsx');
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    if (!in_array($extension, ['xls', 'xlsx'], true)) {
+        return ['ok' => false, 'message' => 'Csak XLS vagy XLSX fájl importálható.'];
+    }
+
+    return import_minicrm_workbook((string) $file['tmp_name'], $originalName);
+}
+
+function import_minicrm_workbook(string $path, string $originalName): array
+{
+    $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($path);
+    $reader->setReadDataOnly(true);
+    $spreadsheet = $reader->load($path);
+    $sheet = $spreadsheet->getActiveSheet();
+    $highestRow = $sheet->getHighestDataRow();
+    $highestColumn = $sheet->getHighestDataColumn();
+
+    if ($highestRow < 2) {
+        return ['ok' => false, 'message' => 'Az Excel nem tartalmaz importálható sort.'];
+    }
+
+    $headers = $sheet->rangeToArray('A1:' . $highestColumn . '1', null, true, true, false)[0];
+    $user = current_user();
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        db_query(
+            'INSERT INTO `minicrm_import_batches` (`original_name`, `created_by`) VALUES (?, ?)',
+            [$originalName, is_array($user) ? (int) $user['id'] : null]
+        );
+        $batchId = (int) $pdo->lastInsertId();
+
+        $columns = [
+            'batch_id',
+            'source_id',
+            'card_name',
+            'customer_name',
+            'responsible',
+            'minicrm_status',
+            'work_type',
+            'work_kind',
+            'request_type',
+            'date_value',
+            'submitted_date',
+            'birth_name',
+            'birth_place',
+            'birth_date',
+            'mother_name',
+            'mailing_address',
+            'postal_code',
+            'city',
+            'site_address',
+            'street',
+            'house_number',
+            'floor_door',
+            'hrsz',
+            'consumption_place_id',
+            'meter_serial',
+            'controlled_meter_serial',
+            'wire_type',
+            'meter_cabinet',
+            'meter_location',
+            'pole_type',
+            'wire_note',
+            'cabinet_note',
+            'document_links_json',
+            'raw_payload',
+        ];
+        $updates = array_values(array_filter($columns, static fn (string $column): bool => $column !== 'source_id'));
+        $sql = 'INSERT INTO `minicrm_work_items` (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
+            . ' ON DUPLICATE KEY UPDATE '
+            . implode(', ', array_map(static fn (string $column): string => '`' . $column . '` = VALUES(`' . $column . '`)', $updates))
+            . ', `updated_at` = CURRENT_TIMESTAMP';
+
+        $rowCount = 0;
+        $importedCount = 0;
+        $updatedCount = 0;
+        $skippedCount = 0;
+        $errorCount = 0;
+
+        for ($rowNumber = 2; $rowNumber <= $highestRow; $rowNumber++) {
+            $values = $sheet->rangeToArray('A' . $rowNumber . ':' . $highestColumn . $rowNumber, null, true, true, false)[0];
+
+            if (implode('', array_map(static fn (mixed $value): string => trim((string) $value), $values)) === '') {
+                continue;
+            }
+
+            $rowCount++;
+
+            try {
+                $data = minicrm_import_row_data($headers, $values);
+
+                if ($data['source_id'] === '') {
+                    $skippedCount++;
+                    continue;
+                }
+
+                $exists = (bool) db_query('SELECT 1 FROM `minicrm_work_items` WHERE `source_id` = ? LIMIT 1', [$data['source_id']])->fetchColumn();
+                $params = [$batchId];
+
+                foreach (array_slice($columns, 1) as $column) {
+                    if (in_array($column, ['card_name', 'source_id', 'document_links_json', 'raw_payload'], true)) {
+                        $params[] = $data[$column];
+                    } else {
+                        $params[] = minicrm_import_nullable((string) ($data[$column] ?? ''));
+                    }
+                }
+
+                db_query($sql, $params);
+
+                if ($exists) {
+                    $updatedCount++;
+                } else {
+                    $importedCount++;
+                }
+            } catch (Throwable) {
+                $errorCount++;
+            }
+        }
+
+        db_query(
+            'UPDATE `minicrm_import_batches`
+             SET `row_count` = ?, `imported_count` = ?, `updated_count` = ?, `skipped_count` = ?, `error_count` = ?
+             WHERE `id` = ?',
+            [$rowCount, $importedCount, $updatedCount, $skippedCount, $errorCount, $batchId]
+        );
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'MiniCRM import kész: ' . $importedCount . ' új, ' . $updatedCount . ' frissített, ' . $skippedCount . ' kihagyott, ' . $errorCount . ' hibás sor.',
+            'rows' => $rowCount,
+            'imported' => $importedCount,
+            'updated' => $updatedCount,
+            'skipped' => $skippedCount,
+            'errors' => $errorCount,
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM import sikertelen.'];
+    }
+}
+
+function minicrm_import_batches(int $limit = 10): array
+{
+    if (!db_table_exists('minicrm_import_batches')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT b.*, u.name AS created_by_name
+         FROM `minicrm_import_batches` b
+         LEFT JOIN `users` u ON u.id = b.created_by
+         ORDER BY b.created_at DESC, b.id DESC
+         LIMIT ' . max(1, min(100, $limit))
+    )->fetchAll();
+}
+
+function minicrm_work_items(int $limit = 500): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT *
+         FROM `minicrm_work_items`
+         ORDER BY COALESCE(`updated_at`, `created_at`) DESC, `id` DESC
+         LIMIT ' . max(1, min(1000, $limit))
+    )->fetchAll();
+}
+
+function minicrm_work_item_count(): int
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return 0;
+    }
+
+    return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn();
+}
+
+function minicrm_work_item_status_counts(): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT COALESCE(NULLIF(`minicrm_status`, \'\'), \'Nincs státusz\') AS status_name, COUNT(*) AS item_count
+         FROM `minicrm_work_items`
+         GROUP BY COALESCE(NULLIF(`minicrm_status`, \'\'), \'Nincs státusz\')
+         ORDER BY item_count DESC, status_name ASC'
+    )->fetchAll();
+    $counts = [];
+
+    foreach ($rows as $row) {
+        $counts[(string) $row['status_name']] = (int) $row['item_count'];
+    }
+
+    return $counts;
+}
+
+function minicrm_work_item_document_links(array $item): array
+{
+    $decoded = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function minicrm_status_class(?string $status): string
+{
+    $status = minicrm_import_lower((string) $status);
+
+    if (str_contains($status, 'kivitelez')) {
+        return 'in_progress';
+    }
+
+    if (str_contains($status, 'vár') || str_contains($status, 'var')) {
+        return 'draft';
+    }
+
+    if (str_contains($status, 'kész') || str_contains($status, 'kesz') || str_contains($status, 'lezár') || str_contains($status, 'lezar')) {
+        return 'completed';
+    }
+
+    return 'pending';
+}

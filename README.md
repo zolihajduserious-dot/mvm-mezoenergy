@@ -84,6 +84,12 @@ Az elfelejtett jelszó és emailes jelszó-visszaállítás funkcióhoz futtasd:
 database/password_reset_tokens.sql
 ```
 
+A MiniCRM-ből exportált, aktív munkaállomány Excel importjához futtasd:
+
+```text
+database/minicrm_import.sql
+```
+
 A szerelői fiókokhoz, munkakiadáshoz és kötelező kivitelezési fotókhoz futtasd:
 
 ```text
@@ -149,6 +155,7 @@ A `storage` es `vendor` mappa a `public_html` mellett legyen, ne a publikus webg
 /admin/quotes
 /admin/price-items
 /admin/minicrm-export
+/admin/minicrm-import
 /electrician/register
 /electrician/login
 /electrician/work-requests
