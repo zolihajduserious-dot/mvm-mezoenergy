@@ -3,14 +3,43 @@ declare(strict_types=1);
 
 require_role(['admin', 'specialist']);
 
-$requestId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
-$request = $requestId ? find_connection_request($requestId) : null;
+$minicrmItemId = filter_input(INPUT_GET, 'minicrm_item', FILTER_VALIDATE_INT);
+$minicrmItem = null;
+$minicrmLinkResult = null;
+
+if ($minicrmItemId) {
+    $minicrmLinkResult = ensure_minicrm_work_item_connection_request((int) $minicrmItemId);
+
+    if (!($minicrmLinkResult['ok'] ?? false)) {
+        set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka MVM dokumentumhoz kapcsolasa sikertelen.'));
+        redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+    }
+
+    $minicrmItem = find_minicrm_work_item((int) $minicrmItemId);
+    $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
+} else {
+    $requestId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+}
+
+$request = $requestId ? find_connection_request((int) $requestId) : null;
 
 if ($request === null) {
     http_response_code(404);
     require PAGE_PATH . '/404.php';
     return;
 }
+
+$isMiniCrmContext = $minicrmItemId && $minicrmItem !== null;
+$mvmPageUrl = $isMiniCrmContext
+    ? url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . (int) $minicrmItemId
+    : url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id'];
+$mvmRedirectPath = $isMiniCrmContext
+    ? '/admin/minicrm-import/mvm-documents?minicrm_item=' . (int) $minicrmItemId
+    : '/admin/connection-requests/mvm-documents?id=' . (int) $request['id'];
+$mvmBackUrl = $isMiniCrmContext
+    ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
+    : url_path('/admin/connection-requests');
+$mvmBackLabel = $isMiniCrmContext ? 'Vissza a MiniCRM munkahoz' : 'Vissza az igenyekhez';
 
 $schemaErrors = mvm_document_schema_errors();
 $mvmFormSchemaErrors = mvm_form_schema_errors();
@@ -77,7 +106,7 @@ if (is_post()) {
                     set_flash('success', 'Az MVM űrlap adatai elmentve.');
                 }
 
-                redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id'] . '&mvm_notice=1#mvm-generator-actions');
+                redirect($mvmRedirectPath . '&mvm_notice=1#mvm-generator-actions');
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az MVM űrlap mentése sikertelen.';
             }
@@ -90,7 +119,7 @@ if (is_post()) {
 
             if ($result['ok']) {
                 set_flash('success', $result['message']);
-                redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+                redirect($mvmRedirectPath);
             }
 
             $errors[] = (string) $result['message'];
@@ -103,7 +132,7 @@ if (is_post()) {
 
             if ($result['ok']) {
                 set_flash('success', $result['message']);
-                redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+                redirect($mvmRedirectPath);
             }
 
             $errors[] = (string) $result['message'];
@@ -114,7 +143,7 @@ if (is_post()) {
         } else {
             $result = generate_connection_request_technical_declaration((int) $request['id']);
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
-            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+            redirect($mvmRedirectPath);
         }
     } elseif ($action === 'send_package') {
         $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
@@ -125,7 +154,7 @@ if (is_post()) {
         } else {
             $result = send_connection_request_complete_package_to_customer((int) $document['id']);
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
-            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+            redirect($mvmRedirectPath);
         }
     } elseif ($action === 'send_mvm_document') {
         $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
@@ -140,7 +169,7 @@ if (is_post()) {
         } else {
             $result = send_connection_request_document_to_mvm((int) $document['id'], $recipientEmail, $note);
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
-            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id'] . '#mvm-mailbox');
+            redirect($mvmRedirectPath . '#mvm-mailbox');
         }
     } elseif ($action === 'sync_mvm_mailbox') {
         if ($mvmMailSchemaErrors !== []) {
@@ -148,7 +177,7 @@ if (is_post()) {
         } else {
             $result = sync_mvm_mailbox_replies();
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
-            redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id'] . '#mvm-mailbox');
+            redirect($mvmRedirectPath . '#mvm-mailbox');
         }
     } else {
         $uploadedFiles = uploaded_files_for_key($_FILES, 'mvm_documents');
@@ -169,7 +198,7 @@ if (is_post()) {
                 }
 
                 set_flash('success', $message);
-                redirect('/admin/connection-requests/mvm-documents?id=' . (int) $request['id']);
+                redirect($mvmRedirectPath);
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az MVM dokumentum feltöltése sikertelen.';
             }
@@ -199,13 +228,16 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
     <div class="container">
         <div class="admin-header">
             <div>
-                <p class="eyebrow">Admin</p>
+                <p class="eyebrow"><?= $isMiniCrmContext ? 'MiniCRM' : 'Admin'; ?></p>
                 <h1>MVM dokumentumok</h1>
                 <p><?= h($request['requester_name']); ?> - <?= h($request['project_name']); ?></p>
+                <?php if ($isMiniCrmContext): ?>
+                    <p class="muted-text">MiniCRM azonosito: <?= h((string) ($minicrmItem['source_id'] ?? '')); ?></p>
+                <?php endif; ?>
             </div>
             <div class="admin-actions">
                 <a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests')); ?>">Vissza az igényekhez</a>
+                <a class="button button-secondary" href="<?= h($mvmBackUrl); ?>"><?= h($mvmBackLabel); ?></a>
             </div>
         </div>
 
@@ -267,7 +299,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 </div>
             </div>
 
-            <form class="form mvm-docx-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+            <form class="form mvm-docx-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl); ?>">
                 <?= csrf_field(); ?>
 
                 <div class="mvm-docx-auto-data">
@@ -446,7 +478,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
         <div class="form-grid two">
             <section class="auth-panel">
                 <h2>Új MVM dokumentum</h2>
-                <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                <form class="form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
 
                     <label for="document_type">Dokumentum állapota</label>
@@ -483,7 +515,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <h2>Összefűzött PDF csomag</h2>
                     <p>A generált PDF sorrendje: MVM dokumentum, kiviteli terv, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat, fotók. A kész fájl csak 5 MB alatt menthető. Az összefűzésbe csak PDF és kép fájl kerülhet, ezért a Word dokumentumokból előbb PDF-et kell generálni.</p>
                 </div>
-                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
                     <button class="button" name="action" value="build_package" type="submit" <?= ($missingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Komplett PDF generálása</button>
                 </form>
@@ -532,7 +564,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <div class="inline-link-list">
                         <?php foreach ($completePackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
-                            <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                            <form method="post" action="<?= h($mvmPageUrl); ?>">
                                 <?= csrf_field(); ?>
                                 <input type="hidden" name="document_id" value="<?= (int) $package['id']; ?>">
                                 <button class="button button-secondary" name="action" value="send_package" type="submit">Email küldése ügyfélnek</button>
@@ -550,11 +582,11 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <h2>Átadás-átvételi PDF csomag</h2>
                     <p>A minta szerinti sorrend: kész beavatkozási lap, építési napló, műszaki átadás-átvételi jegyzőkönyv, nyilatkozatok adatlap, majd a kivitelezés utáni fotók. A nyilatkozatok adatlap az MVM igénybejelentő PDF 9-11. oldalából készül külön PDF-ként.</p>
                 </div>
-                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
                     <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || latest_connection_request_mvm_request_pdf_document((int) $request['id']) === null) ? 'disabled' : ''; ?>>Nyilatkozatok adatlap kinyerése</button>
                 </form>
-                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">
+                <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
                     <button class="button" name="action" value="build_handover_package" type="submit" <?= ($technicalHandoverMissingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Műszaki átadás csomag generálása</button>
                 </form>
@@ -616,7 +648,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <h2>Küldések és válaszok</h2>
                     <p>A CRM-ből küldött MVM levelek tárgyába egy egyedi azonosító kerül. Ha az MVM erre válaszol, a válasz csak ennél az igénynél jelenik meg.</p>
                 </div>
-                <form method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id'] . '#mvm-mailbox'); ?>">
+                <form method="post" action="<?= h($mvmPageUrl . '#mvm-mailbox'); ?>">
                     <?= csrf_field(); ?>
                     <button class="button button-secondary" name="action" value="sync_mvm_mailbox" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>MVM válaszok szinkronizálása</button>
                 </form>
@@ -693,7 +725,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                                     <td><?= h($document['created_at']); ?></td>
                                     <td><a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h($document['original_name']); ?></a></td>
                                     <td>
-                                        <form class="mvm-send-form" method="post" action="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id'] . '#mvm-mailbox'); ?>">
+                                        <form class="mvm-send-form" method="post" action="<?= h($mvmPageUrl . '#mvm-mailbox'); ?>">
                                             <?= csrf_field(); ?>
                                             <input type="hidden" name="document_id" value="<?= (int) $document['id']; ?>">
                                             <input name="mvm_recipient" type="email" value="<?= h($defaultRecipient); ?>" placeholder="mvm@email.hu" required>

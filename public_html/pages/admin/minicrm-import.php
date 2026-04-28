@@ -425,6 +425,9 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $timelineEvents = $isSelectedItem ? minicrm_import_timeline_events($item, $rawFields, $localFiles) : [];
                             $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
                             $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
+                            $linkedMvmRequestId = $isSelectedItem ? minicrm_work_item_connection_request_id($itemId) : null;
+                            $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
+                            $mvmGeneratorUrl = url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . $itemId;
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
@@ -468,6 +471,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         <div class="request-admin-status">
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
                                             <?php if (!empty($item['responsible'])): ?><span class="status-badge status-badge-finalized"><?= h((string) $item['responsible']); ?></span><?php endif; ?>
+                                            <a class="button button-secondary" href="<?= h($mvmGeneratorUrl); ?>">MVM dokumentumok</a>
                                         </div>
                                     </div>
 
@@ -517,6 +521,27 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                         </li>
                                                     <?php endforeach; ?>
                                                 </ol>
+                                            </section>
+
+                                            <section class="minicrm-document-preview-panel minicrm-mvm-generator-panel">
+                                                <div class="admin-request-section-title">
+                                                    <h3>MVM dokumentum generálás</h3>
+                                                    <span><?= count($linkedMvmDocuments); ?> dokumentum</span>
+                                                </div>
+                                                <p class="muted-text">A MiniCRM munka adataiból normál MVM igény készül a háttérben, így ugyanaz a Word/PDF generátor, dokumentumfeltöltés, komplett csomag és MVM küldés használható.</p>
+                                                <div class="form-actions">
+                                                    <a class="button" href="<?= h($mvmGeneratorUrl); ?>">MVM dokumentum generáló megnyitása</a>
+                                                    <?php if ($linkedMvmRequestId !== null): ?>
+                                                        <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $linkedMvmRequestId); ?>">Normál igény MVM oldala</a>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php if ($linkedMvmDocuments !== []): ?>
+                                                    <div class="inline-link-list">
+                                                        <?php foreach (array_slice($linkedMvmDocuments, 0, 6) as $mvmDocument): ?>
+                                                            <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $mvmDocument['id']); ?>" target="_blank"><?= h((string) $mvmDocument['title']); ?></a>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
                                             </section>
 
                                             <section class="minicrm-document-preview-panel">

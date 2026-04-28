@@ -10739,6 +10739,23 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_connection_request_links` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `work_item_id` INT UNSIGNED NOT NULL,
+    `source_id` VARCHAR(80) NOT NULL,
+    `customer_id` INT UNSIGNED NOT NULL,
+    `connection_request_id` INT UNSIGNED NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_connection_links_work_item` (`work_item_id`),
+    KEY `idx_minicrm_connection_links_source_id` (`source_id`),
+    KEY `idx_minicrm_connection_links_customer` (`customer_id`),
+    KEY `idx_minicrm_connection_links_request` (`connection_request_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
 SQL;
 }
 
@@ -11514,6 +11531,526 @@ function find_minicrm_work_item(int $id): ?array
     $item = db_query('SELECT * FROM `minicrm_work_items` WHERE `id` = ? LIMIT 1', [$id])->fetch();
 
     return is_array($item) ? $item : null;
+}
+
+function minicrm_connection_request_link_schema_errors(): array
+{
+    try {
+        if (!db_table_exists('minicrm_connection_request_links')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `minicrm_connection_request_links` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `work_item_id` INT UNSIGNED NOT NULL,
+                    `source_id` VARCHAR(80) NOT NULL,
+                    `customer_id` INT UNSIGNED NOT NULL,
+                    `connection_request_id` INT UNSIGNED NOT NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `ux_minicrm_connection_links_work_item` (`work_item_id`),
+                    KEY `idx_minicrm_connection_links_source_id` (`source_id`),
+                    KEY `idx_minicrm_connection_links_customer` (`customer_id`),
+                    KEY `idx_minicrm_connection_links_request` (`connection_request_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'A MiniCRM-MVM kapcsolat tabla letrehozasa nem sikerult: ' . $exception->getMessage()
+                : 'A MiniCRM-MVM kapcsolat tabla letrehozasa szukseges.',
+        ];
+    }
+
+    return [];
+}
+
+function minicrm_work_item_connection_link(int $workItemId): ?array
+{
+    if ($workItemId <= 0 || minicrm_connection_request_link_schema_errors() !== []) {
+        return null;
+    }
+
+    $link = db_query(
+        'SELECT * FROM `minicrm_connection_request_links` WHERE `work_item_id` = ? LIMIT 1',
+        [$workItemId]
+    )->fetch();
+
+    return is_array($link) ? $link : null;
+}
+
+function minicrm_work_item_connection_request_id(int $workItemId): ?int
+{
+    $link = minicrm_work_item_connection_link($workItemId);
+
+    if ($link === null) {
+        return null;
+    }
+
+    $request = find_connection_request((int) $link['connection_request_id']);
+
+    return $request !== null ? (int) $request['id'] : null;
+}
+
+function minicrm_work_item_raw_value_by_patterns(array $item, array $patterns): string
+{
+    foreach (minicrm_work_item_raw_fields($item) as $field) {
+        $labelKey = minicrm_import_key((string) ($field['label'] ?? ''));
+        $value = trim((string) ($field['value'] ?? ''));
+
+        if ($value === '' || $value === '-') {
+            continue;
+        }
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $labelKey)) {
+                return $value;
+            }
+        }
+    }
+
+    return '';
+}
+
+function minicrm_work_item_raw_email(array $item): string
+{
+    $email = minicrm_work_item_raw_value_by_patterns($item, ['/e-?mail/', '/email/', '/levelcim/']);
+
+    if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return $email;
+    }
+
+    foreach (minicrm_work_item_raw_fields($item) as $field) {
+        $value = (string) ($field['value'] ?? '');
+
+        if (preg_match('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $value, $matches)) {
+            return $matches[0];
+        }
+    }
+
+    return '';
+}
+
+function minicrm_work_item_normalized_date(?string $value): string
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/^(\d{4})[.\-\/ ]+(\d{1,2})[.\-\/ ]+(\d{1,2})/', $value, $matches)) {
+        $year = (int) $matches[1];
+        $month = (int) $matches[2];
+        $day = (int) $matches[3];
+    } elseif (preg_match('/^(\d{1,2})[.\-\/ ]+(\d{1,2})[.\-\/ ]+(\d{4})/', $value, $matches)) {
+        $year = (int) $matches[3];
+        $month = (int) $matches[2];
+        $day = (int) $matches[1];
+    } else {
+        return '';
+    }
+
+    if (!checkdate($month, $day, $year)) {
+        return '';
+    }
+
+    return sprintf('%04d-%02d-%02d', $year, $month, $day);
+}
+
+function minicrm_work_item_legal_entity(array $item): int
+{
+    $text = minicrm_import_lower(
+        (string) ($item['card_name'] ?? '') . ' ' .
+        (string) ($item['customer_name'] ?? '') . ' ' .
+        minicrm_work_item_raw_value_by_patterns($item, ['/nem lakossagi/', '/ceg/', '/adoszam/'])
+    );
+
+    if (preg_match('/\b(kft|bt|zrt|nyrt|ev|egyeni vallalkozo|onkormanyzat)\b/u', $text)) {
+        return 1;
+    }
+
+    return 0;
+}
+
+function minicrm_work_item_customer_data(array $item): array
+{
+    $siteAddress = trim((string) ($item['site_address'] ?? ''));
+    $mailingAddress = trim((string) ($item['mailing_address'] ?? ''));
+    $postalAddress = $mailingAddress !== '' ? $mailingAddress : $siteAddress;
+    $postalCode = trim((string) ($item['postal_code'] ?? ''));
+    $city = trim((string) ($item['city'] ?? ''));
+
+    if ($city === '' && $siteAddress !== '' && str_contains($siteAddress, ',')) {
+        $city = trim((string) strtok($siteAddress, ','));
+    }
+
+    return [
+        'is_legal_entity' => minicrm_work_item_legal_entity($item),
+        'requester_name' => trim((string) ($item['customer_name'] ?: $item['card_name'] ?: 'MiniCRM ugyfel')),
+        'birth_name' => trim((string) ($item['birth_name'] ?? '')),
+        'company_name' => '',
+        'tax_number' => minicrm_work_item_raw_value_by_patterns($item, ['/adoszam/']),
+        'phone' => minicrm_work_item_raw_value_by_patterns($item, ['/telefon/', '/mobilszam/', '/phone/']),
+        'email' => minicrm_work_item_raw_email($item),
+        'postal_address' => $postalAddress !== '' ? $postalAddress : (string) ($item['card_name'] ?? 'MiniCRM import'),
+        'postal_code' => $postalCode,
+        'city' => $city,
+        'mailing_address' => $mailingAddress,
+        'mother_name' => trim((string) ($item['mother_name'] ?? '')),
+        'birth_place' => trim((string) ($item['birth_place'] ?? '')),
+        'birth_date' => minicrm_work_item_normalized_date((string) ($item['birth_date'] ?? '')),
+        'contact_data_accepted' => 0,
+        'source' => 'MiniCRM import',
+        'status' => trim((string) ($item['minicrm_status'] ?? 'MiniCRM import')),
+        'notes' => 'MiniCRM azonosito: ' . (string) ($item['source_id'] ?? ''),
+    ];
+}
+
+function minicrm_work_item_request_notes(array $item): string
+{
+    $notes = [];
+
+    foreach ([
+        'Munka tipusa' => $item['work_type'] ?? '',
+        'Munka jellege' => $item['work_kind'] ?? '',
+        'Vezetek' => $item['wire_type'] ?? '',
+        'Meroszekreny' => $item['meter_cabinet'] ?? '',
+        'Vezetek megjegyzes' => $item['wire_note'] ?? '',
+        'Szekreny megjegyzes' => $item['cabinet_note'] ?? '',
+    ] as $label => $value) {
+        $value = trim((string) $value);
+
+        if ($value !== '') {
+            $notes[] = $label . ': ' . $value;
+        }
+    }
+
+    $rawNote = minicrm_work_item_raw_value_by_patterns($item, ['/megjegyzes/', '/uzenet/', '/szoveg/', '/leiras/']);
+
+    if ($rawNote !== '') {
+        $notes[] = $rawNote;
+    }
+
+    return implode("\n", array_unique($notes));
+}
+
+function minicrm_work_item_request_data(array $item): array
+{
+    $siteAddress = trim((string) ($item['site_address'] ?? ''));
+    $meterSerial = trim((string) ($item['meter_serial'] ?? ''));
+
+    if ($siteAddress === '') {
+        $siteAddress = trim((string) ($item['mailing_address'] ?? ''));
+    }
+
+    if ($siteAddress === '') {
+        $siteAddress = trim((string) ($item['card_name'] ?? 'MiniCRM import'));
+    }
+
+    $requestType = trim((string) ($item['request_type'] ?? ''));
+    $requestType = isset(connection_request_type_options()[$requestType]) ? $requestType : 'phase_upgrade';
+    $meterSerial = $meterSerial !== '' ? $meterSerial : trim((string) ($item['controlled_meter_serial'] ?? ''));
+
+    return [
+        'request_type' => $requestType,
+        'project_name' => trim((string) ($item['card_name'] ?? 'MiniCRM munka')),
+        'site_address' => $siteAddress,
+        'site_postal_code' => trim((string) ($item['postal_code'] ?? '')),
+        'hrsz' => trim((string) ($item['hrsz'] ?? '')),
+        'meter_serial' => $meterSerial,
+        'consumption_place_id' => trim((string) ($item['consumption_place_id'] ?? '')),
+        'existing_general_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*mindennap/', '/jelenlegi.*mindennap/', '/jml/']),
+        'requested_general_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*mindennap/', '/iml/']),
+        'existing_h_tariff_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*h tarifa/', '/jelenlegi.*h tarifa/', '/jelenlegi_h/']),
+        'requested_h_tariff_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*h tarifa/', '/ihl/']),
+        'existing_controlled_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*vezerelt/', '/jelenlegi.*vezerelt/', '/jvl/']),
+        'requested_controlled_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*vezerelt/', '/ivl/']),
+        'notes' => minicrm_work_item_request_notes($item),
+    ];
+}
+
+function minicrm_db_text(string $value, int $length): string
+{
+    if (function_exists('mb_substr')) {
+        return mb_substr($value, 0, $length, 'UTF-8');
+    }
+
+    return substr($value, 0, $length);
+}
+
+function minicrm_connection_request_file_type(array $file): string
+{
+    $text = minicrm_import_key((string) ($file['label'] ?? '') . ' ' . (string) ($file['original_name'] ?? ''));
+
+    if (preg_match('/meghatalmazas|alairt meghatalmazas/', $text)) {
+        return 'authorization';
+    }
+
+    if (preg_match('/tulajdoni|foldhivatali/', $text)) {
+        return 'title_deed';
+    }
+
+    if (preg_match('/terkep|map/', $text)) {
+        return 'map_copy';
+    }
+
+    if (preg_match('/hozzajarulo|hozzajarulas/', $text)) {
+        return 'consent_statement';
+    }
+
+    if (preg_match('/klima|matrica/', $text)) {
+        return 'h_tariff_label';
+    }
+
+    if (preg_match('/muszaki adatlap|adatlap/', $text)) {
+        return 'h_tariff_datasheet';
+    }
+
+    if (preg_match('/oszlop/', $text)) {
+        return 'utility_pole';
+    }
+
+    if (preg_match('/tetotarto|falihorog|kampo/', $text)) {
+        return 'roof_hook';
+    }
+
+    if (preg_match('/eloszto|elosztotabla|lakás aramkori/', $text)) {
+        return 'distribution_board';
+    }
+
+    if (preg_match('/mero|meroor|szekreny/', $text)) {
+        return 'meter_close';
+    }
+
+    return 'completed_document';
+}
+
+function minicrm_connection_request_document_type(array $file): ?string
+{
+    $text = minicrm_import_key((string) ($file['label'] ?? '') . ' ' . (string) ($file['original_name'] ?? ''));
+
+    if (preg_match('/ugyinditas|igenybejelento|bekuldott igeny/', $text)) {
+        return preg_match('/alairt|elfogadott|mvm alairt/', $text) ? 'accepted_request' : 'submitted_request';
+    }
+
+    if (preg_match('/terv|kiviteli/', $text)) {
+        return 'execution_plan';
+    }
+
+    if (preg_match('/kesz.*beavatkozasi|beavatkozasi.*kesz/', $text)) {
+        return 'completed_intervention_sheet';
+    }
+
+    if (preg_match('/beavatkozasi/', $text)) {
+        return 'intervention_sheet';
+    }
+
+    if (preg_match('/epitesi naplo/', $text)) {
+        return 'construction_log';
+    }
+
+    if (preg_match('/nyilatkozatok adatlap/', $text)) {
+        return 'technical_declaration';
+    }
+
+    if (preg_match('/muszaki atadas|atadas atveteli/', $text)) {
+        return 'technical_handover';
+    }
+
+    return null;
+}
+
+function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null || !db_table_exists('connection_request_files')) {
+        return [];
+    }
+
+    $definitions = connection_request_upload_definitions();
+    $warnings = [];
+
+    foreach (minicrm_work_item_files($workItemId) as $file) {
+        $storagePath = (string) ($file['storage_path'] ?? '');
+
+        if ($storagePath === '' || !is_file($storagePath)) {
+            continue;
+        }
+
+        $exists = db_query(
+            'SELECT 1 FROM `connection_request_files` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
+            [$requestId, $storagePath]
+        )->fetchColumn();
+
+        if (!$exists) {
+            $fileType = minicrm_connection_request_file_type($file);
+            $label = (string) ($definitions[$fileType]['label'] ?? ($file['label'] ?? 'MiniCRM dokumentum'));
+
+            db_query(
+                'INSERT INTO `connection_request_files`
+                    (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $requestId,
+                    $fileType,
+                    minicrm_db_text($label, 160),
+                    minicrm_db_text((string) ($file['original_name'] ?? basename($storagePath)), 190),
+                    minicrm_db_text((string) ($file['stored_name'] ?? basename($storagePath)), 190),
+                    minicrm_db_text($storagePath, 255),
+                    minicrm_db_text((string) ($file['mime_type'] ?? 'application/octet-stream'), 80),
+                    min((int) ($file['file_size'] ?? filesize($storagePath)), 2147483647),
+                ]
+            );
+        }
+
+        $documentType = minicrm_connection_request_document_type($file);
+
+        if ($documentType === null || !db_table_exists('connection_request_documents')) {
+            continue;
+        }
+
+        $documentExists = db_query(
+            'SELECT 1 FROM `connection_request_documents` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
+            [$requestId, $storagePath]
+        )->fetchColumn();
+
+        if ($documentExists) {
+            continue;
+        }
+
+        try {
+            $types = mvm_document_types();
+            db_query(
+                'INSERT INTO `connection_request_documents`
+                    (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+                     `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $requestId,
+                    (int) $request['customer_id'],
+                    $documentType,
+                    $types[$documentType] ?? 'MiniCRM MVM dokumentum',
+                    minicrm_db_text((string) ($file['original_name'] ?? basename($storagePath)), 190),
+                    minicrm_db_text((string) ($file['stored_name'] ?? basename($storagePath)), 190),
+                    minicrm_db_text($storagePath, 255),
+                    minicrm_db_text((string) ($file['mime_type'] ?? 'application/octet-stream'), 120),
+                    min((int) ($file['file_size'] ?? filesize($storagePath)), 2147483647),
+                    is_array(current_user()) ? (int) current_user()['id'] : null,
+                ]
+            );
+        } catch (Throwable $exception) {
+            $warnings[] = APP_DEBUG
+                ? 'MiniCRM MVM dokumentum szinkron hiba: ' . $exception->getMessage()
+                : 'Egy MiniCRM dokumentumot nem sikerult MVM dokumentumkent atvenni.';
+        }
+    }
+
+    return $warnings;
+}
+
+function ensure_minicrm_work_item_connection_request(int $workItemId): array
+{
+    $schemaErrors = minicrm_connection_request_link_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM munka nem talalhato.'];
+    }
+
+    $link = minicrm_work_item_connection_link($workItemId);
+    $customerData = minicrm_work_item_customer_data($item);
+    $requestData = minicrm_work_item_request_data($item);
+    $user = current_user();
+    $createdBy = is_array($user) ? (int) $user['id'] : null;
+    $customerId = $link !== null ? (int) $link['customer_id'] : 0;
+    $requestId = $link !== null ? (int) $link['connection_request_id'] : 0;
+    $existingRequest = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($existingRequest !== null) {
+        $customerId = (int) $existingRequest['customer_id'];
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        $existingCustomer = $customerId > 0 ? find_customer($customerId) : null;
+
+        if ($existingCustomer !== null) {
+            update_customer($customerId, $customerData);
+        } else {
+            $customerId = create_customer($customerData, null, $createdBy);
+
+            if ($existingRequest !== null) {
+                db_query('UPDATE `connection_requests` SET `customer_id` = ? WHERE `id` = ?', [$customerId, $requestId]);
+            }
+        }
+
+        if ($requestId > 0 && $existingRequest !== null) {
+            save_connection_request($customerId, $requestData, $requestId, $createdBy, true);
+        } else {
+            $requestId = save_connection_request($customerId, $requestData, null, $createdBy, true);
+            db_query(
+                'UPDATE `connection_requests`
+                 SET `request_status` = ?, `submitted_at` = COALESCE(`submitted_at`, NOW()), `closed_at` = COALESCE(`closed_at`, NOW())
+                 WHERE `id` = ?',
+                ['finalized', $requestId]
+            );
+        }
+
+        db_query(
+            'INSERT INTO `minicrm_connection_request_links`
+                (`work_item_id`, `source_id`, `customer_id`, `connection_request_id`)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                `source_id` = VALUES(`source_id`),
+                `customer_id` = VALUES(`customer_id`),
+                `connection_request_id` = VALUES(`connection_request_id`),
+                `updated_at` = CURRENT_TIMESTAMP',
+            [
+                $workItemId,
+                (string) ($item['source_id'] ?? ''),
+                $customerId,
+                $requestId,
+            ]
+        );
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM munka MVM dokumentumhoz kapcsolasa sikertelen.',
+        ];
+    }
+
+    $warnings = [];
+
+    try {
+        $warnings = sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId);
+    } catch (Throwable $exception) {
+        $warnings[] = APP_DEBUG
+            ? 'MiniCRM fajlok szinkronizalasa sikertelen: ' . $exception->getMessage()
+            : 'A MiniCRM fajlok automatikus atvetele nem sikerult.';
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'A MiniCRM munka MVM dokumentumgeneralohoz kapcsolva.',
+        'request_id' => $requestId,
+        'customer_id' => $customerId,
+        'warnings' => $warnings,
+    ];
 }
 
 function minicrm_work_item_count(): int

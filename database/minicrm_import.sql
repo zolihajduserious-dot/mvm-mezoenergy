@@ -84,3 +84,20 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_connection_request_links` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `work_item_id` INT UNSIGNED NOT NULL,
+    `source_id` VARCHAR(80) NOT NULL,
+    `customer_id` INT UNSIGNED NOT NULL,
+    `connection_request_id` INT UNSIGNED NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_connection_links_work_item` (`work_item_id`),
+    KEY `idx_minicrm_connection_links_source_id` (`source_id`),
+    KEY `idx_minicrm_connection_links_customer` (`customer_id`),
+    KEY `idx_minicrm_connection_links_request` (`connection_request_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
