@@ -11454,6 +11454,17 @@ function minicrm_work_items(int $limit = 500): array
     )->fetchAll();
 }
 
+function find_minicrm_work_item(int $id): ?array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return null;
+    }
+
+    $item = db_query('SELECT * FROM `minicrm_work_items` WHERE `id` = ? LIMIT 1', [$id])->fetch();
+
+    return is_array($item) ? $item : null;
+}
+
 function minicrm_work_item_count(): int
 {
     if (!db_table_exists('minicrm_work_items')) {
@@ -11535,25 +11546,91 @@ function find_minicrm_work_item_file(int $fileId): ?array
     return is_array($file) ? $file : null;
 }
 
-function minicrm_work_item_raw_fields(array $item): array
+function minicrm_import_clean_field_value(mixed $value): string
+{
+    if ($value instanceof DateTimeInterface) {
+        return $value->format('Y-m-d');
+    }
+
+    $value = trim((string) $value);
+    $value = str_replace(["\r\n", "\r"], "\n", $value);
+    $value = preg_replace('/[ \t]+/u', ' ', $value);
+    $value = preg_replace("/\n{3,}/", "\n\n", (string) $value);
+
+    return is_string($value) ? $value : '';
+}
+
+function minicrm_import_payload_from_columns(array $columns): array
+{
+    $payloadColumns = [];
+
+    foreach ($columns as $position => $column) {
+        if (!is_array($column)) {
+            continue;
+        }
+
+        $index = (int) ($column['index'] ?? ($position + 1));
+        $header = minicrm_import_clean($column['header'] ?? ($column['label'] ?? ('Oszlop ' . $index)));
+        $value = minicrm_import_clean_field_value($column['value'] ?? '');
+
+        if ($header === '') {
+            continue;
+        }
+
+        $payloadColumns[] = [
+            'index' => $index > 0 ? $index : count($payloadColumns) + 1,
+            'header' => $header,
+            'value' => $value,
+        ];
+    }
+
+    return ['columns' => $payloadColumns];
+}
+
+function minicrm_work_item_raw_columns(array $item): array
 {
     $decoded = json_decode((string) ($item['raw_payload'] ?? '{}'), true);
     $columns = is_array($decoded) && is_array($decoded['columns'] ?? null) ? $decoded['columns'] : [];
     $fields = [];
 
-    foreach ($columns as $column) {
+    foreach ($columns as $position => $column) {
         if (!is_array($column)) {
             continue;
         }
 
-        $label = minicrm_import_header_label((string) ($column['header'] ?? ''));
-        $value = minicrm_import_clean($column['value'] ?? '');
+        $index = (int) ($column['index'] ?? ($position + 1));
+        $header = minicrm_import_clean($column['header'] ?? ('Oszlop ' . $index));
+        $label = minicrm_import_header_label($header);
+
+        if ($label === '') {
+            continue;
+        }
+
+        $fields[] = [
+            'index' => $index > 0 ? $index : $position + 1,
+            'header' => $header,
+            'label' => $label,
+            'value' => minicrm_import_clean_field_value($column['value'] ?? ''),
+        ];
+    }
+
+    return $fields;
+}
+
+function minicrm_work_item_raw_fields(array $item): array
+{
+    $fields = [];
+
+    foreach (minicrm_work_item_raw_columns($item) as $column) {
+        $label = (string) ($column['label'] ?? '');
+        $value = minicrm_import_clean_field_value($column['value'] ?? '');
 
         if ($label === '' || $value === '') {
             continue;
         }
 
         $fields[] = [
+            'index' => (int) ($column['index'] ?? 0),
             'label' => $label,
             'value' => $value,
         ];
@@ -11562,7 +11639,7 @@ function minicrm_work_item_raw_fields(array $item): array
     return $fields;
 }
 
-function minicrm_work_item_field_groups(array $item): array
+function minicrm_work_item_field_groups(array $item, bool $includeEmpty = false): array
 {
     $groups = [
         'base' => ['title' => 'Alapadatok', 'fields' => []],
@@ -11575,7 +11652,9 @@ function minicrm_work_item_field_groups(array $item): array
         'other' => ['title' => 'Egyeb MiniCRM mezok', 'fields' => []],
     ];
 
-    foreach (minicrm_work_item_raw_fields($item) as $field) {
+    $fields = $includeEmpty ? minicrm_work_item_raw_columns($item) : minicrm_work_item_raw_fields($item);
+
+    foreach ($fields as $field) {
         $key = minicrm_import_key((string) ($field['label'] ?? ''));
         $value = (string) ($field['value'] ?? '');
         $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
@@ -11604,6 +11683,148 @@ function minicrm_work_item_field_groups(array $item): array
     }
 
     return array_filter($groups, static fn (array $group): bool => $group['fields'] !== []);
+}
+
+function update_minicrm_work_item_fields(int $id, array $fieldValues): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return ['ok' => false, 'message' => 'A MiniCRM import tábla nem érhető el.'];
+    }
+
+    $item = find_minicrm_work_item($id);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM munka nem található.'];
+    }
+
+    $columns = minicrm_work_item_raw_columns($item);
+
+    if ($columns === []) {
+        return ['ok' => false, 'message' => 'Ehhez a munkához nincs menthető MiniCRM mező.'];
+    }
+
+    $postedValues = [];
+
+    foreach ($fieldValues as $index => $value) {
+        if (is_array($value)) {
+            continue;
+        }
+
+        $postedValues[(int) $index] = minicrm_import_clean_field_value($value);
+    }
+
+    $hasSourceColumn = false;
+
+    foreach ($columns as $position => $column) {
+        $index = (int) ($column['index'] ?? ($position + 1));
+
+        if (minicrm_import_key((string) ($column['label'] ?? '')) === 'azonosito') {
+            $hasSourceColumn = true;
+        }
+
+        if (array_key_exists($index, $postedValues)) {
+            $columns[$position]['value'] = $postedValues[$index];
+        }
+    }
+
+    $headers = array_map(static fn (array $column): string => (string) ($column['header'] ?? $column['label'] ?? ''), $columns);
+    $values = array_map(static fn (array $column): string => (string) ($column['value'] ?? ''), $columns);
+    $data = minicrm_import_row_data_from_headers($headers, $values);
+    $oldSourceId = (string) ($item['source_id'] ?? '');
+
+    if (($data['source_id'] ?? '') === '') {
+        if ($hasSourceColumn) {
+            return ['ok' => false, 'message' => 'A MiniCRM azonosító nem lehet üres, mert ehhez kapcsolódnak a dokumentumok.'];
+        }
+
+        $data['source_id'] = $oldSourceId;
+    }
+
+    $newSourceId = (string) $data['source_id'];
+
+    if ($newSourceId !== $oldSourceId) {
+        $existing = db_query(
+            'SELECT `id` FROM `minicrm_work_items` WHERE `source_id` = ? AND `id` <> ? LIMIT 1',
+            [$newSourceId, $id]
+        )->fetch();
+
+        if (is_array($existing)) {
+            return ['ok' => false, 'message' => 'Ez a MiniCRM azonosító már egy másik munkához tartozik.'];
+        }
+    }
+
+    $data['raw_payload'] = minicrm_import_json(minicrm_import_payload_from_columns($columns));
+    $updateColumns = [
+        'source_id',
+        'card_name',
+        'customer_name',
+        'responsible',
+        'minicrm_status',
+        'work_type',
+        'work_kind',
+        'request_type',
+        'date_value',
+        'submitted_date',
+        'birth_name',
+        'birth_place',
+        'birth_date',
+        'mother_name',
+        'mailing_address',
+        'postal_code',
+        'city',
+        'site_address',
+        'street',
+        'house_number',
+        'floor_door',
+        'hrsz',
+        'consumption_place_id',
+        'meter_serial',
+        'controlled_meter_serial',
+        'wire_type',
+        'meter_cabinet',
+        'meter_location',
+        'pole_type',
+        'wire_note',
+        'cabinet_note',
+        'document_links_json',
+        'raw_payload',
+    ];
+    $params = [];
+
+    foreach ($updateColumns as $column) {
+        if (in_array($column, ['source_id', 'card_name', 'document_links_json', 'raw_payload'], true)) {
+            $params[] = $data[$column] ?? '';
+        } else {
+            $params[] = minicrm_import_nullable((string) ($data[$column] ?? ''));
+        }
+    }
+
+    $params[] = $id;
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        db_query(
+            'UPDATE `minicrm_work_items`
+             SET `' . implode('` = ?, `', $updateColumns) . '` = ?, `updated_at` = CURRENT_TIMESTAMP
+             WHERE `id` = ?',
+            $params
+        );
+
+        if ($newSourceId !== $oldSourceId && db_table_exists('minicrm_work_item_files')) {
+            db_query('UPDATE `minicrm_work_item_files` SET `source_id` = ? WHERE `work_item_id` = ?', [$newSourceId, $id]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM mezők mentése sikertelen.'];
+    }
+
+    return ['ok' => true, 'message' => 'A MiniCRM mezők mentve.'];
 }
 
 function minicrm_status_class(?string $status): string

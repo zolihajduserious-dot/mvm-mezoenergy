@@ -36,6 +36,19 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_document_zip') {
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $result = update_minicrm_work_item_fields(
+        $workItemId,
+        is_array($_POST['minicrm_fields'] ?? null) ? $_POST['minicrm_fields'] : []
+    );
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A MiniCRM mezők mentése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
     require_valid_csrf_token();
 
@@ -394,7 +407,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $actualDocumentLinks = $isSelectedItem ? minicrm_import_actual_document_links($documentLinks) : [];
                             $localFiles = $isSelectedItem ? minicrm_work_item_files($itemId) : [];
                             $rawFields = $isSelectedItem ? minicrm_work_item_raw_fields($item) : [];
-                            $fieldGroups = $isSelectedItem ? minicrm_work_item_field_groups($item) : [];
+                            $fieldGroups = $isSelectedItem ? minicrm_work_item_field_groups($item, true) : [];
                             $timelineEvents = $isSelectedItem ? minicrm_import_timeline_events($item, $rawFields, $localFiles) : [];
                             $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
                             $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
@@ -534,7 +547,17 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                     <p class="request-admin-empty">Ehhez a tételhez nincs részletes MiniCRM mező eltárolva.</p>
                                                 </section>
                                             <?php else: ?>
-                                                <div class="minicrm-readable-groups minicrm-field-groups">
+                                                <form class="minicrm-readable-groups minicrm-field-groups minicrm-edit-form" method="post" action="<?= h(url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId); ?>">
+                                                    <?= csrf_field(); ?>
+                                                    <input type="hidden" name="action" value="update_minicrm_work_item">
+                                                    <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                    <div class="minicrm-field-edit-actions">
+                                                        <div>
+                                                            <strong>MiniCRM mezők szerkesztése</strong>
+                                                            <span>Minden látható importált mező menthető. A lista adatai is frissülnek.</span>
+                                                        </div>
+                                                        <button class="button button-primary" type="submit">Mezők mentése</button>
+                                                    </div>
                                                     <?php $groupIndex = 0; ?>
                                                     <?php foreach ($fieldGroups as $group): ?>
                                                         <details class="minicrm-field-group" <?= $groupIndex < 3 ? 'open' : ''; ?>>
@@ -545,15 +568,26 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                             <div class="minicrm-readable-grid">
                                                                 <?php foreach ($group['fields'] as $rawField): ?>
                                                                     <?php
+                                                                    $fieldIndex = (int) ($rawField['index'] ?? 0);
+                                                                    if ($fieldIndex <= 0) {
+                                                                        continue;
+                                                                    }
                                                                     $rawValue = (string) $rawField['value'];
+                                                                    $rawKey = minicrm_import_key((string) $rawField['label']);
                                                                     $rawIsUrl = str_starts_with($rawValue, 'http://') || str_starts_with($rawValue, 'https://');
+                                                                    $useTextarea = $rawIsUrl || strlen($rawValue) > 90 || preg_match('/(megjegyzes|uzenet|szoveg|link|dokumentum|foto|feltoltes|leiras)/', $rawKey);
+                                                                    $textareaRows = max(2, min(6, (int) ceil(max(1, strlen($rawValue)) / 90)));
+                                                                    $fieldDomId = 'minicrm-field-' . $itemId . '-' . $fieldIndex;
                                                                     ?>
-                                                                    <article class="minicrm-readable-row">
-                                                                        <span><?= h((string) $rawField['label']); ?></span>
-                                                                        <?php if ($rawIsUrl): ?>
-                                                                            <a href="<?= h($rawValue); ?>" target="_blank" rel="noopener">Megnyitás</a>
+                                                                    <article class="minicrm-readable-row minicrm-editable-row">
+                                                                        <label for="<?= h($fieldDomId); ?>"><span><?= h((string) $rawField['label']); ?></span></label>
+                                                                        <?php if ($useTextarea): ?>
+                                                                            <textarea id="<?= h($fieldDomId); ?>" name="minicrm_fields[<?= $fieldIndex; ?>]" rows="<?= $textareaRows; ?>"><?= h($rawValue); ?></textarea>
                                                                         <?php else: ?>
-                                                                            <strong><?= h($rawValue); ?></strong>
+                                                                            <input id="<?= h($fieldDomId); ?>" type="text" name="minicrm_fields[<?= $fieldIndex; ?>]" value="<?= h($rawValue); ?>">
+                                                                        <?php endif; ?>
+                                                                        <?php if ($rawIsUrl): ?>
+                                                                            <a href="<?= h($rawValue); ?>" target="_blank" rel="noopener">Link megnyitása</a>
                                                                         <?php endif; ?>
                                                                     </article>
                                                                 <?php endforeach; ?>
@@ -561,7 +595,11 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                         </details>
                                                         <?php $groupIndex++; ?>
                                                     <?php endforeach; ?>
-                                                </div>
+                                                    <div class="minicrm-field-edit-actions minicrm-field-edit-actions-bottom">
+                                                        <span>A mentéssel az adatlap neve, státusza, felelőse és címe is újraszámolódik.</span>
+                                                        <button class="button button-primary" type="submit">Mezők mentése</button>
+                                                    </div>
+                                                </form>
                                             <?php endif; ?>
                                         </div>
                                     </div>

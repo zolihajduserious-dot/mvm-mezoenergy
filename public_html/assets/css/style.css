@@ -4149,6 +4149,83 @@ a.metric-card {
     line-height: 1.35;
 }
 
+.minicrm-edit-form {
+    align-items: stretch;
+}
+
+.minicrm-field-edit-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid rgba(0, 140, 115, 0.14);
+    border-radius: 8px;
+    background: rgba(0, 140, 115, 0.05);
+}
+
+.minicrm-field-edit-actions div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.minicrm-field-edit-actions strong {
+    color: var(--color-text);
+    font-size: 0.9rem;
+    font-weight: 950;
+}
+
+.minicrm-field-edit-actions span {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.minicrm-field-edit-actions .button {
+    flex: 0 0 auto;
+}
+
+.minicrm-field-edit-actions-bottom {
+    justify-content: flex-end;
+}
+
+.minicrm-editable-row {
+    cursor: text;
+}
+
+.minicrm-editable-row input,
+.minicrm-editable-row textarea {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid rgba(190, 205, 220, 0.92);
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.minicrm-editable-row input {
+    min-height: 38px;
+    padding: 8px 9px;
+}
+
+.minicrm-editable-row textarea {
+    min-height: 72px;
+    padding: 8px 9px;
+    resize: vertical;
+}
+
+.minicrm-editable-row input:focus,
+.minicrm-editable-row textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(0, 140, 115, 0.12);
+    outline: none;
+}
+
 .admin-request-doc-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
