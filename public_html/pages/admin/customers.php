@@ -67,6 +67,12 @@ try {
         <?php else: ?>
             <div class="table-wrap">
                 <table class="data-table admin-customers-table">
+                    <colgroup>
+                        <col class="customer-col-main">
+                        <col class="customer-col-details">
+                        <col class="customer-col-requests">
+                        <col class="customer-col-actions">
+                    </colgroup>
                     <thead><tr><th>Ügyfél</th><th>Adatok</th><th>Igények</th><th>Műveletek</th></tr></thead>
                     <tbody>
                         <?php foreach ($customers as $customer): ?>
@@ -91,11 +97,11 @@ try {
                                             $requestLabel = trim((string) ($customerRequest['project_name'] ?? ''));
                                             $requestLabel = $requestLabel !== '' ? $requestLabel : '#' . (int) $customerRequest['id'];
                                             $requestStatus = (string) ($customerRequest['request_status'] ?? 'draft');
-                                            $requestAddress = trim((string) ($customerRequest['site_postal_code'] ?? '') . ' ' . (string) ($customerRequest['site_address'] ?? ''));
+                                            $requestType = connection_request_type_label((string) ($customerRequest['request_type'] ?? ''));
                                             ?>
                                             <a class="customer-request-item" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $customerRequest['id']); ?>">
                                                 <strong><?= h($requestLabel); ?></strong>
-                                                <span><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?><?= $requestAddress !== '' ? ' · ' . h($requestAddress) : ''; ?></span>
+                                                <span><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?> · <?= h($requestType); ?></span>
                                             </a>
                                         <?php endforeach; ?>
                                         <?php if ($customerRequests === []): ?><span class="customer-request-empty">Nincs rögzített igény</span><?php endif; ?>
