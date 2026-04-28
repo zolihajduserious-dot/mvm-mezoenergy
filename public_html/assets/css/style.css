@@ -1071,6 +1071,7 @@ a.metric-card {
 }
 
 .inline-link-list a,
+.inline-link-list button,
 .table-actions a,
 .table-actions .table-action-button {
     display: inline-flex;
@@ -1090,6 +1091,8 @@ a.metric-card {
 
 .inline-link-list a:hover,
 .inline-link-list a:focus,
+.inline-link-list button:hover,
+.inline-link-list button:focus,
 .table-actions a:hover,
 .table-actions a:focus,
 .table-actions .table-action-button:hover,

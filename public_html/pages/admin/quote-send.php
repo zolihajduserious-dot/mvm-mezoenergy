@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_role(['admin', 'specialist']);
 
 $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+$minicrmItemId = filter_input(INPUT_GET, 'minicrm_item', FILTER_VALIDATE_INT);
 $quote = $id ? find_quote($id) : null;
 
 if ($quote === null) {
@@ -28,7 +29,13 @@ if (is_post()) {
     }
 
     set_flash($result['ok'] ? 'success' : 'error', $message);
-    redirect('/admin/quotes/send?id=' . (int) $quote['id']);
+    $redirectUrl = '/admin/quotes/send?id=' . (int) $quote['id'];
+
+    if ($minicrmItemId) {
+        $redirectUrl .= '&minicrm_item=' . (int) $minicrmItemId;
+    }
+
+    redirect($redirectUrl);
 }
 
 $flash = get_flash();
@@ -38,6 +45,13 @@ $feeRequestSelection = quote_fee_request_selection((int) $quote['id']);
 $feeRequestLine = is_array($feeRequestSelection['line'] ?? null) ? $feeRequestSelection['line'] : null;
 $feeRequestFileUrl = quote_fee_request_file_is_available($quote) ? url_path('/admin/quotes/fee-request-file') . '?id=' . (int) $quote['id'] : null;
 $feeRequestBlockedMessage = null;
+$quoteEditUrl = url_path('/admin/quotes/edit') . '?id=' . (int) $quote['id'];
+$quoteSendActionUrl = url_path('/admin/quotes/send') . '?id=' . (int) $quote['id'];
+
+if ($minicrmItemId) {
+    $quoteEditUrl .= '&minicrm_item=' . (int) $minicrmItemId;
+    $quoteSendActionUrl .= '&minicrm_item=' . (int) $minicrmItemId;
+}
 
 if ((string) ($quote['status'] ?? '') !== 'accepted') {
     $feeRequestBlockedMessage = 'Díjbekérő csak elfogadott árajánlatból küldhető.';
@@ -57,7 +71,7 @@ if ((string) ($quote['status'] ?? '') !== 'accepted') {
                 <h1>PDF és email küldés</h1>
                 <p><?= h($quote['quote_number']); ?> · <?= h($quote['requester_name']); ?></p>
             </div>
-            <a class="button button-secondary" href="<?= h(url_path('/admin/quotes/edit') . '?id=' . (int) $quote['id']); ?>">Vissza az ajánlathoz</a>
+            <a class="button button-secondary" href="<?= h($quoteEditUrl); ?>">Vissza az ajánlathoz</a>
         </div>
 
         <section class="auth-panel quote-send-panel">
@@ -113,7 +127,7 @@ if ((string) ($quote['status'] ?? '') !== 'accepted') {
             </div>
 
             <dialog class="quote-action-dialog" id="quoteActionDialog" aria-labelledby="quoteActionDialogTitle">
-                <form class="quote-action-dialog-card" method="post" action="<?= h(url_path('/admin/quotes/send') . '?id=' . (int) $quote['id']); ?>">
+                <form class="quote-action-dialog-card" method="post" action="<?= h($quoteSendActionUrl); ?>">
                 <?= csrf_field(); ?>
                     <input type="hidden" id="quoteActionInput" name="action" value="pdf">
                     <div>

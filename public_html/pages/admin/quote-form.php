@@ -6,8 +6,10 @@ require_role(['admin', 'specialist']);
 $quoteId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 $customerId = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
 $requestId = filter_input(INPUT_GET, 'request_id', FILTER_VALIDATE_INT);
+$minicrmItemId = filter_input(INPUT_GET, 'minicrm_item', FILTER_VALIDATE_INT);
 $quote = $quoteId ? find_quote($quoteId) : null;
 $request = $requestId ? find_connection_request($requestId) : null;
+$minicrmItem = $minicrmItemId ? find_minicrm_work_item((int) $minicrmItemId) : null;
 
 if ($quoteId && $quote === null) {
     set_flash('error', 'Az ajánlat nem található.');
@@ -20,6 +22,17 @@ if ($quote !== null) {
     $request = $requestId ? find_connection_request($requestId) : null;
 } elseif ($requestId && $request !== null) {
     $customerId = (int) $request['customer_id'];
+} elseif ($minicrmItemId) {
+    $minicrmLinkResult = ensure_minicrm_work_item_connection_request((int) $minicrmItemId);
+
+    if (!($minicrmLinkResult['ok'] ?? false)) {
+        set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka árajánlathoz kapcsolása sikertelen.'));
+        redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+    }
+
+    $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
+    $request = $requestId ? find_connection_request($requestId) : null;
+    $customerId = (int) ($minicrmLinkResult['customer_id'] ?? 0);
 }
 
 $customer = $customerId ? find_customer($customerId) : null;
@@ -28,6 +41,13 @@ if ($customer === null) {
     set_flash('error', 'Előbb válassz ügyfelet.');
     redirect('/admin/customers');
 }
+
+$backUrl = $minicrmItemId
+    ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
+    : ($request !== null ? url_path('/admin/connection-requests') : url_path('/admin/quotes'));
+$backLabel = $minicrmItemId
+    ? 'Vissza a MiniCRM munkához'
+    : ($request !== null ? 'Vissza az igényekhez' : 'Ajánlatlista');
 
 $customerRequests = connection_requests_for_customer((int) $customer['id']);
 
@@ -110,7 +130,13 @@ if (is_post()) {
             }
 
             set_flash('success', $quoteId ? 'Az ajánlat frissült.' : 'Az ajánlat létrejött.');
-            redirect('/admin/quotes/edit?id=' . $savedQuoteId);
+            $savedQuoteUrl = '/admin/quotes/edit?id=' . $savedQuoteId;
+
+            if ($minicrmItemId) {
+                $savedQuoteUrl .= '&minicrm_item=' . (int) $minicrmItemId;
+            }
+
+            redirect($savedQuoteUrl);
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az ajánlat mentése sikertelen.';
         }
@@ -175,11 +201,14 @@ if ($customRows === []) {
     <div class="container">
         <div class="admin-header">
             <div>
-                <p class="eyebrow">Admin</p>
+                <p class="eyebrow"><?= $minicrmItemId ? 'MiniCRM' : 'Admin'; ?></p>
                 <h1><?= $quoteId ? 'Ajánlat szerkesztése' : 'Ajánlat készítése'; ?></h1>
                 <p><?= h($customer['requester_name']); ?> - <?= h($customer['email']); ?><?= $request !== null ? ' · ' . h((string) $request['project_name']) : ''; ?></p>
+                <?php if ($minicrmItem !== null): ?>
+                    <p class="muted-text">MiniCRM adatlap: <?= h((string) ($minicrmItem['card_name'] ?? $minicrmItem['source_id'] ?? '')); ?></p>
+                <?php endif; ?>
             </div>
-            <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/connection-requests') : url_path('/admin/quotes')); ?>"><?= $request !== null ? 'Vissza az igényekhez' : 'Ajánlatlista'; ?></a>
+            <a class="button button-secondary" href="<?= h($backUrl); ?>"><?= h($backLabel); ?></a>
         </div>
 
         <?php if ($errors !== []): ?><div class="alert alert-error"><?php foreach ($errors as $error): ?><p><?= h($error); ?></p><?php endforeach; ?></div><?php endif; ?>
@@ -192,6 +221,10 @@ if ($customRows === []) {
 
         if (!$quoteId && $requestId) {
             $formAction .= '&request_id=' . (int) $requestId;
+        }
+
+        if ($minicrmItemId) {
+            $formAction .= '&minicrm_item=' . (int) $minicrmItemId;
         }
         ?>
         <form class="form" method="post" enctype="multipart/form-data" action="<?= h($formAction); ?>">

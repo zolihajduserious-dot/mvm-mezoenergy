@@ -63,6 +63,44 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $quoteId = max(0, (int) ($_POST['quote_id'] ?? 0));
+    $requestId = $workItemId > 0 ? minicrm_work_item_connection_request_id($workItemId) : null;
+
+    if ($workItemId <= 0 || $quoteId <= 0) {
+        set_flash('error', 'Hiányzó MiniCRM munka vagy árajánlat azonosító.');
+        redirect('/admin/minicrm-import');
+    }
+
+    if ($requestId === null) {
+        $linkResult = ensure_minicrm_work_item_connection_request($workItemId);
+
+        if (!($linkResult['ok'] ?? false)) {
+            set_flash('error', (string) ($linkResult['message'] ?? 'A MiniCRM munka normál igényhez kapcsolása sikertelen.'));
+            redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+        }
+
+        $requestId = (int) ($linkResult['request_id'] ?? 0);
+    }
+
+    $quoteIds = array_map(
+        static fn (array $quote): int => (int) $quote['id'],
+        $requestId > 0 ? quotes_for_connection_request($requestId) : []
+    );
+
+    if (!in_array($quoteId, $quoteIds, true)) {
+        set_flash('error', 'Ez az árajánlat nem ehhez a MiniCRM munkához tartozik.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $result = send_quote_fee_request_email($quoteId);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A díjbekérő küldése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
     require_valid_csrf_token();
 
@@ -74,6 +112,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
 $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
+$quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
 $totalItems = count($items);
 $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
 $localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
@@ -428,6 +467,8 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $linkedMvmRequestId = $isSelectedItem ? minicrm_work_item_connection_request_id($itemId) : null;
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
                             $mvmGeneratorUrl = url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . $itemId;
+                            $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
+                            $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
@@ -471,6 +512,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         <div class="request-admin-status">
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
                                             <?php if (!empty($item['responsible'])): ?><span class="status-badge status-badge-finalized"><?= h((string) $item['responsible']); ?></span><?php endif; ?>
+                                            <a class="button" href="<?= h($quoteCreateUrl); ?>">Árajánlat</a>
                                             <a class="button button-secondary" href="<?= h($mvmGeneratorUrl); ?>">MVM dokumentumok</a>
                                         </div>
                                     </div>
@@ -521,6 +563,80 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                         </li>
                                                     <?php endforeach; ?>
                                                 </ol>
+                                            </section>
+
+                                            <section class="minicrm-document-preview-panel minicrm-quote-panel">
+                                                <div class="admin-request-section-title">
+                                                    <h3>Árajánlatkészítő</h3>
+                                                    <span><?= count($linkedMiniCrmQuotes); ?> ajánlat</span>
+                                                </div>
+                                                <p class="muted-text">A MiniCRM munkából ugyanaz az árajánlatkészítő nyílik meg, mint a normál igényeknél. Az elkészült ajánlat itt visszakereshető, PDF-ként küldhető, és elfogadás után díjbekérő is indítható.</p>
+                                                <div class="form-actions">
+                                                    <a class="button" href="<?= h($quoteCreateUrl); ?>">Új árajánlat készítése</a>
+                                                </div>
+                                                <?php if ($linkedMiniCrmQuotes === []): ?>
+                                                    <p class="request-admin-empty">Ehhez a MiniCRM munkához még nincs árajánlat.</p>
+                                                <?php else: ?>
+                                                    <div class="quote-mini-list">
+                                                        <?php foreach ($linkedMiniCrmQuotes as $quote): ?>
+                                                            <?php
+                                                            $quoteId = (int) $quote['id'];
+                                                            $quoteStatus = (string) ($quote['status'] ?? 'draft');
+                                                            $quoteEditUrl = url_path('/admin/quotes/edit') . '?id=' . $quoteId . '&minicrm_item=' . $itemId;
+                                                            $quoteSendUrl = url_path('/admin/quotes/send') . '?id=' . $quoteId . '&minicrm_item=' . $itemId;
+                                                            $quoteFileUrl = quote_file_is_available($quote) ? url_path('/admin/quotes/file') . '?id=' . $quoteId : null;
+                                                            $feeRequestSelection = quote_fee_request_selection($quoteId);
+                                                            $feeRequestLine = is_array($feeRequestSelection['line'] ?? null) ? $feeRequestSelection['line'] : null;
+                                                            $feeRequestFileUrl = quote_fee_request_file_is_available($quote) ? url_path('/admin/quotes/fee-request-file') . '?id=' . $quoteId : null;
+                                                            $feeRequestBlockedMessage = null;
+
+                                                            if ($quoteStatus !== 'accepted') {
+                                                                $feeRequestBlockedMessage = 'Díjbekérő csak elfogadott árajánlatból küldhető.';
+                                                            } elseif (!$feeRequestSelection['ok']) {
+                                                                $feeRequestBlockedMessage = (string) $feeRequestSelection['message'];
+                                                            } elseif ($feeRequestFileUrl !== null) {
+                                                                $feeRequestBlockedMessage = 'A díjbekérő már elkészült.';
+                                                            } elseif (szamlazz_config_value('SZAMLAZZ_AGENT_KEY') === '') {
+                                                                $feeRequestBlockedMessage = 'Nincs beállítva a Számlázz.hu Agent kulcs.';
+                                                            }
+                                                            ?>
+                                                            <article class="quote-mini-card">
+                                                                <div>
+                                                                    <strong><?= h((string) ($quote['quote_number'] ?? ('#' . $quoteId))); ?></strong>
+                                                                    <span><?= h((string) ($quote['subject'] ?? 'Árajánlat')); ?></span>
+                                                                    <?php if ($feeRequestLine !== null): ?>
+                                                                        <span>Díjbekérő tétel: <?= h((string) $feeRequestLine['name']); ?> · <?= h(format_money($feeRequestLine['line_gross'])); ?></span>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                                <div>
+                                                                    <span class="status-badge status-badge-<?= h($quoteStatus); ?>"><?= h($quoteStatusLabels[$quoteStatus] ?? $quoteStatus); ?></span>
+                                                                    <strong><?= h(quote_display_total($quote)); ?></strong>
+                                                                </div>
+                                                                <div class="inline-link-list">
+                                                                    <a href="<?= h($quoteEditUrl); ?>">Szerkesztés</a>
+                                                                    <a href="<?= h($quoteSendUrl); ?>">PDF / email</a>
+                                                                    <?php if ($quoteFileUrl !== null): ?>
+                                                                        <a href="<?= h($quoteFileUrl); ?>" target="_blank">PDF megnyitása</a>
+                                                                    <?php endif; ?>
+                                                                    <?php if ($feeRequestFileUrl !== null): ?>
+                                                                        <a href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a>
+                                                                    <?php elseif ($feeRequestBlockedMessage === null): ?>
+                                                                        <form class="inline-form" method="post" action="<?= h($detailUrl); ?>">
+                                                                            <?= csrf_field(); ?>
+                                                                            <input type="hidden" name="action" value="send_minicrm_quote_fee_request">
+                                                                            <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                                            <input type="hidden" name="quote_id" value="<?= $quoteId; ?>">
+                                                                            <button class="text-button" type="submit">Díjbekérő küldése</button>
+                                                                        </form>
+                                                                    <?php else: ?>
+                                                                        <a href="<?= h($quoteSendUrl); ?>">Díjbekérő</a>
+                                                                        <small><?= h($feeRequestBlockedMessage); ?></small>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                            </article>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
                                             </section>
 
                                             <section class="minicrm-document-preview-panel minicrm-mvm-generator-panel">
