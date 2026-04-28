@@ -3565,6 +3565,75 @@ a.metric-card {
     cursor: pointer;
 }
 
+.minicrm-import-page .admin-request-panel-grid,
+.minicrm-import-page .admin-request-documents {
+    display: none;
+}
+
+.minicrm-readable-groups {
+    display: grid;
+    gap: 18px;
+    padding: 0 20px 20px;
+}
+
+.minicrm-readable-panel {
+    padding: 20px;
+    border: 1px solid rgba(190, 205, 220, 0.84);
+    border-top: 5px solid var(--color-primary);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.minicrm-readable-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.minicrm-readable-row {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid rgba(215, 225, 236, 0.94);
+    border-radius: 8px;
+    background: rgba(248, 251, 252, 0.94);
+}
+
+.minicrm-readable-row span {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.minicrm-readable-row strong,
+.minicrm-readable-row a,
+.minicrm-readable-row small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.minicrm-readable-row strong {
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.45;
+}
+
+.minicrm-readable-row a {
+    color: var(--color-primary-dark);
+    font-weight: 900;
+}
+
+.minicrm-readable-row small {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 .admin-request-doc-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));

@@ -10912,6 +10912,43 @@ function minicrm_work_item_raw_fields(array $item): array
     return $fields;
 }
 
+function minicrm_work_item_field_groups(array $item): array
+{
+    $groups = [
+        'base' => ['title' => 'Alapadatok', 'fields' => []],
+        'customer' => ['title' => 'Ugyfel es cim', 'fields' => []],
+        'work' => ['title' => 'Munka es igeny', 'fields' => []],
+        'technical' => ['title' => 'Muszaki es kivitelezesi adatok', 'fields' => []],
+        'finance' => ['title' => 'Penzugy es arajanlat', 'fields' => []],
+        'documents' => ['title' => 'Dokumentumok es linkek', 'fields' => []],
+        'other' => ['title' => 'Egyeb MiniCRM mezok', 'fields' => []],
+    ];
+
+    foreach (minicrm_work_item_raw_fields($item) as $field) {
+        $key = minicrm_import_key((string) ($field['label'] ?? ''));
+
+        if (preg_match('/^(azonosito|nev|felelos|statusz|folyamat statusz|terulet|regio|sorszam|uk szam|mvm felelos)$/', $key)) {
+            $groupKey = 'base';
+        } elseif (preg_match('/(szuletesi|anyja|ugyfel|levelezesi|felhasznalasi cim|iranyito|varos|utca|hazszam|emelet|helyrajzi|fogyasztasi hely|tulajdonos|berlo|haszonelvezo|lakossagi|nem lakossagi)/', $key)) {
+            $groupKey = 'customer';
+        } elseif (preg_match('/(munka|igeny|igenyelt|meglevo|fazis|teljesitmeny|kva|h tarifa|vezerelt|uj fogyaszto|csatlakozo berendezes|foldkabeles|legvezetekes|felujitas|atepites|bekotesi datum|idopont|keszrejelentes)/', $key)) {
+            $groupKey = 'work';
+        } elseif (preg_match('/(vezetek|kabel|szekreny|mero|plomba|oszlop|tetotarto|foldeles|fi rele|feszultseg|hibafelmero|kivitelezes|gyarto|tipus|scop|futesi|villas?mos)/', $key)) {
+            $groupKey = 'technical';
+        } elseif (preg_match('/(arajanlat|fizetendo|dij|osszeg|brutto|egysegar|fizetes|dijbekero|elszamolhato|kifizetheto|szerelok|adminisztracios|komplett arajanlat)/', $key)) {
+            $groupKey = 'finance';
+        } elseif (preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki atadas|fedlap|kivitelezoi|dokumentum|pdf|mgt|adatbekero|hc ssz|hcssz)/', $key)) {
+            $groupKey = 'documents';
+        } else {
+            $groupKey = 'other';
+        }
+
+        $groups[$groupKey]['fields'][] = $field;
+    }
+
+    return array_filter($groups, static fn (array $group): bool => $group['fields'] !== []);
+}
+
 function minicrm_status_class(?string $status): string
 {
     $status = minicrm_import_lower((string) $status);

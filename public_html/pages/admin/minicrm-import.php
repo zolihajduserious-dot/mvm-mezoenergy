@@ -35,7 +35,7 @@ $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
 $totalItems = count($items);
 ?>
-<section class="admin-section">
+<section class="admin-section minicrm-import-page">
     <div class="container admin-requests-container">
         <div class="admin-header">
             <div>
@@ -159,6 +159,7 @@ $totalItems = count($items);
                             <?php
                             $documentLinks = minicrm_work_item_document_links($item);
                             $rawFields = minicrm_work_item_raw_fields($item);
+                            $fieldGroups = minicrm_work_item_field_groups($item);
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
                             ?>
@@ -167,11 +168,11 @@ $totalItems = count($items);
                                     <span class="admin-workflow-request-id">#<?= (int) $item['id']; ?></span>
                                     <span class="admin-workflow-request-main">
                                         <strong><?= h((string) $item['card_name']); ?></strong>
-                                        <small><?= h((string) ($item['customer_name'] ?: '-')); ?> · <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></small>
+                                        <small><?= count($rawFields); ?> MiniCRM mezo · <?= count($documentLinks); ?> dokumentum</small>
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
-                                        <strong><?= h(connection_request_type_label($item['request_type'] ?? null)); ?></strong>
+                                        <strong><?= count($documentLinks); ?> dokumentum</strong>
                                     </span>
                                     <span class="admin-workflow-request-badges">
                                         <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
@@ -183,13 +184,47 @@ $totalItems = count($items);
                                         <div>
                                             <span class="portal-kicker">MiniCRM azonosító: <?= h((string) $item['source_id']); ?></span>
                                             <h2><?= h((string) $item['card_name']); ?></h2>
-                                            <p><?= h(connection_request_type_label($item['request_type'] ?? null)); ?> · <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></p>
+                                            <p><?= count($rawFields); ?> importalt MiniCRM mezo, csoportositva megjelenitve.</p>
                                         </div>
                                         <div class="request-admin-status">
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
-                                            <?php if (!empty($item['submitted_date'])): ?><span class="status-badge status-badge-finalized">Leadva: <?= h((string) $item['submitted_date']); ?></span><?php endif; ?>
+                                            <?php if (!empty($item['responsible'])): ?><span class="status-badge status-badge-finalized"><?= h((string) $item['responsible']); ?></span><?php endif; ?>
                                         </div>
                                     </div>
+
+                                    <?php if ($fieldGroups === []): ?>
+                                        <section class="minicrm-readable-panel">
+                                            <p class="request-admin-empty">Ehhez a tetelhez nincs reszletes MiniCRM mezo eltarolva.</p>
+                                        </section>
+                                    <?php else: ?>
+                                        <div class="minicrm-readable-groups">
+                                            <?php foreach ($fieldGroups as $group): ?>
+                                                <section class="minicrm-readable-panel">
+                                                    <div class="admin-request-section-title">
+                                                        <h3><?= h((string) $group['title']); ?></h3>
+                                                        <span><?= count($group['fields']); ?> mezo</span>
+                                                    </div>
+                                                    <div class="minicrm-readable-grid">
+                                                        <?php foreach ($group['fields'] as $rawField): ?>
+                                                            <?php
+                                                            $rawValue = (string) $rawField['value'];
+                                                            $rawIsUrl = str_starts_with($rawValue, 'http://') || str_starts_with($rawValue, 'https://');
+                                                            ?>
+                                                            <article class="minicrm-readable-row">
+                                                                <span><?= h((string) $rawField['label']); ?></span>
+                                                                <?php if ($rawIsUrl): ?>
+                                                                    <a href="<?= h($rawValue); ?>" target="_blank" rel="noopener">Megnyitas</a>
+                                                                    <small><?= h($rawValue); ?></small>
+                                                                <?php else: ?>
+                                                                    <strong><?= h($rawValue); ?></strong>
+                                                                <?php endif; ?>
+                                                            </article>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                </section>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
 
                                     <div class="admin-request-panel-grid">
                                         <section class="admin-request-panel">
