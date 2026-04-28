@@ -3613,7 +3613,13 @@ a.metric-card {
     font-size: 0.92rem;
 }
 
+.minicrm-import-page .admin-requests-container {
+    display: flex;
+    flex-direction: column;
+}
+
 .minicrm-import-page .admin-header {
+    order: 0;
     padding: 30px 32px;
 }
 
@@ -3638,7 +3644,48 @@ a.metric-card {
 }
 
 .minicrm-module-tabs {
+    order: 2;
     margin: 18px 0;
+}
+
+.minicrm-workspace {
+    order: 3;
+}
+
+.minicrm-import-tools {
+    order: 70;
+}
+
+.minicrm-import-page .request-summary-grid {
+    order: 80;
+    margin-top: 26px;
+}
+
+.minicrm-import-page #minicrm-latest-imports {
+    order: 90;
+}
+
+.minicrm-workspace .admin-workflow-stage {
+    display: flex;
+    flex-direction: column;
+}
+
+.minicrm-workspace .minicrm-list-tools {
+    order: 1;
+    padding-top: 18px;
+}
+
+.minicrm-workspace .minicrm-status-nav {
+    order: 2;
+}
+
+.minicrm-workspace .minicrm-workspace-head {
+    order: 3;
+    padding-top: 14px;
+}
+
+.minicrm-workspace .minicrm-status-groups {
+    order: 4;
 }
 
 .minicrm-module-tabs a,
@@ -3917,6 +3964,17 @@ a.metric-card {
 
 .minicrm-timeline-panel {
     padding: 14px;
+}
+
+.minicrm-document-preview-panel {
+    padding: 14px;
+    border: 1px solid rgba(223, 230, 238, 0.92);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.minicrm-document-preview-panel .admin-request-doc-grid {
+    margin-top: 12px;
 }
 
 .minicrm-timeline {

@@ -410,23 +410,6 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                             </dl>
 
                                             <section class="minicrm-compact-docs">
-                                                <h3>Saját fájlok <span><?= count($localFiles); ?></span></h3>
-                                                <?php if ($localFiles === []): ?>
-                                                    <p class="request-admin-empty">Nincs tárhelyes fájl.</p>
-                                                <?php else: ?>
-                                                    <div>
-                                                        <?php foreach ($localFiles as $localFile): ?>
-                                                            <?php $localFileUrl = url_path('/admin/minicrm-import/file') . '?id=' . (int) $localFile['id']; ?>
-                                                            <a href="<?= h($localFileUrl); ?>" target="_blank">
-                                                                <?= h(minicrm_import_short_text((string) ($localFile['label'] ?: $localFile['original_name']), 64)); ?>
-                                                                <span><?= h(portal_file_preview_extension($localFile)); ?></span>
-                                                            </a>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                <?php endif; ?>
-                                            </section>
-
-                                            <section class="minicrm-compact-docs">
                                                 <h3>MiniCRM linkek <span><?= count($documentLinks); ?></span></h3>
                                                 <?php if ($documentLinks === []): ?>
                                                     <p class="request-admin-empty">Nincs link.</p>
@@ -461,6 +444,41 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                     <?php endforeach; ?>
                                                 </ol>
                                             </section>
+
+                                            <?php if ($localFiles !== []): ?>
+                                                <section class="minicrm-document-preview-panel">
+                                                    <div class="admin-request-section-title">
+                                                        <h3>Dokumentumok</h3>
+                                                        <span><?= count($localFiles); ?> fájl</span>
+                                                    </div>
+                                                    <div class="admin-request-doc-grid">
+                                                        <?php foreach ($localFiles as $localFile): ?>
+                                                            <?php
+                                                            $localFileUrl = url_path('/admin/minicrm-import/file') . '?id=' . (int) $localFile['id'];
+                                                            $previewKind = portal_file_preview_kind($localFile);
+                                                            ?>
+                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                <div class="admin-request-doc-thumb">
+                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                        <a href="<?= h($localFileUrl); ?>" target="_blank" aria-label="<?= h((string) $localFile['label']); ?> megnyitása">
+                                                                            <img src="<?= h($localFileUrl); ?>" alt="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy">
+                                                                        </a>
+                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                        <iframe src="<?= h($localFileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                    <?php else: ?>
+                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($localFile)); ?></span></div>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                                <div class="admin-request-doc-meta">
+                                                                    <strong><?= h((string) $localFile['label']); ?></strong>
+                                                                    <span><?= h((string) $localFile['original_name']); ?></span>
+                                                                    <a href="<?= h($localFileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                </div>
+                                                            </article>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                </section>
+                                            <?php endif; ?>
 
                                             <?php if ($fieldGroups === []): ?>
                                                 <section class="minicrm-readable-panel">
