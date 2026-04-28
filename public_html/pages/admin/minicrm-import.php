@@ -51,6 +51,124 @@ $totalItems = count($items);
 $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
 $localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
 $documentZipCandidates = minicrm_document_zip_candidates();
+$itemsByStatus = [];
+
+foreach ($items as $item) {
+    $statusName = trim((string) ($item['minicrm_status'] ?? '')) ?: 'Nincs státusz';
+    $itemsByStatus[$statusName][] = $item;
+}
+
+uasort($itemsByStatus, static fn (array $a, array $b): int => count($b) <=> count($a));
+
+function minicrm_import_dom_id(string $value): string
+{
+    $id = preg_replace('/[^a-z0-9]+/', '-', minicrm_import_lower($value)) ?: '';
+    $id = trim($id, '-');
+
+    return $id !== '' ? $id : 'nincs-statusz';
+}
+
+function minicrm_import_short_text(string $value, int $length = 150): string
+{
+    $value = trim(preg_replace('/\s+/', ' ', $value) ?: '');
+    $stringLength = function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
+
+    if ($value === '' || $stringLength <= $length) {
+        return $value;
+    }
+
+    $substring = function_exists('mb_substr') ? mb_substr($value, 0, $length - 1) : substr($value, 0, $length - 1);
+
+    return rtrim($substring) . '…';
+}
+
+function minicrm_import_first_matching_field(array $rawFields, array $patterns): string
+{
+    foreach ($rawFields as $field) {
+        $label = (string) ($field['label'] ?? '');
+        $value = trim((string) ($field['value'] ?? ''));
+
+        if ($value === '' || $value === '-') {
+            continue;
+        }
+
+        $key = minicrm_import_key($label);
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $key)) {
+                return $value;
+            }
+        }
+    }
+
+    return '';
+}
+
+function minicrm_import_timeline_events(array $item, array $rawFields, array $localFiles): array
+{
+    $events = [];
+    $responsible = trim((string) ($item['responsible'] ?? '')) ?: 'Mező Energy kft';
+    $status = trim((string) ($item['minicrm_status'] ?? '')) ?: 'Nincs státusz';
+    $updatedAt = trim((string) ($item['updated_at'] ?? '')) ?: trim((string) ($item['created_at'] ?? ''));
+
+    $events[] = [
+        'date' => $updatedAt !== '' ? $updatedAt : 'Aktuális állapot',
+        'title' => 'Státusz',
+        'actor' => $responsible,
+        'body' => $status,
+        'kind' => 'status',
+    ];
+
+    $dateEvents = 0;
+    $noteEvents = 0;
+
+    foreach ($rawFields as $field) {
+        $label = trim((string) ($field['label'] ?? ''));
+        $value = trim((string) ($field['value'] ?? ''));
+
+        if ($label === '' || $value === '' || $value === '-' || str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            continue;
+        }
+
+        $key = minicrm_import_key($label);
+
+        if ($dateEvents < 8 && preg_match('/(datum|idopont|bekotes|kikuldes|keszrejelentes|ugyinditas|kivitelezes varhato|muszaki atadas|hatarido)/', $key)) {
+            $events[] = [
+                'date' => $value,
+                'title' => $label,
+                'actor' => 'MiniCRM adat',
+                'body' => 'Rögzített időpont vagy határidő.',
+                'kind' => 'date',
+            ];
+            $dateEvents++;
+            continue;
+        }
+
+        if ($noteEvents < 5 && preg_match('/(megjegyzes|uzenet|szoveg|visszahivas|informacio|leiras)/', $key)) {
+            $events[] = [
+                'date' => 'MiniCRM előzmény',
+                'title' => $label,
+                'actor' => $responsible,
+                'body' => minicrm_import_short_text($value, 320),
+                'kind' => 'note',
+            ];
+            $noteEvents++;
+        }
+    }
+
+    if ($localFiles !== []) {
+        $firstFile = $localFiles[0];
+        $events[] = [
+            'date' => trim((string) ($firstFile['created_at'] ?? '')) ?: 'Dokumentum import',
+            'title' => 'Dokumentumok összefűzve',
+            'actor' => 'MiniCRM ZIP import',
+            'body' => count($localFiles) . ' saját tárhelyes fájl kapcsolódik ehhez a munkához.',
+            'kind' => 'document',
+        ];
+    }
+
+    return array_slice($events, 0, 14);
+}
 ?>
 <section class="admin-section minicrm-import-page">
     <div class="container admin-requests-container">
@@ -89,8 +207,15 @@ $documentZipCandidates = minicrm_document_zip_candidates();
             </div>
         <?php endif; ?>
 
-        <div class="form-grid two">
-            <section class="auth-panel">
+        <nav class="minicrm-module-tabs" aria-label="MiniCRM menü">
+            <a class="is-active" href="#minicrm-works" data-minicrm-tab="works">Munkák</a>
+            <a href="#minicrm-import-tools" data-minicrm-tab="import">Importálás</a>
+            <a href="#minicrm-documents" data-minicrm-tab="documents">Dokumentumok</a>
+            <a href="#minicrm-latest-imports" data-minicrm-tab="log">Import napló</a>
+        </nav>
+
+        <div class="form-grid two minicrm-import-tools" id="minicrm-import-tools">
+            <section class="auth-panel" data-minicrm-panel="import">
                 <h2>Excel import</h2>
                 <p class="muted-text">Az 5 külön MiniCRM mezőexport egyszerre kijelölhető. Az import MiniCRM azonosító alapján összefésüli őket, ezért ugyanaz a munka nem duplikálódik, hanem kiegészül.</p>
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
@@ -102,7 +227,7 @@ $documentZipCandidates = minicrm_document_zip_candidates();
                 </form>
             </section>
 
-            <section class="auth-panel">
+            <section class="auth-panel" id="minicrm-documents" data-minicrm-panel="documents">
                 <h2>Dokumentum ZIP összefűzés</h2>
                 <p class="muted-text">A MiniCRM dokumentum ZIP fájljai a fájlnév elején lévő projektazonosító alapján kapcsolódnak a munkákhoz. Nagy ZIP esetén FTP-vel töltsd fel ide: <strong>storage/imports/minicrm-documents.zip</strong>, majd indítsd el a feldolgozást.</p>
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
@@ -120,7 +245,7 @@ $documentZipCandidates = minicrm_document_zip_candidates();
                 </div>
             </section>
 
-            <section class="auth-panel">
+            <section class="auth-panel" data-minicrm-panel="documents">
                 <h2>Fontos a dokumentumokról</h2>
                 <p class="muted-text">Az Excelben szereplő MiniCRM dokumentummezők linkként kerülnek át. Ha a MiniCRM előfizetés megszűnik, ezek a MiniCRM-es letöltési linkek később nem biztos, hogy elérhetők lesznek.</p>
                 <div class="status-list">
@@ -132,7 +257,7 @@ $documentZipCandidates = minicrm_document_zip_candidates();
         </div>
 
         <?php if ($schemaErrors === [] && $items !== []): ?>
-            <div class="admin-grid summary-grid request-summary-grid">
+            <div class="admin-grid summary-grid request-summary-grid" data-minicrm-panel="works">
                 <article class="metric-card metric-card-primary">
                     <span class="metric-label">Összes MiniCRM munka</span>
                     <strong><?= $totalItems; ?></strong>
@@ -154,7 +279,7 @@ $documentZipCandidates = minicrm_document_zip_candidates();
         <?php endif; ?>
 
         <?php if ($batches !== []): ?>
-            <section class="auth-panel form-block">
+            <section class="auth-panel form-block" id="minicrm-latest-imports" data-minicrm-panel="log">
                 <h2>Legutóbbi importok</h2>
                 <div class="table-wrap">
                     <table class="data-table">
@@ -178,30 +303,57 @@ $documentZipCandidates = minicrm_document_zip_candidates();
         <?php endif; ?>
 
         <?php if ($schemaErrors === [] && $items === []): ?>
-            <div class="empty-state">
+            <div class="empty-state" data-minicrm-panel="works">
                 <h2>Még nincs importált MiniCRM munka</h2>
                 <p>Tölts fel egy MiniCRM Excel exportot, és a munkák itt jelennek meg.</p>
             </div>
         <?php elseif ($items !== []): ?>
-            <div class="admin-workflow-list">
+            <div class="admin-workflow-list minicrm-workspace" id="minicrm-works" data-minicrm-panel="works">
                 <section class="admin-workflow-stage">
-                    <div class="admin-workflow-stage-head">
+                    <div class="admin-workflow-stage-head minicrm-workspace-head">
                         <div>
-                            <span class="portal-kicker">MiniCRM munkaállomány</span>
-                            <h2>Importált tételek</h2>
-                            <p>A lista az összefésült MiniCRM mezőket csoportosítva mutatja, hogy az adatlapok megnyitásakor minden beolvasott érték olvasható legyen.</p>
+                            <span class="portal-kicker">Munkák</span>
+                            <h2>MiniCRM munkaállomány</h2>
+                            <p>Státuszonként csoportosított, kompakt lista kereséssel és munkán belüli idővonallal.</p>
                         </div>
                         <strong><?= $totalItems; ?> db</strong>
                     </div>
 
                     <div class="minicrm-list-tools">
-                        <label for="minicrm_search">Keresés</label>
-                        <input id="minicrm_search" type="search" placeholder="Név, azonosító, cím, felelős vagy mezőérték" data-minicrm-search>
+                        <label for="minicrm_search">Keresés a munkák között</label>
+                        <input id="minicrm_search" type="search" placeholder="Név, azonosító, cím, felelős, státusz vagy mezőérték" data-minicrm-search>
                         <span data-minicrm-count><?= $totalItems; ?> db</span>
                     </div>
 
-                    <div class="request-admin-list" data-minicrm-list>
-                        <?php foreach ($items as $item): ?>
+                    <nav class="minicrm-status-nav" aria-label="MiniCRM státuszok">
+                        <?php foreach ($itemsByStatus as $statusName => $statusItems): ?>
+                            <a href="#minicrm-status-<?= h(minicrm_import_dom_id((string) $statusName)); ?>">
+                                <span><?= h((string) $statusName); ?></span>
+                                <strong><?= count($statusItems); ?></strong>
+                            </a>
+                        <?php endforeach; ?>
+                    </nav>
+
+                    <div class="minicrm-status-groups" data-minicrm-list>
+                        <?php foreach ($itemsByStatus as $statusName => $statusItems): ?>
+                            <?php $statusClass = minicrm_status_class((string) $statusName); ?>
+                            <section class="minicrm-status-group" id="minicrm-status-<?= h(minicrm_import_dom_id((string) $statusName)); ?>" data-minicrm-status-group>
+                                <header class="minicrm-status-group-head">
+                                    <div>
+                                        <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) $statusName); ?></span>
+                                        <strong><?= count($statusItems); ?> munka</strong>
+                                    </div>
+                                    <span data-minicrm-status-count><?= count($statusItems); ?> látható</span>
+                                </header>
+
+                                <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $statusName); ?> munkák">
+                                    <div class="minicrm-work-table-head" role="row">
+                                        <span>Munka</span>
+                                        <span>Felelős</span>
+                                        <span>Dátum</span>
+                                        <span>Anyag</span>
+                                    </div>
+                                    <?php foreach ($statusItems as $item): ?>
                             <?php
                             $documentLinks = minicrm_work_item_document_links($item);
                             $localFiles = minicrm_work_item_files((int) $item['id']);
@@ -209,29 +361,35 @@ $documentZipCandidates = minicrm_document_zip_candidates();
                             $fieldGroups = minicrm_work_item_field_groups($item);
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
+                            $timelineEvents = minicrm_import_timeline_events($item, $rawFields, $localFiles);
+                            $summaryNote = minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']);
+                            $displayDate = trim((string) ($item['submitted_date'] ?: $item['date_value'] ?: $item['updated_at'] ?: $item['created_at'] ?: ''));
                             ?>
-                            <details class="admin-workflow-request" data-minicrm-item>
-                                <summary class="admin-workflow-request-summary">
-                                    <span class="admin-workflow-request-id">#<?= (int) $item['id']; ?></span>
+                            <details class="admin-workflow-request minicrm-work-row" data-minicrm-item>
+                                <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                                     <span class="admin-workflow-request-main">
                                         <strong><?= h((string) $item['card_name']); ?></strong>
-                                        <small><?= count($rawFields); ?> MiniCRM mezo · <?= count($documentLinks); ?> link · <?= count($localFiles); ?> sajat fajl</small>
+                                        <small><?= h($siteAddress !== '' ? $siteAddress : (minicrm_import_short_text($summaryNote, 120) ?: (string) $item['source_id'])); ?></small>
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
-                                        <strong><?= count($localFiles); ?> fajl</strong>
+                                        <strong><?= h((string) ($item['source_id'] ?? '')); ?></strong>
+                                    </span>
+                                    <span class="minicrm-work-date">
+                                        <?= h($displayDate !== '' ? $displayDate : '-'); ?>
                                     </span>
                                     <span class="admin-workflow-request-badges">
-                                        <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
+                                        <strong><?= count($localFiles); ?> fájl</strong>
+                                        <small><?= count($rawFields); ?> mező · <?= count($documentLinks); ?> link</small>
                                     </span>
                                 </summary>
 
-                                <article class="request-admin-card">
+                                <article class="request-admin-card minicrm-work-card">
                                     <div class="request-admin-card-head">
                                         <div>
                                             <span class="portal-kicker">MiniCRM azonosító: <?= h((string) $item['source_id']); ?></span>
                                             <h2><?= h((string) $item['card_name']); ?></h2>
-                                            <p><?= count($rawFields); ?> importalt MiniCRM mezo, <?= count($localFiles); ?> sajat tarhelyes fajl.</p>
+                                            <p><?= h($summaryNote !== '' ? minicrm_import_short_text($summaryNote, 220) : ($siteAddress !== '' ? $siteAddress : '')); ?></p>
                                         </div>
                                         <div class="request-admin-status">
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
@@ -239,155 +397,112 @@ $documentZipCandidates = minicrm_document_zip_candidates();
                                         </div>
                                     </div>
 
-                                    <?php if ($fieldGroups === []): ?>
-                                        <section class="minicrm-readable-panel">
-                                            <p class="request-admin-empty">Ehhez a tetelhez nincs reszletes MiniCRM mezo eltarolva.</p>
-                                        </section>
-                                    <?php else: ?>
-                                        <div class="minicrm-readable-groups">
-                                            <?php foreach ($fieldGroups as $group): ?>
-                                                <section class="minicrm-readable-panel">
-                                                    <div class="admin-request-section-title">
-                                                        <h3><?= h((string) $group['title']); ?></h3>
-                                                        <span><?= count($group['fields']); ?> mezo</span>
-                                                    </div>
-                                                    <div class="minicrm-readable-grid">
-                                                        <?php foreach ($group['fields'] as $rawField): ?>
-                                                            <?php
-                                                            $rawValue = (string) $rawField['value'];
-                                                            $rawIsUrl = str_starts_with($rawValue, 'http://') || str_starts_with($rawValue, 'https://');
-                                                            ?>
-                                                            <article class="minicrm-readable-row">
-                                                                <span><?= h((string) $rawField['label']); ?></span>
-                                                                <?php if ($rawIsUrl): ?>
-                                                                    <a href="<?= h($rawValue); ?>" target="_blank" rel="noopener">Megnyitas</a>
-                                                                    <small><?= h($rawValue); ?></small>
-                                                                <?php else: ?>
-                                                                    <strong><?= h($rawValue); ?></strong>
-                                                                <?php endif; ?>
-                                                            </article>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                </section>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    <?php endif; ?>
-
-                                    <?php if ($localFiles !== []): ?>
-                                        <div class="minicrm-readable-groups">
-                                            <section class="minicrm-readable-panel minicrm-local-documents">
-                                                <div class="admin-request-section-title">
-                                                    <h3>Sajat tarhelyes MiniCRM dokumentumok</h3>
-                                                    <span><?= count($localFiles); ?> fajl</span>
-                                                </div>
-                                                <div class="admin-request-doc-grid">
-                                                    <?php foreach ($localFiles as $localFile): ?>
-                                                        <?php
-                                                        $localFileUrl = url_path('/admin/minicrm-import/file') . '?id=' . (int) $localFile['id'];
-                                                        $previewKind = portal_file_preview_kind($localFile);
-                                                        ?>
-                                                        <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
-                                                            <div class="admin-request-doc-thumb">
-                                                                <?php if ($previewKind === 'image'): ?>
-                                                                    <a href="<?= h($localFileUrl); ?>" target="_blank" aria-label="<?= h((string) $localFile['label']); ?> megnyitasa">
-                                                                        <img src="<?= h($localFileUrl); ?>" alt="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy">
-                                                                    </a>
-                                                                <?php elseif ($previewKind === 'pdf'): ?>
-                                                                    <iframe src="<?= h($localFileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy"></iframe>
-                                                                <?php else: ?>
-                                                                    <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($localFile)); ?></span></div>
-                                                                <?php endif; ?>
-                                                            </div>
-                                                            <div class="admin-request-doc-meta">
-                                                                <strong><?= h((string) $localFile['label']); ?></strong>
-                                                                <span><?= h((string) $localFile['original_name']); ?></span>
-                                                                <a href="<?= h($localFileUrl); ?>" target="_blank">Megnyitas</a>
-                                                            </div>
-                                                        </article>
-                                                    <?php endforeach; ?>
-                                                </div>
-                                            </section>
-                                        </div>
-                                    <?php endif; ?>
-
-                                    <div class="admin-request-panel-grid">
-                                        <section class="admin-request-panel">
-                                            <h3>Ügyfél</h3>
-                                            <dl class="admin-request-data-list">
-                                                <div><dt>Név</dt><dd><?= h((string) ($item['customer_name'] ?: '-')); ?></dd></div>
-                                                <div><dt>Születési név</dt><dd><?= h((string) ($item['birth_name'] ?: '-')); ?></dd></div>
-                                                <div><dt>Születési hely/idő</dt><dd><?= h(trim((string) ($item['birth_place'] ?? '') . ' ' . (string) ($item['birth_date'] ?? '')) ?: '-'); ?></dd></div>
-                                                <div><dt>Anyja neve</dt><dd><?= h((string) ($item['mother_name'] ?: '-')); ?></dd></div>
-                                                <div><dt>Levelezési cím</dt><dd><?= h((string) ($item['mailing_address'] ?: '-')); ?></dd></div>
-                                            </dl>
-                                        </section>
-
-                                        <section class="admin-request-panel">
-                                            <h3>Munka adatai</h3>
-                                            <dl class="admin-request-data-list">
-                                                <div><dt>MiniCRM felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
-                                                <div><dt>Munka típusa</dt><dd><?= h((string) ($item['work_type'] ?: '-')); ?></dd></div>
-                                                <div><dt>Munka jellege</dt><dd><?= h((string) ($item['work_kind'] ?: '-')); ?></dd></div>
-                                                <div><dt>Dátum</dt><dd><?= h((string) ($item['date_value'] ?: '-')); ?></dd></div>
-                                                <div><dt>Leadás dátuma</dt><dd><?= h((string) ($item['submitted_date'] ?: '-')); ?></dd></div>
-                                            </dl>
-                                        </section>
-
-                                        <section class="admin-request-panel admin-request-panel-wide">
-                                            <h3>Helyszín és mérő</h3>
-                                            <dl class="admin-request-data-list admin-request-data-list-compact">
+                                    <div class="minicrm-work-detail-layout">
+                                        <aside class="minicrm-work-facts">
+                                            <dl>
+                                                <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
+                                                <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
                                                 <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                 <div><dt>HRSZ</dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
-                                                <div><dt>Felhasználási hely</dt><dd><?= h((string) ($item['consumption_place_id'] ?: '-')); ?></dd></div>
-                                                <div><dt>Mérő MN</dt><dd><?= h((string) ($item['meter_serial'] ?: '-')); ?></dd></div>
-                                                <div><dt>Mérő vezérelt</dt><dd><?= h((string) ($item['controlled_meter_serial'] ?: '-')); ?></dd></div>
-                                                <div><dt>Vezeték típusa</dt><dd><?= h((string) ($item['wire_type'] ?: '-')); ?></dd></div>
-                                                <div><dt>Mérőszekrény</dt><dd><?= h((string) ($item['meter_cabinet'] ?: '-')); ?></dd></div>
-                                                <div><dt>Mérőóra helye</dt><dd><?= h((string) ($item['meter_location'] ?: '-')); ?></dd></div>
-                                                <div><dt>Oszlop típusa</dt><dd><?= h((string) ($item['pole_type'] ?: '-')); ?></dd></div>
-                                                <?php if (!empty($item['wire_note'])): ?><div class="admin-request-data-wide"><dt>Kockás papír vezeték</dt><dd><?= h((string) $item['wire_note']); ?></dd></div><?php endif; ?>
-                                                <?php if (!empty($item['cabinet_note'])): ?><div class="admin-request-data-wide"><dt>Kockás papír szekrény</dt><dd><?= h((string) $item['cabinet_note']); ?></dd></div><?php endif; ?>
+                                                <div><dt>Munka típusa</dt><dd><?= h((string) ($item['work_type'] ?: $item['work_kind'] ?: '-')); ?></dd></div>
+                                                <div><dt>Mérő</dt><dd><?= h((string) ($item['meter_serial'] ?: $item['controlled_meter_serial'] ?: '-')); ?></dd></div>
+                                                <div><dt>Leadás</dt><dd><?= h((string) ($item['submitted_date'] ?: '-')); ?></dd></div>
                                             </dl>
-                                        </section>
+
+                                            <section class="minicrm-compact-docs">
+                                                <h3>Saját fájlok <span><?= count($localFiles); ?></span></h3>
+                                                <?php if ($localFiles === []): ?>
+                                                    <p class="request-admin-empty">Nincs tárhelyes fájl.</p>
+                                                <?php else: ?>
+                                                    <div>
+                                                        <?php foreach ($localFiles as $localFile): ?>
+                                                            <?php $localFileUrl = url_path('/admin/minicrm-import/file') . '?id=' . (int) $localFile['id']; ?>
+                                                            <a href="<?= h($localFileUrl); ?>" target="_blank">
+                                                                <?= h(minicrm_import_short_text((string) ($localFile['label'] ?: $localFile['original_name']), 64)); ?>
+                                                                <span><?= h(portal_file_preview_extension($localFile)); ?></span>
+                                                            </a>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </section>
+
+                                            <section class="minicrm-compact-docs">
+                                                <h3>MiniCRM linkek <span><?= count($documentLinks); ?></span></h3>
+                                                <?php if ($documentLinks === []): ?>
+                                                    <p class="request-admin-empty">Nincs link.</p>
+                                                <?php else: ?>
+                                                    <div>
+                                                        <?php foreach ($documentLinks as $documentLink): ?>
+                                                            <?php if (!empty($documentLink['is_url'])): ?>
+                                                                <a href="<?= h((string) $documentLink['value']); ?>" target="_blank" rel="noopener"><?= h(minicrm_import_short_text((string) $documentLink['label'], 64)); ?><span>link</span></a>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </section>
+                                        </aside>
+
+                                        <div class="minicrm-work-main">
+                                            <section class="minicrm-timeline-panel">
+                                                <div class="admin-request-section-title">
+                                                    <h3>Előzmények</h3>
+                                                    <span><?= count($timelineEvents); ?> esemény</span>
+                                                </div>
+                                                <ol class="minicrm-timeline">
+                                                    <?php foreach ($timelineEvents as $event): ?>
+                                                        <li class="minicrm-timeline-event minicrm-timeline-<?= h((string) $event['kind']); ?>">
+                                                            <time><?= h((string) $event['date']); ?></time>
+                                                            <div>
+                                                                <strong><?= h((string) $event['title']); ?></strong>
+                                                                <span><?= h((string) $event['actor']); ?></span>
+                                                                <p><?= h((string) $event['body']); ?></p>
+                                                            </div>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ol>
+                                            </section>
+
+                                            <?php if ($fieldGroups === []): ?>
+                                                <section class="minicrm-readable-panel">
+                                                    <p class="request-admin-empty">Ehhez a tételhez nincs részletes MiniCRM mező eltárolva.</p>
+                                                </section>
+                                            <?php else: ?>
+                                                <div class="minicrm-readable-groups minicrm-field-groups">
+                                                    <?php $groupIndex = 0; ?>
+                                                    <?php foreach ($fieldGroups as $group): ?>
+                                                        <details class="minicrm-field-group" <?= $groupIndex < 3 ? 'open' : ''; ?>>
+                                                            <summary>
+                                                                <strong><?= h((string) $group['title']); ?></strong>
+                                                                <span><?= count($group['fields']); ?> mező</span>
+                                                            </summary>
+                                                            <div class="minicrm-readable-grid">
+                                                                <?php foreach ($group['fields'] as $rawField): ?>
+                                                                    <?php
+                                                                    $rawValue = (string) $rawField['value'];
+                                                                    $rawIsUrl = str_starts_with($rawValue, 'http://') || str_starts_with($rawValue, 'https://');
+                                                                    ?>
+                                                                    <article class="minicrm-readable-row">
+                                                                        <span><?= h((string) $rawField['label']); ?></span>
+                                                                        <?php if ($rawIsUrl): ?>
+                                                                            <a href="<?= h($rawValue); ?>" target="_blank" rel="noopener">Megnyitás</a>
+                                                                        <?php else: ?>
+                                                                            <strong><?= h($rawValue); ?></strong>
+                                                                        <?php endif; ?>
+                                                                    </article>
+                                                                <?php endforeach; ?>
+                                                            </div>
+                                                        </details>
+                                                        <?php $groupIndex++; ?>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
-
-                                    <section class="admin-request-panel admin-request-documents">
-                                        <div class="admin-request-section-title">
-                                            <h3>MiniCRM dokumentumlinkek</h3>
-                                            <span><?= count($documentLinks); ?> db</span>
-                                        </div>
-                                        <?php if ($documentLinks === []): ?>
-                                            <p class="request-admin-empty">Nincs dokumentumlink ehhez a tételhez.</p>
-                                        <?php else: ?>
-                                            <div class="inline-link-list minicrm-document-links">
-                                                <?php foreach ($documentLinks as $documentLink): ?>
-                                                    <?php if (!empty($documentLink['is_url'])): ?>
-                                                        <a href="<?= h((string) $documentLink['value']); ?>" target="_blank" rel="noopener"><?= h((string) $documentLink['label']); ?></a>
-                                                    <?php else: ?>
-                                                        <span><?= h((string) $documentLink['label']); ?>: <?= h((string) $documentLink['value']); ?></span>
-                                                    <?php endif; ?>
-                                                <?php endforeach; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    </section>
-
-                                    <section class="admin-request-panel admin-request-documents">
-                                        <div class="admin-request-section-title">
-                                            <h3>Osszes MiniCRM mezo</h3>
-                                            <span><?= count($rawFields); ?> db</span>
-                                        </div>
-                                        <?php if ($rawFields === []): ?>
-                                            <p class="request-admin-empty">Ehhez a tetelhez nincs reszletes MiniCRM mezo eltarolva.</p>
-                                        <?php else: ?>
-                                            <dl class="admin-request-data-list admin-request-data-list-compact">
-                                                <?php foreach ($rawFields as $rawField): ?>
-                                                    <div><dt><?= h((string) $rawField['label']); ?></dt><dd><?= h((string) $rawField['value']); ?></dd></div>
-                                                <?php endforeach; ?>
-                                            </dl>
-                                        <?php endif; ?>
-                                    </section>
                                 </article>
                             </details>
+                                    <?php endforeach; ?>
+                                </div>
+                            </section>
                         <?php endforeach; ?>
                     </div>
                 </section>
@@ -398,9 +513,36 @@ $documentZipCandidates = minicrm_document_zip_candidates();
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+    const tabs = Array.from(document.querySelectorAll('[data-minicrm-tab]'));
+    const panels = Array.from(document.querySelectorAll('[data-minicrm-panel]'));
+    const importTools = document.querySelector('.minicrm-import-tools');
     const input = document.querySelector('[data-minicrm-search]');
     const count = document.querySelector('[data-minicrm-count]');
     const items = Array.from(document.querySelectorAll('[data-minicrm-item]'));
+    const groups = Array.from(document.querySelectorAll('[data-minicrm-status-group]'));
+
+    const activateTab = (tabName) => {
+        tabs.forEach((tab) => {
+            tab.classList.toggle('is-active', tab.dataset.minicrmTab === tabName);
+        });
+
+        panels.forEach((panel) => {
+            panel.hidden = panel.dataset.minicrmPanel !== tabName;
+        });
+
+        if (importTools) {
+            importTools.hidden = !['import', 'documents'].includes(tabName);
+        }
+    };
+
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', (event) => {
+            event.preventDefault();
+            activateTab(tab.dataset.minicrmTab || 'works');
+        });
+    });
+
+    activateTab('works');
 
     if (!input || !count || items.length === 0) {
         return;
@@ -419,6 +561,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const show = query === '' || text.includes(query);
             item.hidden = !show;
             visible += show ? 1 : 0;
+        });
+
+        groups.forEach((group) => {
+            const groupItems = Array.from(group.querySelectorAll('[data-minicrm-item]'));
+            const groupVisible = groupItems.filter((item) => !item.hidden).length;
+            const groupCount = group.querySelector('[data-minicrm-status-count]');
+
+            group.hidden = groupVisible === 0;
+
+            if (groupCount) {
+                groupCount.textContent = `${groupVisible} látható`;
+            }
         });
 
         count.textContent = `${visible} db`;

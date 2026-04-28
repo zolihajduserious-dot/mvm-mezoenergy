@@ -3609,6 +3609,423 @@ a.metric-card {
     white-space: nowrap;
 }
 
+.minicrm-import-page {
+    font-size: 0.92rem;
+}
+
+.minicrm-import-page .admin-header {
+    padding: 30px 32px;
+}
+
+.minicrm-import-page .admin-header h1 {
+    font-size: clamp(2.2rem, 4vw, 3.9rem);
+    line-height: 0.98;
+}
+
+.minicrm-import-page .metric-card {
+    padding: 18px;
+}
+
+.minicrm-import-page .metric-card strong {
+    font-size: clamp(1.65rem, 3vw, 2.4rem);
+}
+
+.minicrm-module-tabs,
+.minicrm-status-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.minicrm-module-tabs {
+    margin: 18px 0;
+}
+
+.minicrm-module-tabs a,
+.minicrm-status-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 1px solid rgba(190, 205, 220, 0.9);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font-size: 0.86rem;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.minicrm-module-tabs a.is-active,
+.minicrm-module-tabs a:hover,
+.minicrm-status-nav a:hover {
+    border-color: rgba(0, 140, 115, 0.42);
+    background: rgba(0, 140, 115, 0.08);
+    color: var(--color-primary-dark);
+}
+
+.minicrm-status-nav {
+    padding: 0 20px 16px;
+}
+
+.minicrm-status-nav a strong {
+    display: inline-grid;
+    min-width: 24px;
+    min-height: 22px;
+    place-items: center;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: rgba(0, 140, 115, 0.1);
+    color: var(--color-primary-dark);
+    font-size: 0.78rem;
+}
+
+.minicrm-status-groups {
+    display: grid;
+    gap: 18px;
+    padding: 0 20px 20px;
+}
+
+.minicrm-status-group {
+    overflow: hidden;
+    border: 1px solid rgba(223, 230, 238, 0.96);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.minicrm-status-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(223, 230, 238, 0.9);
+    background: #f8fbfc;
+}
+
+.minicrm-status-group-head div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.minicrm-status-group-head strong,
+.minicrm-status-group-head > span {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.minicrm-work-table {
+    display: grid;
+}
+
+.minicrm-work-table-head,
+.minicrm-work-row-summary {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.6fr) minmax(150px, 0.68fr) minmax(135px, 0.5fr) minmax(130px, 0.48fr);
+    align-items: center;
+    gap: 12px;
+}
+
+.minicrm-work-table-head {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(223, 230, 238, 0.8);
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 950;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.minicrm-work-row {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.minicrm-work-row + .minicrm-work-row {
+    margin-top: 0;
+    border-top: 1px solid rgba(223, 230, 238, 0.86);
+}
+
+.minicrm-work-row[open] {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.minicrm-work-row-summary {
+    padding: 9px 14px;
+}
+
+.minicrm-work-row-summary::after {
+    display: none;
+}
+
+.minicrm-work-row-summary .admin-workflow-request-main strong {
+    font-size: 0.9rem;
+}
+
+.minicrm-work-row-summary .admin-workflow-request-main small,
+.minicrm-work-row-summary .admin-workflow-request-meta span,
+.minicrm-work-row-summary .admin-workflow-request-meta strong,
+.minicrm-work-row-summary .admin-workflow-request-badges small,
+.minicrm-work-date {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+
+.minicrm-work-row-summary .admin-workflow-request-meta strong {
+    font-weight: 800;
+}
+
+.minicrm-work-row-summary .admin-workflow-request-badges {
+    align-items: start;
+    justify-content: start;
+    padding-right: 0;
+}
+
+.minicrm-work-row-summary .admin-workflow-request-badges strong {
+    color: var(--color-primary-dark);
+    font-size: 0.86rem;
+}
+
+.minicrm-work-card {
+    padding: 0;
+}
+
+.minicrm-work-card .request-admin-card-head {
+    padding: 16px 18px;
+}
+
+.minicrm-work-card .request-admin-card-head h2 {
+    font-size: clamp(1.2rem, 1.8vw, 1.65rem);
+}
+
+.minicrm-work-card .request-admin-card-head p {
+    max-width: 900px;
+    font-size: 0.86rem;
+}
+
+.minicrm-work-detail-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    gap: 16px;
+    padding: 0 18px 18px;
+}
+
+.minicrm-work-facts,
+.minicrm-timeline-panel,
+.minicrm-field-group {
+    border: 1px solid rgba(223, 230, 238, 0.92);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.minicrm-work-facts {
+    align-self: start;
+    overflow: hidden;
+}
+
+.minicrm-work-facts dl {
+    display: grid;
+    margin: 0;
+}
+
+.minicrm-work-facts dl div {
+    display: grid;
+    gap: 3px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(223, 230, 238, 0.8);
+}
+
+.minicrm-work-facts dt,
+.minicrm-compact-docs h3,
+.minicrm-readable-row span {
+    color: var(--color-muted);
+    font-size: 0.7rem;
+    font-weight: 950;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.minicrm-work-facts dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--color-text);
+    font-size: 0.84rem;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.minicrm-compact-docs {
+    padding: 11px 12px;
+    border-top: 1px solid rgba(223, 230, 238, 0.8);
+}
+
+.minicrm-compact-docs h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 8px;
+}
+
+.minicrm-compact-docs h3 span {
+    color: var(--color-primary-dark);
+}
+
+.minicrm-compact-docs > div {
+    display: grid;
+    gap: 6px;
+    max-height: 230px;
+    overflow: auto;
+}
+
+.minicrm-compact-docs a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid rgba(0, 140, 115, 0.12);
+    border-radius: 8px;
+    background: rgba(0, 140, 115, 0.04);
+    color: var(--color-text);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.minicrm-compact-docs a span {
+    flex: 0 0 auto;
+    color: var(--color-primary-dark);
+    font-size: 0.7rem;
+    font-weight: 950;
+    text-transform: uppercase;
+}
+
+.minicrm-work-main {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+}
+
+.minicrm-timeline-panel {
+    padding: 14px;
+}
+
+.minicrm-timeline {
+    display: grid;
+    gap: 0;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.minicrm-timeline-event {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(130px, 0.22fr) minmax(0, 1fr);
+    gap: 14px;
+    padding: 0 0 13px 22px;
+}
+
+.minicrm-timeline-event::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(0, 140, 115, 0.16);
+}
+
+.minicrm-timeline-event::after {
+    content: "";
+    position: absolute;
+    top: 18px;
+    bottom: 0;
+    left: 9px;
+    width: 1px;
+    background: rgba(0, 140, 115, 0.22);
+}
+
+.minicrm-timeline-event:last-child::after {
+    display: none;
+}
+
+.minicrm-timeline-event time {
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 850;
+}
+
+.minicrm-timeline-event div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.minicrm-timeline-event strong {
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
+.minicrm-timeline-event span,
+.minicrm-timeline-event p {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.minicrm-field-groups {
+    gap: 10px;
+    padding: 0;
+}
+
+.minicrm-field-group {
+    overflow: hidden;
+}
+
+.minicrm-field-group summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    list-style: none;
+    background: #f8fbfc;
+}
+
+.minicrm-field-group summary::-webkit-details-marker {
+    display: none;
+}
+
+.minicrm-field-group summary strong {
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
+.minicrm-field-group summary span {
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 900;
+}
+
+.minicrm-field-group .minicrm-readable-grid {
+    padding: 10px;
+}
+
 .minicrm-readable-groups {
     display: grid;
     gap: 18px;
@@ -3625,16 +4042,16 @@ a.metric-card {
 
 .minicrm-readable-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 10px;
-    margin-top: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+    margin-top: 0;
 }
 
 .minicrm-readable-row {
     display: grid;
-    gap: 7px;
+    gap: 5px;
     min-width: 0;
-    padding: 12px;
+    padding: 8px;
     border: 1px solid rgba(215, 225, 236, 0.94);
     border-radius: 8px;
     background: rgba(248, 251, 252, 0.94);
@@ -3658,12 +4075,13 @@ a.metric-card {
 
 .minicrm-readable-row strong {
     color: var(--color-text);
-    font-size: 1rem;
-    line-height: 1.45;
+    font-size: 0.84rem;
+    line-height: 1.35;
 }
 
 .minicrm-readable-row a {
     color: var(--color-primary-dark);
+    font-size: 0.84rem;
     font-weight: 900;
 }
 
@@ -4612,6 +5030,36 @@ a.metric-card {
 
     .mvm-performance-board {
         grid-template-columns: 1fr;
+    }
+
+    .minicrm-work-table-head {
+        display: none;
+    }
+
+    .minicrm-work-row-summary,
+    .minicrm-work-detail-layout,
+    .minicrm-timeline-event {
+        grid-template-columns: 1fr;
+    }
+
+    .minicrm-work-row-summary {
+        gap: 7px;
+        padding: 12px;
+    }
+
+    .minicrm-work-detail-layout {
+        padding: 0 12px 12px;
+    }
+
+    .minicrm-status-nav,
+    .minicrm-status-groups,
+    .minicrm-list-tools {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .minicrm-timeline-event {
+        gap: 5px;
     }
 
     .mvm-performance-card + .mvm-performance-card {
