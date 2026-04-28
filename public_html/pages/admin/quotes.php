@@ -57,6 +57,9 @@ try {
                                     <div class="table-actions">
                                         <a href="<?= h(url_path('/admin/quotes/edit') . '?id=' . (int) $quote['id']); ?>">Szerkesztés</a>
                                         <a href="<?= h(url_path('/admin/quotes/send') . '?id=' . (int) $quote['id']); ?>">Küldés</a>
+                                        <?php if ($status === 'accepted'): ?>
+                                            <a href="<?= h(url_path('/admin/quotes/send') . '?id=' . (int) $quote['id']); ?>">Díjbekérő</a>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
