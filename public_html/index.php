@@ -225,6 +225,10 @@ $routes = [
         'title' => 'Árajánlat fájl',
         'file' => PAGE_PATH . '/admin/quote-file.php',
     ],
+    'admin/quotes/fee-request-file' => [
+        'title' => 'Díjbekérő fájl',
+        'file' => PAGE_PATH . '/admin/quote-fee-request-file.php',
+    ],
     'admin/quotes/photo' => [
         'title' => 'Fotó',
         'file' => PAGE_PATH . '/admin/quote-photo.php',

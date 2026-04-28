@@ -16,7 +16,11 @@ $result = null;
 if (is_post()) {
     require_valid_csrf_token();
     $action = (string) ($_POST['action'] ?? '');
-    $result = $action === 'send' ? send_quote_email((int) $quote['id']) : generate_quote_pdf((int) $quote['id']);
+    $result = match ($action) {
+        'send' => send_quote_email((int) $quote['id']),
+        'fee_request' => send_quote_fee_request_email((int) $quote['id']),
+        default => generate_quote_pdf((int) $quote['id']),
+    };
     $message = (string) $result['message'];
 
     if (!$result['ok'] && preg_match('/dompdf|phpmailer|composer|vendor|smtp/i', $message)) {
@@ -30,6 +34,20 @@ if (is_post()) {
 $flash = get_flash();
 $quoteTotal = quote_display_total($quote);
 $quoteFileUrl = quote_file_is_available($quote) ? url_path('/admin/quotes/file') . '?id=' . (int) $quote['id'] : null;
+$feeRequestSelection = quote_fee_request_selection((int) $quote['id']);
+$feeRequestLine = is_array($feeRequestSelection['line'] ?? null) ? $feeRequestSelection['line'] : null;
+$feeRequestFileUrl = quote_fee_request_file_is_available($quote) ? url_path('/admin/quotes/fee-request-file') . '?id=' . (int) $quote['id'] : null;
+$feeRequestBlockedMessage = null;
+
+if ((string) ($quote['status'] ?? '') !== 'accepted') {
+    $feeRequestBlockedMessage = 'Díjbekérő csak elfogadott árajánlatból küldhető.';
+} elseif (!$feeRequestSelection['ok']) {
+    $feeRequestBlockedMessage = (string) $feeRequestSelection['message'];
+} elseif ($feeRequestFileUrl !== null) {
+    $feeRequestBlockedMessage = 'A díjbekérő már elkészült, a PDF innen megnyitható.';
+} elseif (szamlazz_config_value('SZAMLAZZ_AGENT_KEY') === '') {
+    $feeRequestBlockedMessage = 'Nincs beállítva a Számlázz.hu Agent kulcs.';
+}
 ?>
 <section class="admin-section">
     <div class="container">
@@ -74,9 +92,24 @@ $quoteFileUrl = quote_file_is_available($quote) ? url_path('/admin/quotes/file')
                 </div>
             <?php endif; ?>
 
+            <?php if ($feeRequestLine !== null): ?>
+                <div class="quote-send-ready">
+                    <div>
+                        <strong>Díjbekérő tétel</strong>
+                        <span><?= h((string) $feeRequestLine['name']); ?> · <?= h(format_money($feeRequestLine['line_gross'])); ?></span>
+                    </div>
+                    <?php if ($feeRequestFileUrl !== null): ?><a class="button button-secondary" href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a><?php endif; ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($feeRequestBlockedMessage !== null): ?>
+                <div class="alert alert-info"><p><?= h($feeRequestBlockedMessage); ?></p></div>
+            <?php endif; ?>
+
             <div class="quote-send-actions">
                 <button class="button" type="button" data-quote-action="pdf" data-modal-title="PDF generálása" data-modal-text="Új PDF készül az aktuális ajánlatadatokból. A korábbi PDF frissülhet.">PDF generálása</button>
                 <button class="button button-secondary" type="button" data-quote-action="send" data-modal-title="Email küldése PDF csatolmánnyal" data-modal-text="A rendszer elkészíti az aktuális PDF-et, majd elküldi az ügyfél email címére csatolmányként.">Email küldése PDF csatolmánnyal</button>
+                <button class="button button-secondary" type="button" data-quote-action="fee_request" data-modal-title="Díjbekérő küldése" data-modal-text="A rendszer a kiválasztott ügykezelési díjról Számlázz.hu díjbekérőt készít, majd elküldi az ügyfél email címére."<?= $feeRequestBlockedMessage !== null ? ' disabled' : ''; ?>>Díjbekérő küldése</button>
             </div>
 
             <dialog class="quote-action-dialog" id="quoteActionDialog" aria-labelledby="quoteActionDialogTitle">

@@ -3,6 +3,7 @@
 *config.php
 *db.php
 private_logs/
+storage/config/local.secret.php
 *.zip
 *.sql
 *.log
