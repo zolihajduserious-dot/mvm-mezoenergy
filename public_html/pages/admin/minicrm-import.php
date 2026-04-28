@@ -398,8 +398,15 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $timelineEvents = $isSelectedItem ? minicrm_import_timeline_events($item, $rawFields, $localFiles) : [];
                             $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
                             $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
+                            $searchText = implode(' ', [
+                                (string) ($item['card_name'] ?? ''),
+                                (string) ($item['source_id'] ?? ''),
+                                (string) ($item['responsible'] ?? ''),
+                                (string) ($item['minicrm_status'] ?? ''),
+                                $siteAddress,
+                            ]);
                             ?>
-                            <details class="admin-workflow-request minicrm-work-row" id="minicrm-work-<?= $itemId; ?>" data-minicrm-item data-minicrm-loaded="<?= $isSelectedItem ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedItem ? 'open' : ''; ?>>
+                            <details class="admin-workflow-request minicrm-work-row" id="minicrm-work-<?= $itemId; ?>" data-minicrm-item data-minicrm-search-text="<?= h($searchText); ?>" data-minicrm-loaded="<?= $isSelectedItem ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedItem ? 'open' : ''; ?>>
                                 <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                                     <span class="admin-workflow-request-main">
                                         <strong><?= h((string) $item['card_name']); ?></strong>
@@ -407,7 +414,6 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
-                                        <strong><?= h((string) ($item['source_id'] ?? '')); ?></strong>
                                     </span>
                                     <span class="minicrm-work-date">
                                         <?= h($displayDate !== '' ? $displayDate : '-'); ?>
@@ -621,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const searchable = items.map((item) => ({
         item,
-        text: item.textContent.toLocaleLowerCase('hu-HU'),
+        text: `${item.textContent} ${item.dataset.minicrmSearchText || ''}`.toLocaleLowerCase('hu-HU'),
     }));
 
     input.addEventListener('input', () => {
