@@ -31,10 +31,12 @@ try {
         foreach (all_connection_requests() as $workflowRequest) {
             $requestId = (int) $workflowRequest['id'];
             $quotes = quotes_for_connection_request($requestId);
+            $acceptedQuote = accepted_quote_for_connection_request($requestId)
+                ?? accepted_quote_for_registration_duplicate_request($requestId);
             $stage = connection_request_admin_workflow_stage(
                 $workflowRequest,
-                $quotes[0] ?? null,
-                accepted_quote_for_connection_request($requestId),
+                $quotes[0] ?? $acceptedQuote,
+                $acceptedQuote,
                 connection_request_documents($requestId)
             );
             $workflowStageCounts[$stage] = ($workflowStageCounts[$stage] ?? 0) + 1;

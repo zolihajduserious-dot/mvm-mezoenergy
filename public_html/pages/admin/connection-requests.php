@@ -24,7 +24,10 @@ if (is_post() && ($_POST['action'] ?? '') === 'assign_electrician') {
         $electricianUserId = $electricianUserIdRaw !== '' ? (int) $electricianUserIdRaw : null;
         $requestToAssign = $assignRequestId ? find_connection_request($assignRequestId) : null;
         $quoteMissingReason = trim((string) ($_POST['quote_missing_reason'] ?? ''));
-        $requestHasQuote = $requestToAssign !== null && latest_quote_for_connection_request((int) $assignRequestId) !== null;
+        $requestHasQuote = $requestToAssign !== null && (
+            latest_quote_for_connection_request((int) $assignRequestId) !== null
+            || accepted_quote_for_registration_duplicate_request((int) $assignRequestId) !== null
+        );
 
         if ($requestToAssign === null) {
             $assignmentErrors[] = 'Az igény nem található.';
@@ -172,8 +175,15 @@ foreach ($requests as $workflowRequest) {
     $workflowRequestId = (int) $workflowRequest['id'];
     $allMvmDocuments = $canManageMvmDocuments && $mvmSchemaErrors === [] ? connection_request_documents($workflowRequestId) : [];
     $quotes = quotes_for_connection_request($workflowRequestId);
-    $acceptedQuote = accepted_quote_for_connection_request($workflowRequestId);
+    $acceptedQuote = accepted_quote_for_connection_request($workflowRequestId)
+        ?? accepted_quote_for_registration_duplicate_request($workflowRequestId);
     $latestQuote = $quotes[0] ?? null;
+
+    if ($latestQuote === null && $acceptedQuote !== null) {
+        $latestQuote = $acceptedQuote;
+        $quotes = [$acceptedQuote];
+    }
+
     $workflowStage = connection_request_admin_workflow_stage($workflowRequest, $latestQuote, $acceptedQuote, $allMvmDocuments);
     $quoteMissingReason = connection_request_quote_missing_reason($workflowRequest);
     $quoteState = quote_state_summary($latestQuote, $acceptedQuote, $quoteMissingReason);

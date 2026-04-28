@@ -6,6 +6,38 @@ require_role(['admin', 'specialist']);
 $flash = get_flash();
 $customers = [];
 
+if (is_post() && ($_POST['action'] ?? '') === 'delete_customer') {
+    require_valid_csrf_token();
+
+    if (!is_admin_user()) {
+        set_flash('error', 'Ügyfelet törölni csak admin jogosultsággal lehet.');
+        redirect('/admin/customers');
+    }
+
+    $deleteCustomerId = filter_input(INPUT_POST, 'customer_id', FILTER_VALIDATE_INT);
+
+    if (!$deleteCustomerId) {
+        set_flash('error', 'Az ügyfél nem található.');
+        redirect('/admin/customers');
+    }
+
+    try {
+        $deleteSummary = delete_customer_with_related_data((int) $deleteCustomerId);
+        set_flash(
+            'success',
+            'Az ügyfél törölve: ' . $deleteSummary['customer_name']
+                . '. Kapcsolódó adatok: ' . (int) $deleteSummary['requests'] . ' igény, '
+                . (int) $deleteSummary['quotes'] . ' árajánlat, '
+                . (int) $deleteSummary['users'] . ' felhasználói fiók, '
+                . (int) $deleteSummary['files'] . ' fájl.'
+        );
+    } catch (Throwable $exception) {
+        set_flash('error', APP_DEBUG ? $exception->getMessage() : 'Az ügyfél törlése sikertelen.');
+    }
+
+    redirect('/admin/customers');
+}
+
 try {
     $customers = all_customers();
 } catch (Throwable $exception) {
@@ -45,6 +77,14 @@ try {
                                     <div class="table-actions">
                                         <a href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Szerkesztes</a>
                                         <a href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $customer['id']); ?>">Ajánlat</a>
+                                        <?php if (is_admin_user()): ?>
+                                            <form method="post" action="<?= h(url_path('/admin/customers')); ?>" onsubmit="return confirm('Biztosan törlöd ezt az ügyfelet és minden kapcsolódó adatát? Ez nem visszavonható.');">
+                                                <?= csrf_field(); ?>
+                                                <input type="hidden" name="action" value="delete_customer">
+                                                <input type="hidden" name="customer_id" value="<?= (int) $customer['id']; ?>">
+                                                <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                            </form>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>

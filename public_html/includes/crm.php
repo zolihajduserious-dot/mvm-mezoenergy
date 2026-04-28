@@ -506,6 +506,35 @@ function find_customer_by_user(int $userId): ?array
     return is_array($customer) ? $customer : null;
 }
 
+function find_claimable_customer_by_email(string $email): ?array
+{
+    $email = trim($email);
+
+    if ($email === '') {
+        return null;
+    }
+
+    $statement = db_query(
+        'SELECT c.*
+         FROM `customers` c
+         WHERE LOWER(c.`email`) = LOWER(?)
+           AND (c.`user_id` IS NULL OR c.`user_id` = 0)
+         ORDER BY CASE WHEN EXISTS (
+                SELECT 1
+                FROM `quotes` q
+                WHERE q.`customer_id` = c.`id`
+                  AND q.`status` = ?
+             ) THEN 1 ELSE 0 END DESC,
+             c.`created_at` DESC,
+             c.`id` DESC
+         LIMIT 1',
+        [$email, 'accepted']
+    );
+    $customer = $statement->fetch();
+
+    return is_array($customer) ? $customer : null;
+}
+
 function current_customer(): ?array
 {
     $user = current_user();
@@ -800,6 +829,226 @@ function all_customers(): array
     return $statement->fetchAll();
 }
 
+function db_fetch_int_column(string $sql, array $params = []): array
+{
+    return array_values(array_map(
+        static fn (mixed $value): int => (int) $value,
+        db_query($sql, $params)->fetchAll(PDO::FETCH_COLUMN)
+    ));
+}
+
+function db_in_placeholders(array $values): string
+{
+    return implode(', ', array_fill(0, count($values), '?'));
+}
+
+function collect_string_column(string $sql, array $params = []): array
+{
+    return array_values(array_filter(array_map(
+        static fn (mixed $value): string => trim((string) $value),
+        db_query($sql, $params)->fetchAll(PDO::FETCH_COLUMN)
+    )));
+}
+
+function delete_storage_files(array $paths): int
+{
+    $storageRoot = realpath(STORAGE_PATH);
+
+    if ($storageRoot === false) {
+        return 0;
+    }
+
+    $storageRoot = rtrim(str_replace('\\', '/', $storageRoot), '/');
+    $deleted = 0;
+
+    foreach (array_unique($paths) as $path) {
+        $path = trim((string) $path);
+
+        if ($path === '') {
+            continue;
+        }
+
+        $realPath = realpath($path);
+
+        if ($realPath === false || !is_file($realPath)) {
+            continue;
+        }
+
+        $normalizedPath = str_replace('\\', '/', $realPath);
+
+        if (!str_starts_with($normalizedPath, $storageRoot . '/')) {
+            continue;
+        }
+
+        if (@unlink($realPath)) {
+            $deleted++;
+        }
+    }
+
+    return $deleted;
+}
+
+function delete_customer_with_related_data(int $customerId): array
+{
+    $customer = find_customer($customerId);
+
+    if ($customer === null) {
+        throw new RuntimeException('Az ügyfél nem található.');
+    }
+
+    $requestIds = db_fetch_int_column('SELECT `id` FROM `connection_requests` WHERE `customer_id` = ?', [$customerId]);
+    $quoteIds = db_fetch_int_column('SELECT `id` FROM `quotes` WHERE `customer_id` = ?', [$customerId]);
+
+    if ($requestIds !== [] && db_column_exists('quotes', 'connection_request_id')) {
+        $requestQuoteIds = db_fetch_int_column(
+            'SELECT `id` FROM `quotes` WHERE `connection_request_id` IN (' . db_in_placeholders($requestIds) . ')',
+            $requestIds
+        );
+        $quoteIds = array_values(array_unique(array_merge($quoteIds, $requestQuoteIds)));
+    }
+
+    $userIds = [];
+
+    if (users_table_exists()) {
+        $userParams = [$customerId];
+        $userSql = 'SELECT `id` FROM `users` WHERE `role` = ? AND (`customer_id` = ?';
+        array_unshift($userParams, 'customer');
+
+        if (!empty($customer['user_id'])) {
+            $userSql .= ' OR `id` = ?';
+            $userParams[] = (int) $customer['user_id'];
+        }
+
+        $userSql .= ')';
+        $userIds = db_fetch_int_column($userSql, $userParams);
+    }
+
+    $filePaths = [];
+
+    if ($quoteIds !== []) {
+        $quotePlaceholders = db_in_placeholders($quoteIds);
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `pdf_path` FROM `quotes` WHERE `id` IN (' . $quotePlaceholders . ') AND `pdf_path` IS NOT NULL', $quoteIds),
+            collect_string_column('SELECT `storage_path` FROM `quote_photos` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds)
+        );
+    }
+
+    if ($requestIds !== []) {
+        $requestPlaceholders = db_in_placeholders($requestIds);
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `storage_path` FROM `connection_request_files` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds)
+        );
+
+        if (db_table_exists('connection_request_work_files')) {
+            $filePaths = array_merge(
+                $filePaths,
+                collect_string_column('SELECT `storage_path` FROM `connection_request_work_files` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds)
+            );
+        }
+
+        if (db_table_exists('connection_request_documents')) {
+            $filePaths = array_merge(
+                $filePaths,
+                collect_string_column('SELECT `storage_path` FROM `connection_request_documents` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds)
+            );
+        }
+
+        if (db_table_exists('connection_request_mvm_forms')) {
+            $filePaths = array_merge(
+                $filePaths,
+                collect_string_column('SELECT `sketch_storage_path` FROM `connection_request_mvm_forms` WHERE `connection_request_id` IN (' . $requestPlaceholders . ') AND `sketch_storage_path` IS NOT NULL', $requestIds)
+            );
+        }
+    }
+
+    if (db_table_exists('connection_request_documents')) {
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `storage_path` FROM `connection_request_documents` WHERE `customer_id` = ?', [$customerId])
+        );
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        if ($quoteIds !== []) {
+            $quotePlaceholders = db_in_placeholders($quoteIds);
+            db_query('DELETE FROM `email_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            db_query('DELETE FROM `quote_lines` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            db_query('DELETE FROM `quote_photos` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+        }
+
+        if ($requestIds !== []) {
+            $requestPlaceholders = db_in_placeholders($requestIds);
+
+            if (db_table_exists('mvm_email_messages')) {
+                db_query('DELETE FROM `mvm_email_messages` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
+            if (db_table_exists('mvm_email_threads')) {
+                db_query('DELETE FROM `mvm_email_threads` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
+            if (db_table_exists('connection_request_mvm_forms')) {
+                db_query('DELETE FROM `connection_request_mvm_forms` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
+            if (db_table_exists('connection_request_documents')) {
+                db_query('DELETE FROM `connection_request_documents` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
+            if (db_table_exists('connection_request_work_files')) {
+                db_query('DELETE FROM `connection_request_work_files` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
+            db_query('DELETE FROM `connection_request_files` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            db_query('DELETE FROM `connection_requests` WHERE `id` IN (' . $requestPlaceholders . ')', $requestIds);
+        }
+
+        if (db_table_exists('connection_request_documents')) {
+            db_query('DELETE FROM `connection_request_documents` WHERE `customer_id` = ?', [$customerId]);
+        }
+
+        if ($quoteIds !== []) {
+            db_query('DELETE FROM `quotes` WHERE `id` IN (' . db_in_placeholders($quoteIds) . ')', $quoteIds);
+        }
+
+        db_query('DELETE FROM `surveys` WHERE `customer_id` = ?', [$customerId]);
+
+        if (db_table_exists('customer_addresses')) {
+            db_query('DELETE FROM `customer_addresses` WHERE `customer_id` = ?', [$customerId]);
+        }
+
+        if ($userIds !== []) {
+            if (password_reset_table_exists()) {
+                db_query('DELETE FROM `password_reset_tokens` WHERE `user_id` IN (' . db_in_placeholders($userIds) . ')', $userIds);
+            }
+
+            db_query('DELETE FROM `users` WHERE `id` IN (' . db_in_placeholders($userIds) . ') AND `role` = ?', array_merge($userIds, ['customer']));
+        }
+
+        db_query('DELETE FROM `customers` WHERE `id` = ?', [$customerId]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+
+    return [
+        'customer_name' => (string) ($customer['requester_name'] ?? ''),
+        'requests' => count($requestIds),
+        'quotes' => count($quoteIds),
+        'users' => count($userIds),
+        'files' => delete_storage_files($filePaths),
+    ];
+}
+
 function customer_owner_label(array $customer): string
 {
     $role = (string) ($customer['owner_role'] ?? '');
@@ -823,27 +1072,54 @@ function customer_owner_label(array $customer): string
     return 'Saját ügyfél / nincs felelős';
 }
 
-function create_customer_account(array $customerData, string $password): int
+function create_customer_account(array $customerData, string $password, ?int $claimCustomerId = null): int
 {
-    $customerId = create_customer($customerData, null);
+    $claimCustomer = $claimCustomerId !== null ? find_customer($claimCustomerId) : null;
+    $claimEmailMatches = $claimCustomer !== null
+        && empty($claimCustomer['user_id'])
+        && strcasecmp(trim((string) ($claimCustomer['email'] ?? '')), trim((string) $customerData['email'])) === 0;
 
-    db_query(
-        'INSERT INTO `users` (`name`, `email`, `password_hash`, `is_admin`, `role`, `customer_id`)
-         VALUES (?, ?, ?, ?, ?, ?)',
-        [
-            $customerData['requester_name'],
-            $customerData['email'],
-            password_hash($password, PASSWORD_DEFAULT),
-            0,
-            'customer',
-            $customerId,
-        ]
-    );
+    if (!$claimEmailMatches) {
+        $claimCustomer = find_claimable_customer_by_email((string) $customerData['email']);
+    }
 
-    $userId = (int) db()->lastInsertId();
-    db_query('UPDATE `customers` SET `user_id` = ? WHERE `id` = ?', [$userId, $customerId]);
+    $pdo = db();
+    $pdo->beginTransaction();
 
-    return $userId;
+    try {
+        if ($claimCustomer !== null) {
+            $customerId = (int) $claimCustomer['id'];
+            update_customer($customerId, $customerData);
+        } else {
+            $customerId = create_customer($customerData, null);
+        }
+
+        db_query(
+            'INSERT INTO `users` (`name`, `email`, `password_hash`, `is_admin`, `role`, `customer_id`)
+             VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                $customerData['requester_name'],
+                $customerData['email'],
+                password_hash($password, PASSWORD_DEFAULT),
+                0,
+                'customer',
+                $customerId,
+            ]
+        );
+
+        $userId = (int) db()->lastInsertId();
+        db_query('UPDATE `customers` SET `user_id` = ? WHERE `id` = ?', [$userId, $customerId]);
+
+        $pdo->commit();
+
+        return $userId;
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
 }
 
 function active_price_items(): array
@@ -1296,6 +1572,36 @@ function accepted_quote_for_connection_request(int $requestId): ?array
     return is_array($quote) ? $quote : null;
 }
 
+function accepted_quote_for_registration_duplicate_request(int $requestId): ?array
+{
+    if (!db_column_exists('quotes', 'connection_request_id')) {
+        return null;
+    }
+
+    $statement = db_query(
+        'SELECT q.*, quote_customer.requester_name, quote_customer.email
+         FROM `connection_requests` cr
+         INNER JOIN `customers` request_customer ON request_customer.id = cr.customer_id
+         INNER JOIN `customers` quote_customer ON LOWER(quote_customer.email) = LOWER(request_customer.email)
+         INNER JOIN `quotes` q ON q.customer_id = quote_customer.id
+         WHERE cr.id = ?
+           AND q.status = ?
+           AND (quote_customer.user_id IS NULL OR quote_customer.user_id = 0)
+           AND q.connection_request_id <> cr.id
+           AND NOT EXISTS (
+                SELECT 1
+                FROM `quotes` direct_quote
+                WHERE direct_quote.connection_request_id = cr.id
+           )
+         ORDER BY q.accepted_at DESC, q.id DESC
+         LIMIT 1',
+        [$requestId, 'accepted']
+    );
+    $quote = $statement->fetch();
+
+    return is_array($quote) ? $quote : null;
+}
+
 function customer_can_view_quote(array $quote): bool
 {
     if (is_staff_user()) {
@@ -1415,6 +1721,15 @@ function quote_customer_action_url(array $quote, string $intent = ''): string
     return absolute_url('/customer/quotes/view?id=' . (int) $quote['id'] . $suffix);
 }
 
+function quote_registration_path(array $quote): string
+{
+    if (!empty($quote['id']) && !empty($quote['public_token'])) {
+        return '/register?quote_id=' . (int) $quote['id'] . '&token=' . rawurlencode((string) $quote['public_token']);
+    }
+
+    return '/register';
+}
+
 function notify_admin_quote_response(int $quoteId, string $response, string $message = ''): array
 {
     $quote = find_quote($quoteId);
@@ -1530,7 +1845,7 @@ function send_quote_registration_offer(int $quoteId): array
         ],
     ];
     $emailActions = [
-        ['label' => 'Saját profil regisztrációja', 'url' => absolute_url('/register')],
+        ['label' => 'Saját profil regisztrációja', 'url' => absolute_url(quote_registration_path($quote))],
         ['label' => 'Árajánlat megnyitása', 'url' => quote_customer_action_url($quote)],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);

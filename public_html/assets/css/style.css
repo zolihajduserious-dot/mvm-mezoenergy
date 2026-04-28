@@ -1071,7 +1071,8 @@ a.metric-card {
 }
 
 .inline-link-list a,
-.table-actions a {
+.table-actions a,
+.table-actions .table-action-button {
     display: inline-flex;
     align-items: center;
     min-height: 38px;
@@ -1082,13 +1083,17 @@ a.metric-card {
     color: var(--color-primary-dark);
     font-size: 0.92rem;
     font-weight: 800;
+    font-family: inherit;
+    cursor: pointer;
     transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .inline-link-list a:hover,
 .inline-link-list a:focus,
 .table-actions a:hover,
-.table-actions a:focus {
+.table-actions a:focus,
+.table-actions .table-action-button:hover,
+.table-actions .table-action-button:focus {
     border-color: var(--color-primary);
     background: var(--color-primary);
     color: #ffffff;
@@ -1756,6 +1761,10 @@ a.metric-card {
     white-space: nowrap;
 }
 
+.table-actions form {
+    margin: 0;
+}
+
 .table-actions.stacked {
     align-items: flex-start;
     flex-direction: column;
@@ -2209,6 +2218,18 @@ a.metric-card {
 
 .table-actions .danger-link {
     color: #8f1f31;
+}
+
+.table-actions .table-action-danger {
+    border-color: rgba(179, 38, 58, 0.32);
+    color: #8f1f31;
+}
+
+.table-actions .table-action-danger:hover,
+.table-actions .table-action-danger:focus {
+    border-color: #b3263a;
+    background: #b3263a;
+    color: #ffffff;
 }
 
 .empty-state {

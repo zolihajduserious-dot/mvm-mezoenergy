@@ -107,7 +107,7 @@ if (is_post()) {
                 <div class="quote-response-card">
                     <h2>Saját profil regisztrációja</h2>
                     <p>A folytatáshoz létrehozhatsz saját ügyfélprofilt, ahol később az igény adatai és dokumentumai is kezelhetők.</p>
-                    <a class="button" href="<?= h(url_path('/register')); ?>">Saját profil regisztrációja</a>
+                    <a class="button" href="<?= h(url_path(quote_registration_path($quote))); ?>">Saját profil regisztrációja</a>
                 </div>
             <?php elseif ($status === 'consultation_requested'): ?>
                 <div class="alert alert-info"><p>Az árajánlat egyeztetési kérését rögzítettük. Hamarosan felvesszük veled a kapcsolatot.</p></div>

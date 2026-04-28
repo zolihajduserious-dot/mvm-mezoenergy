@@ -5,9 +5,31 @@ if (is_logged_in()) {
     redirect(dashboard_path_for_user());
 }
 
+$quoteId = filter_input(INPUT_GET, 'quote_id', FILTER_VALIDATE_INT);
+$quoteToken = trim((string) ($_GET['token'] ?? ''));
+$registrationQuote = $quoteId ? find_quote_by_public_access((int) $quoteId, $quoteToken) : null;
+$registrationRequest = $registrationQuote !== null && !empty($registrationQuote['connection_request_id'])
+    ? find_connection_request((int) $registrationQuote['connection_request_id'])
+    : null;
+$registrationPath = $registrationQuote !== null ? quote_registration_path($registrationQuote) : '/register';
+
 $errors = [];
 $form = normalize_customer_data([]);
 $flash = get_flash();
+
+if ($registrationQuote !== null) {
+    $form = normalize_customer_data([
+        'requester_name' => (string) ($registrationQuote['requester_name'] ?? ''),
+        'company_name' => (string) ($registrationQuote['company_name'] ?? ''),
+        'phone' => (string) ($registrationQuote['phone'] ?? ''),
+        'email' => (string) ($registrationQuote['email'] ?? ''),
+        'postal_address' => (string) (($registrationQuote['postal_address'] ?? '') ?: ($registrationRequest['site_address'] ?? '')),
+        'postal_code' => (string) (($registrationQuote['postal_code'] ?? '') ?: ($registrationRequest['site_postal_code'] ?? '')),
+        'city' => (string) ($registrationQuote['city'] ?? ''),
+        'source' => 'Elfogadott gyors árajánlat',
+        'status' => 'Árajánlat elfogadva',
+    ]);
+}
 
 if (is_post()) {
     require_valid_csrf_token();
@@ -29,17 +51,60 @@ if (is_post()) {
         $errors[] = 'Ezzel az email címmel már létezik felhasználó.';
     }
 
+    if (
+        $registrationQuote !== null
+        && strcasecmp(trim((string) $form['email']), trim((string) ($registrationQuote['email'] ?? ''))) !== 0
+    ) {
+        $errors[] = 'Az elfogadott árajánlathoz tartozó regisztrációnál ugyanazt az email címet kell használni.';
+    }
+
     if ($errors === []) {
         try {
-            create_customer_account($form, $password);
-            $user = find_user_by_email($form['email']);
+            $userId = create_customer_account(
+                $form,
+                $password,
+                $registrationQuote !== null ? (int) $registrationQuote['customer_id'] : null
+            );
+            $user = find_user_by_id($userId);
 
             if ($user !== null) {
                 login_user($user);
             }
 
-            set_flash('success', 'Sikeres regisztráció. Most add meg az igény adatait, és töltsd fel a fájlokat.');
-            redirect('/customer/work-request');
+            $redirectPath = '/customer/work-request';
+
+            if ($user !== null && !empty($user['customer_id'])) {
+                $customerId = (int) $user['customer_id'];
+                $existingRequests = connection_requests_for_customer($customerId);
+                $editableRequest = null;
+
+                if ($registrationRequest !== null && (int) $registrationRequest['customer_id'] === $customerId) {
+                    $editableRequest = connection_request_is_editable($registrationRequest) ? $registrationRequest : null;
+                }
+
+                if ($editableRequest === null) {
+                    foreach ($existingRequests as $existingRequest) {
+                        if (connection_request_is_editable($existingRequest)) {
+                            $editableRequest = $existingRequest;
+                            break;
+                        }
+                    }
+                }
+
+                if ($editableRequest !== null) {
+                    $redirectPath = '/customer/work-request?id=' . (int) $editableRequest['id'];
+                } elseif ($existingRequests !== []) {
+                    $redirectPath = '/customer/work-requests';
+                }
+            }
+
+            set_flash(
+                'success',
+                $redirectPath === '/customer/work-request'
+                    ? 'Sikeres regisztráció. Most add meg az igény adatait, és töltsd fel a fájlokat.'
+                    : 'Sikeres regisztráció. A korábban rögzített igényedet innen tudod folytatni.'
+            );
+            redirect($redirectPath);
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'A regisztráció sikertelen.';
         }
@@ -69,7 +134,7 @@ if (is_post()) {
                 </div>
             <?php endif; ?>
 
-            <form class="form" method="post" action="<?= h(url_path('/register')); ?>">
+            <form class="form" method="post" action="<?= h(url_path($registrationPath)); ?>">
                 <?= csrf_field(); ?>
                 <label class="checkbox-row">
                     <input type="checkbox" name="is_legal_entity" value="1" <?= (int) $form['is_legal_entity'] === 1 ? 'checked' : ''; ?>>
