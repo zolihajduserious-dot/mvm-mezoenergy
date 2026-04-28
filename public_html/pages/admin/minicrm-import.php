@@ -52,8 +52,13 @@ $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() 
 $localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
 $documentZipCandidates = minicrm_document_zip_candidates();
 $itemsByStatus = [];
+$selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
 
 foreach ($items as $item) {
+    if ($selectedItemId === 0) {
+        $selectedItemId = (int) ($item['id'] ?? 0);
+    }
+
     $statusName = trim((string) ($item['minicrm_status'] ?? '')) ?: 'Nincs státusz';
     $itemsByStatus[$statusName][] = $item;
 }
@@ -355,21 +360,30 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                     </div>
                                     <?php foreach ($statusItems as $item): ?>
                             <?php
-                            $documentLinks = minicrm_work_item_document_links($item);
-                            $localFiles = minicrm_work_item_files((int) $item['id']);
-                            $rawFields = minicrm_work_item_raw_fields($item);
-                            $fieldGroups = minicrm_work_item_field_groups($item);
+                            $itemId = (int) ($item['id'] ?? 0);
+                            $isSelectedItem = $itemId === $selectedItemId;
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
-                            $timelineEvents = minicrm_import_timeline_events($item, $rawFields, $localFiles);
-                            $summaryNote = minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']);
                             $displayDate = trim((string) ($item['submitted_date'] ?: $item['date_value'] ?: $item['updated_at'] ?: $item['created_at'] ?: ''));
+                            $detailUrl = url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId;
+                            $documentLinks = $isSelectedItem ? minicrm_work_item_document_links($item) : [];
+                            $localFiles = $isSelectedItem ? minicrm_work_item_files($itemId) : [];
+                            $rawFields = $isSelectedItem ? minicrm_work_item_raw_fields($item) : [];
+                            $fieldGroups = $isSelectedItem ? minicrm_work_item_field_groups($item) : [];
+                            $timelineEvents = $isSelectedItem ? minicrm_import_timeline_events($item, $rawFields, $localFiles) : [];
+                            $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
+                            $documentLinkCount = count($documentLinks);
+
+                            if (!$isSelectedItem) {
+                                $decodedDocumentLinks = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
+                                $documentLinkCount = is_array($decodedDocumentLinks) ? count($decodedDocumentLinks) : 0;
+                            }
                             ?>
-                            <details class="admin-workflow-request minicrm-work-row" data-minicrm-item>
+                            <details class="admin-workflow-request minicrm-work-row" id="minicrm-work-<?= $itemId; ?>" data-minicrm-item data-minicrm-loaded="<?= $isSelectedItem ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedItem ? 'open' : ''; ?>>
                                 <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                                     <span class="admin-workflow-request-main">
                                         <strong><?= h((string) $item['card_name']); ?></strong>
-                                        <small><?= h($siteAddress !== '' ? $siteAddress : (minicrm_import_short_text($summaryNote, 120) ?: (string) $item['source_id'])); ?></small>
+                                        <small><?= h($siteAddress !== '' ? $siteAddress : (string) $item['source_id']); ?></small>
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
@@ -379,11 +393,17 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         <?= h($displayDate !== '' ? $displayDate : '-'); ?>
                                     </span>
                                     <span class="admin-workflow-request-badges">
-                                        <strong><?= count($localFiles); ?> fájl</strong>
-                                        <small><?= count($rawFields); ?> mező · <?= count($documentLinks); ?> link</small>
+                                        <strong><?= $isSelectedItem ? count($localFiles) . ' fájl' : 'Adatlap'; ?></strong>
+                                        <small><?= $isSelectedItem ? count($rawFields) . ' mező · ' . count($documentLinks) . ' link' : $documentLinkCount . ' link'; ?></small>
                                     </span>
                                 </summary>
 
+                                <?php if (!$isSelectedItem): ?>
+                                    <div class="minicrm-work-card minicrm-work-card-placeholder">
+                                        <p class="request-admin-empty">Az adatlap megnyitásához kattints a sorra; a részletek külön töltődnek be, hogy a lista gyors maradjon.</p>
+                                        <a class="button button-secondary" href="<?= h($detailUrl); ?>">Adatlap megnyitása</a>
+                                    </div>
+                                <?php else: ?>
                                 <article class="request-admin-card minicrm-work-card">
                                     <div class="request-admin-card-head">
                                         <div>
@@ -517,6 +537,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         </div>
                                     </div>
                                 </article>
+                                <?php endif; ?>
                             </details>
                                     <?php endforeach; ?>
                                 </div>
@@ -538,6 +559,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const count = document.querySelector('[data-minicrm-count]');
     const items = Array.from(document.querySelectorAll('[data-minicrm-item]'));
     const groups = Array.from(document.querySelectorAll('[data-minicrm-status-group]'));
+
+    items.forEach((item) => {
+        item.addEventListener('toggle', () => {
+            if (!item.open || item.dataset.minicrmLoaded === '1' || !item.dataset.minicrmDetailUrl) {
+                return;
+            }
+
+            window.location.href = item.dataset.minicrmDetailUrl;
+        });
+    });
 
     const activateTab = (tabName) => {
         tabs.forEach((tab) => {
