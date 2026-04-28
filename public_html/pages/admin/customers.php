@@ -66,17 +66,24 @@ try {
             <div class="empty-state"><h2>Még nincs ügyfél</h2><p>Hozd létre az első ügyfelet, vagy várj ügyfélregisztrációra.</p></div>
         <?php else: ?>
             <div class="table-wrap">
-                <table class="data-table">
-                    <thead><tr><th>Ügyfél</th><th>Felelős</th><th>Telefon</th><th>Cím</th><th>Státusz</th><th>Igények</th><th>Műveletek</th></tr></thead>
+                <table class="data-table admin-customers-table">
+                    <thead><tr><th>Ügyfél</th><th>Adatok</th><th>Igények</th><th>Műveletek</th></tr></thead>
                     <tbody>
                         <?php foreach ($customers as $customer): ?>
                             <?php $customerRequests = $requestsByCustomer[(int) $customer['id']] ?? []; ?>
                             <tr>
-                                <td><strong><?= h($customer['requester_name']); ?></strong><span><?= h($customer['email']); ?></span></td>
-                                <td><?= h(customer_owner_label($customer)); ?></td>
-                                <td><?= h($customer['phone']); ?></td>
-                                <td><?= h($customer['postal_code']); ?> <?= h($customer['city']); ?>, <?= h($customer['postal_address']); ?></td>
-                                <td><?= h($customer['status']); ?></td>
+                                <td class="customer-main-cell">
+                                    <strong><?= h($customer['requester_name']); ?></strong>
+                                    <span><?= h($customer['email']); ?></span>
+                                    <span><?= h($customer['phone']); ?></span>
+                                </td>
+                                <td>
+                                    <div class="customer-detail-list">
+                                        <div><span>Felelős</span><strong><?= h(customer_owner_label($customer)); ?></strong></div>
+                                        <div><span>Cím</span><strong><?= h($customer['postal_code']); ?> <?= h($customer['city']); ?>, <?= h($customer['postal_address']); ?></strong></div>
+                                        <div><span>Státusz</span><strong><?= h($customer['status']); ?></strong></div>
+                                    </div>
+                                </td>
                                 <td>
                                     <div class="inline-link-list customer-request-links">
                                         <?php foreach ($customerRequests as $customerRequest): ?>
@@ -84,17 +91,19 @@ try {
                                             $requestLabel = trim((string) ($customerRequest['project_name'] ?? ''));
                                             $requestLabel = $requestLabel !== '' ? $requestLabel : '#' . (int) $customerRequest['id'];
                                             $requestStatus = (string) ($customerRequest['request_status'] ?? 'draft');
+                                            $requestAddress = trim((string) ($customerRequest['site_postal_code'] ?? '') . ' ' . (string) ($customerRequest['site_address'] ?? ''));
                                             ?>
-                                            <a href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $customerRequest['id']); ?>">
-                                                <?= h($requestLabel); ?>
-                                                <span><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></span>
+                                            <a class="customer-request-item" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $customerRequest['id']); ?>">
+                                                <strong><?= h($requestLabel); ?></strong>
+                                                <span><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?><?= $requestAddress !== '' ? ' · ' . h($requestAddress) : ''; ?></span>
                                             </a>
                                         <?php endforeach; ?>
-                                        <a href="<?= h(url_path('/admin/connection-requests/edit') . '?customer_id=' . (int) $customer['id']); ?>">Új igény</a>
+                                        <?php if ($customerRequests === []): ?><span class="customer-request-empty">Nincs rögzített igény</span><?php endif; ?>
+                                        <a class="customer-request-new" href="<?= h(url_path('/admin/connection-requests/edit') . '?customer_id=' . (int) $customer['id']); ?>">Új igény</a>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="table-actions">
+                                    <div class="table-actions customer-actions">
                                         <a href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Szerkesztes</a>
                                         <a href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $customer['id']); ?>">Ajánlat</a>
                                         <?php if (is_admin_user()): ?>
