@@ -10972,6 +10972,10 @@ function minicrm_document_allowed_extensions(): array
 {
     return [
         'pdf' => 'application/pdf',
+        'doc' => 'application/msword',
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls' => 'application/vnd.ms-excel',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
@@ -11018,6 +11022,53 @@ function minicrm_document_mime_type(string $path, string $originalName): string
     $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
     return minicrm_document_allowed_extensions()[$extension] ?? 'application/octet-stream';
+}
+
+function validate_minicrm_work_item_file_uploads(array $files): array
+{
+    $errors = [];
+    $uploadedFiles = array_values(array_filter(
+        $files,
+        static fn (?array $file): bool => is_array($file) && uploaded_file_is_present($file)
+    ));
+
+    if ($uploadedFiles === []) {
+        return ['Legalább egy fotó vagy dokumentum feltöltése kötelező.'];
+    }
+
+    $allowed = minicrm_document_allowed_extensions();
+
+    foreach ($uploadedFiles as $file) {
+        if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+            $errors[] = (string) ($file['name'] ?? 'Fájl') . ': a feltöltés sikertelen.';
+            continue;
+        }
+
+        if ((int) ($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
+            $errors[] = (string) ($file['name'] ?? 'Fájl') . ': túl nagy fájl. Maximum 8 MB engedélyezett.';
+        }
+
+        $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+
+        if (!isset($allowed[$extension])) {
+            $errors[] = (string) ($file['name'] ?? 'Fájl') . ': nem engedélyezett fájltípus. Használható: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG, WEBP, HEIC.';
+            continue;
+        }
+
+        $tmpName = (string) ($file['tmp_name'] ?? '');
+        $mimeType = $tmpName !== '' && function_exists('mime_content_type') ? (mime_content_type($tmpName) ?: '') : '';
+        $officeExtensions = ['doc', 'docx', 'xls', 'xlsx'];
+        $mimeTolerated = $mimeType === ''
+            || $mimeType === $allowed[$extension]
+            || in_array($mimeType, ['application/octet-stream', 'application/zip'], true)
+            || (in_array($extension, $officeExtensions, true) && str_contains($mimeType, 'officedocument'));
+
+        if (!$mimeTolerated) {
+            $errors[] = (string) ($file['name'] ?? 'Fájl') . ': a fájl típusa nem egyezik a kiterjesztéssel.';
+        }
+    }
+
+    return $errors;
 }
 
 function minicrm_project_ids_from_text(string $text): array
@@ -11530,7 +11581,7 @@ function minicrm_work_item_files(int $workItemId): array
         'SELECT *
          FROM `minicrm_work_item_files`
          WHERE `work_item_id` = ?
-         ORDER BY `project_id` ASC, `original_name` ASC, `id` ASC',
+         ORDER BY `created_at` DESC, `project_id` ASC, `original_name` ASC, `id` ASC',
         [$workItemId]
     )->fetchAll();
 }
@@ -11544,6 +11595,81 @@ function find_minicrm_work_item_file(int $fileId): ?array
     $file = db_query('SELECT * FROM `minicrm_work_item_files` WHERE `id` = ? LIMIT 1', [$fileId])->fetch();
 
     return is_array($file) ? $file : null;
+}
+
+function store_minicrm_work_item_files(int $workItemId, array $files, string $label = 'Kézi feltöltés'): array
+{
+    if (!db_table_exists('minicrm_work_item_files')) {
+        return ['ok' => false, 'message' => 'A MiniCRM fájltábla nem érhető el.'];
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM munka nem található.'];
+    }
+
+    $errors = validate_minicrm_work_item_file_uploads($files);
+
+    if ($errors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $errors)];
+    }
+
+    $uploadedFiles = array_values(array_filter(
+        $files,
+        static fn (?array $file): bool => is_array($file) && uploaded_file_is_present($file)
+    ));
+    $targetDir = minicrm_document_upload_path() . '/' . minicrm_safe_filename((string) $item['source_id']);
+    ensure_storage_dir($targetDir);
+    $saved = 0;
+    $messages = [];
+
+    foreach ($uploadedFiles as $file) {
+        $originalName = (string) ($file['name'] ?? 'feltoltes');
+        $safeName = minicrm_safe_filename($originalName);
+        $hash = hash('sha256', 'manual|' . $workItemId . '|' . $originalName . '|' . microtime(true) . '|' . bin2hex(random_bytes(8)));
+        $storedName = 'manual-' . substr($hash, 0, 12) . '-' . $safeName;
+        $targetPath = $targetDir . '/' . $storedName;
+
+        if (!move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+            $messages[] = $originalName . ': nem sikerült menteni.';
+            continue;
+        }
+
+        db_query(
+            'INSERT INTO `minicrm_work_item_files`
+                (`work_item_id`, `source_id`, `project_id`, `label`, `original_name`, `stored_name`, `zip_entry`,
+                 `zip_entry_hash`, `storage_path`, `mime_type`, `file_size`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $workItemId,
+                (string) $item['source_id'],
+                'manual',
+                trim($label) !== '' ? trim($label) : minicrm_document_label_from_filename($originalName),
+                $originalName,
+                $storedName,
+                null,
+                $hash,
+                $targetPath,
+                minicrm_document_mime_type($targetPath, $originalName),
+                (int) ($file['size'] ?? filesize($targetPath)),
+            ]
+        );
+
+        $saved++;
+    }
+
+    if ($saved === 0) {
+        return ['ok' => false, 'message' => $messages !== [] ? implode(' ', $messages) : 'Nem sikerült fájlt menteni.'];
+    }
+
+    $message = $saved . ' fájl feltöltve a MiniCRM munkához.';
+
+    if ($messages !== []) {
+        $message .= ' Figyelmeztetés: ' . implode(' ', $messages);
+    }
+
+    return ['ok' => true, 'message' => $message, 'saved' => $saved];
 }
 
 function minicrm_import_clean_field_value(mixed $value): string

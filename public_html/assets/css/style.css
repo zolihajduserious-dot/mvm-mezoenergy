@@ -3977,6 +3977,26 @@ a.metric-card {
     margin-top: 12px;
 }
 
+.minicrm-manual-upload-form {
+    margin-top: 12px;
+}
+
+.minicrm-manual-upload-form > div {
+    grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.42fr) auto;
+}
+
+.minicrm-manual-upload-form input[type="text"] {
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 12px;
+    border: 1px solid rgba(190, 205, 220, 0.95);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.86rem;
+}
+
 .minicrm-timeline {
     display: grid;
     gap: 0;

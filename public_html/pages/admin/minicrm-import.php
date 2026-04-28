@@ -36,6 +36,20 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_document_zip') {
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $result = store_minicrm_work_item_files(
+        $workItemId,
+        uploaded_files_for_key($_FILES, 'minicrm_work_files'),
+        (string) ($_POST['file_label'] ?? 'Kézi feltöltés')
+    );
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A MiniCRM fájl feltöltése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     require_valid_csrf_token();
 
@@ -202,8 +216,8 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
         $firstFile = $localFiles[0];
         $events[] = [
             'date' => trim((string) ($firstFile['created_at'] ?? '')) ?: 'Dokumentum import',
-            'title' => 'Dokumentumok összefűzve',
-            'actor' => 'MiniCRM ZIP import',
+            'title' => 'Saját tárhelyes dokumentumok',
+            'actor' => 'MiniCRM dokumentumtár',
             'body' => count($localFiles) . ' saját tárhelyes fájl kapcsolódik ehhez a munkához.',
             'kind' => 'document',
         ];
@@ -507,11 +521,22 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
 
                                             <section class="minicrm-document-preview-panel">
                                                 <div class="admin-request-section-title">
-                                                    <h3>Saját tárhelyes dokumentumok</h3>
+                                                    <h3>Fotók és dokumentumok</h3>
                                                     <span><?= count($localFiles); ?> fájl</span>
                                                 </div>
+                                                <form class="intervention-upload-form minicrm-manual-upload-form" method="post" enctype="multipart/form-data" action="<?= h($detailUrl); ?>">
+                                                    <?= csrf_field(); ?>
+                                                    <input type="hidden" name="action" value="upload_minicrm_work_files">
+                                                    <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                    <label for="minicrm_work_files_<?= $itemId; ?>">Új fotó vagy dokumentum feltöltése</label>
+                                                    <div>
+                                                        <input id="minicrm_work_files_<?= $itemId; ?>" name="minicrm_work_files[]" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp">
+                                                        <input name="file_label" type="text" value="Kézi feltöltés" aria-label="Fájl címke">
+                                                        <button class="button" type="submit">Feltöltés</button>
+                                                    </div>
+                                                </form>
                                                 <?php if ($localFiles === []): ?>
-                                                    <p class="request-admin-empty">Ehhez a munkához még nincs saját tárhelyes dokumentum kapcsolva. A hiányzó fájl valószínűleg egy további MiniCRM dokumentum ZIP-ben lesz.</p>
+                                                    <p class="request-admin-empty">Ehhez a munkához még nincs saját tárhelyes fájl kapcsolva. Tölthetsz fel plusz fotókat és dokumentumokat, vagy importálhatod őket ZIP-ből.</p>
                                                 <?php else: ?>
                                                     <div class="admin-request-doc-grid">
                                                         <?php foreach ($localFiles as $localFile): ?>
