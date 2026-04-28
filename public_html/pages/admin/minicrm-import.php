@@ -22,6 +22,20 @@ if (is_post() && in_array(($_POST['action'] ?? ''), ['import_minicrm_file', 'imp
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_document_zip') {
+    require_valid_csrf_token();
+
+    $result = minicrm_import_document_zip($_FILES['minicrm_document_zip'] ?? null);
+
+    if ($result['ok'] ?? false) {
+        set_flash('success', (string) $result['message']);
+    } else {
+        set_flash('error', (string) ($result['message'] ?? 'A MiniCRM dokumentum ZIP feldolgozása sikertelen.'));
+    }
+
+    redirect('/admin/minicrm-import');
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
     require_valid_csrf_token();
 
@@ -34,6 +48,9 @@ $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
 $totalItems = count($items);
+$localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
+$localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
+$documentZipCandidates = minicrm_document_zip_candidates();
 ?>
 <section class="admin-section minicrm-import-page">
     <div class="container admin-requests-container">
@@ -86,6 +103,24 @@ $totalItems = count($items);
             </section>
 
             <section class="auth-panel">
+                <h2>Dokumentum ZIP összefűzés</h2>
+                <p class="muted-text">A MiniCRM dokumentum ZIP fájljai a fájlnév elején lévő projektazonosító alapján kapcsolódnak a munkákhoz. Nagy ZIP esetén FTP-vel töltsd fel ide: <strong>storage/imports/minicrm-documents.zip</strong>, majd indítsd el a feldolgozást.</p>
+                <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="import_minicrm_document_zip">
+                    <label for="minicrm_document_zip">MiniCRM dokumentum ZIP (opcionális)</label>
+                    <input id="minicrm_document_zip" name="minicrm_document_zip" type="file" accept=".zip,application/zip" <?= ($schemaErrors !== [] || !$deps['zip']) ? 'disabled' : ''; ?>>
+                    <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['zip']) ? 'disabled' : ''; ?>>ZIP dokumentumok összefűzése</button>
+                </form>
+                <div class="status-list">
+                    <li><span class="status-label">Saját tárhelyes fájlok</span><span class="status-value"><?= $localDocumentFileCount; ?> db</span></li>
+                    <li><span class="status-label">Mentett méret</span><span class="status-value"><?= number_format($localDocumentSizeTotal / 1024 / 1024, 1, ',', ' '); ?> MB</span></li>
+                    <li><span class="status-label">ZIP motor</span><span class="status-value"><?= $deps['zip'] ? 'OK' : 'Hiányzik'; ?></span></li>
+                    <li><span class="status-label">FTP-s ZIP</span><span class="status-value"><?= $documentZipCandidates !== [] ? basename($documentZipCandidates[0]) : 'Nincs'; ?></span></li>
+                </div>
+            </section>
+
+            <section class="auth-panel">
                 <h2>Fontos a dokumentumokról</h2>
                 <p class="muted-text">Az Excelben szereplő MiniCRM dokumentummezők linkként kerülnek át. Ha a MiniCRM előfizetés megszűnik, ezek a MiniCRM-es letöltési linkek később nem biztos, hogy elérhetők lesznek.</p>
                 <div class="status-list">
@@ -102,6 +137,11 @@ $totalItems = count($items);
                     <span class="metric-label">Összes MiniCRM munka</span>
                     <strong><?= $totalItems; ?></strong>
                     <p>Az importált, visszakereshető MiniCRM munkaállomány.</p>
+                </article>
+                <article class="metric-card metric-card-system">
+                    <span class="metric-label">Sajat tarhelyes fajlok</span>
+                    <strong><?= $localDocumentFileCount; ?></strong>
+                    <p>ZIP-bol osszefuzott MiniCRM kepek es dokumentumok.</p>
                 </article>
                 <?php foreach (array_slice($statusCounts, 0, 3, true) as $statusName => $statusCount): ?>
                     <article class="metric-card metric-card-system">
@@ -164,6 +204,7 @@ $totalItems = count($items);
                         <?php foreach ($items as $item): ?>
                             <?php
                             $documentLinks = minicrm_work_item_document_links($item);
+                            $localFiles = minicrm_work_item_files((int) $item['id']);
                             $rawFields = minicrm_work_item_raw_fields($item);
                             $fieldGroups = minicrm_work_item_field_groups($item);
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
@@ -174,11 +215,11 @@ $totalItems = count($items);
                                     <span class="admin-workflow-request-id">#<?= (int) $item['id']; ?></span>
                                     <span class="admin-workflow-request-main">
                                         <strong><?= h((string) $item['card_name']); ?></strong>
-                                        <small><?= count($rawFields); ?> MiniCRM mezo · <?= count($documentLinks); ?> dokumentum</small>
+                                        <small><?= count($rawFields); ?> MiniCRM mezo · <?= count($documentLinks); ?> link · <?= count($localFiles); ?> sajat fajl</small>
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
-                                        <strong><?= count($documentLinks); ?> dokumentum</strong>
+                                        <strong><?= count($localFiles); ?> fajl</strong>
                                     </span>
                                     <span class="admin-workflow-request-badges">
                                         <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
@@ -190,7 +231,7 @@ $totalItems = count($items);
                                         <div>
                                             <span class="portal-kicker">MiniCRM azonosító: <?= h((string) $item['source_id']); ?></span>
                                             <h2><?= h((string) $item['card_name']); ?></h2>
-                                            <p><?= count($rawFields); ?> importalt MiniCRM mezo, csoportositva megjelenitve.</p>
+                                            <p><?= count($rawFields); ?> importalt MiniCRM mezo, <?= count($localFiles); ?> sajat tarhelyes fajl.</p>
                                         </div>
                                         <div class="request-admin-status">
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
@@ -229,6 +270,43 @@ $totalItems = count($items);
                                                     </div>
                                                 </section>
                                             <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ($localFiles !== []): ?>
+                                        <div class="minicrm-readable-groups">
+                                            <section class="minicrm-readable-panel minicrm-local-documents">
+                                                <div class="admin-request-section-title">
+                                                    <h3>Sajat tarhelyes MiniCRM dokumentumok</h3>
+                                                    <span><?= count($localFiles); ?> fajl</span>
+                                                </div>
+                                                <div class="admin-request-doc-grid">
+                                                    <?php foreach ($localFiles as $localFile): ?>
+                                                        <?php
+                                                        $localFileUrl = url_path('/admin/minicrm-import/file') . '?id=' . (int) $localFile['id'];
+                                                        $previewKind = portal_file_preview_kind($localFile);
+                                                        ?>
+                                                        <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                            <div class="admin-request-doc-thumb">
+                                                                <?php if ($previewKind === 'image'): ?>
+                                                                    <a href="<?= h($localFileUrl); ?>" target="_blank" aria-label="<?= h((string) $localFile['label']); ?> megnyitasa">
+                                                                        <img src="<?= h($localFileUrl); ?>" alt="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy">
+                                                                    </a>
+                                                                <?php elseif ($previewKind === 'pdf'): ?>
+                                                                    <iframe src="<?= h($localFileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) $localFile['label']); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                <?php else: ?>
+                                                                    <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($localFile)); ?></span></div>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                            <div class="admin-request-doc-meta">
+                                                                <strong><?= h((string) $localFile['label']); ?></strong>
+                                                                <span><?= h((string) $localFile['original_name']); ?></span>
+                                                                <a href="<?= h($localFileUrl); ?>" target="_blank">Megnyitas</a>
+                                                            </div>
+                                                        </article>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </section>
                                         </div>
                                     <?php endif; ?>
 

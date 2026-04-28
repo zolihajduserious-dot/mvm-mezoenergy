@@ -253,6 +253,10 @@ $routes = [
         'title' => 'MiniCRM importált munkák',
         'file' => PAGE_PATH . '/admin/minicrm-import.php',
     ],
+    'admin/minicrm-import/file' => [
+        'title' => 'MiniCRM dokumentum',
+        'file' => PAGE_PATH . '/admin/minicrm-file.php',
+    ],
     'admin/logout' => [
         'title' => 'Kilépés',
         'file' => PAGE_PATH . '/admin/logout.php',

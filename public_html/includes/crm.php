@@ -158,6 +158,7 @@ function dependency_status(): array
         'dompdf' => class_exists('\\Dompdf\\Dompdf'),
         'phpmailer' => class_exists('\\PHPMailer\\PHPMailer\\PHPMailer'),
         'phpspreadsheet' => class_exists('\\PhpOffice\\PhpSpreadsheet\\Spreadsheet'),
+        'zip' => class_exists('ZipArchive'),
     ];
 }
 
@@ -9967,6 +9968,10 @@ function minicrm_import_schema_errors(): array
         $errors[] = 'Hiányzik a minicrm_work_items tábla.';
     }
 
+    if (!db_table_exists('minicrm_work_item_files')) {
+        $errors[] = 'Hiányzik a minicrm_work_item_files tábla.';
+    }
+
     return $errors;
 }
 
@@ -10711,6 +10716,29 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `work_item_id` INT UNSIGNED NOT NULL,
+    `source_id` VARCHAR(80) NOT NULL,
+    `project_id` VARCHAR(40) NOT NULL,
+    `label` VARCHAR(190) DEFAULT NULL,
+    `original_name` VARCHAR(255) NOT NULL,
+    `stored_name` VARCHAR(255) NOT NULL,
+    `zip_entry` TEXT DEFAULT NULL,
+    `zip_entry_hash` CHAR(64) NOT NULL,
+    `storage_path` VARCHAR(500) NOT NULL,
+    `mime_type` VARCHAR(120) DEFAULT NULL,
+    `file_size` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_work_item_files_zip_hash` (`zip_entry_hash`),
+    KEY `idx_minicrm_work_item_files_work_item` (`work_item_id`),
+    KEY `idx_minicrm_work_item_files_source_id` (`source_id`),
+    KEY `idx_minicrm_work_item_files_project_id` (`project_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
 SQL;
 }
 
@@ -10897,6 +10925,380 @@ function import_minicrm_workbook(string $path, string $originalName): array
     }
 }
 
+function minicrm_document_zip_candidates(): array
+{
+    $importPath = minicrm_document_import_path();
+    ensure_storage_dir($importPath);
+
+    $candidates = [
+        $importPath . '/minicrm-documents.zip',
+        $importPath . '/elo-munkak-export-2026-04-28-dokumentumok.zip',
+    ];
+
+    foreach (glob($importPath . '/*.zip') ?: [] as $path) {
+        $candidates[] = $path;
+    }
+
+    $unique = [];
+
+    foreach ($candidates as $path) {
+        $realPath = realpath($path);
+
+        if ($realPath === false || !is_file($realPath)) {
+            continue;
+        }
+
+        $unique[$realPath] = $realPath;
+    }
+
+    return array_values($unique);
+}
+
+function minicrm_document_import_path(): string
+{
+    return defined('MINICRM_DOCUMENT_IMPORT_PATH')
+        ? MINICRM_DOCUMENT_IMPORT_PATH
+        : STORAGE_PATH . '/imports';
+}
+
+function minicrm_document_upload_path(): string
+{
+    return defined('MINICRM_DOCUMENT_UPLOAD_PATH')
+        ? MINICRM_DOCUMENT_UPLOAD_PATH
+        : STORAGE_PATH . '/uploads/minicrm-documents';
+}
+
+function minicrm_document_allowed_extensions(): array
+{
+    return [
+        'pdf' => 'application/pdf',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'heif' => 'image/heif',
+        'heic' => 'image/heic',
+    ];
+}
+
+function minicrm_safe_filename(string $name): string
+{
+    $name = basename(str_replace('\\', '/', $name));
+    $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $baseName = pathinfo($name, PATHINFO_FILENAME);
+    $baseName = preg_replace('/[^A-Za-z0-9._-]+/', '-', $baseName) ?: 'file';
+    $baseName = trim($baseName, '-._');
+
+    if ($baseName === '') {
+        $baseName = 'file';
+    }
+
+    return $extension !== '' ? $baseName . '.' . $extension : $baseName;
+}
+
+function minicrm_document_label_from_filename(string $name): string
+{
+    $name = basename(str_replace('\\', '/', $name));
+    $name = preg_replace('/^\d+-/u', '', $name) ?: $name;
+    $name = pathinfo($name, PATHINFO_FILENAME);
+    $name = str_replace(['_', '-'], ' ', $name);
+    $name = trim(preg_replace('/\s+/', ' ', $name) ?: $name);
+
+    return $name !== '' ? $name : 'MiniCRM dokumentum';
+}
+
+function minicrm_document_mime_type(string $path, string $originalName): string
+{
+    $mimeType = function_exists('mime_content_type') ? (mime_content_type($path) ?: '') : '';
+
+    if ($mimeType !== '') {
+        return $mimeType;
+    }
+
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    return minicrm_document_allowed_extensions()[$extension] ?? 'application/octet-stream';
+}
+
+function minicrm_project_ids_from_text(string $text): array
+{
+    if ($text === '') {
+        return [];
+    }
+
+    preg_match_all('~/Project-\d+/(\d+)/DownloadDocument~i', $text, $matches);
+
+    return array_values(array_unique($matches[1] ?? []));
+}
+
+function minicrm_work_item_project_ids(array $item): array
+{
+    $ids = [];
+
+    foreach (minicrm_work_item_document_links($item) as $link) {
+        foreach (minicrm_project_ids_from_text((string) ($link['value'] ?? '')) as $projectId) {
+            $ids[$projectId] = $projectId;
+        }
+    }
+
+    foreach (minicrm_work_item_raw_fields($item) as $field) {
+        foreach (minicrm_project_ids_from_text((string) ($field['value'] ?? '')) as $projectId) {
+            $ids[$projectId] = $projectId;
+        }
+    }
+
+    return array_values($ids);
+}
+
+function minicrm_project_work_map(): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT `id`, `source_id`, `card_name`, `document_links_json`, `raw_payload`
+         FROM `minicrm_work_items`
+         ORDER BY `id` ASC'
+    )->fetchAll();
+    $map = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        foreach (minicrm_work_item_project_ids($row) as $projectId) {
+            if (isset($map[$projectId])) {
+                continue;
+            }
+
+            $map[$projectId] = [
+                'id' => (int) $row['id'],
+                'source_id' => (string) $row['source_id'],
+                'card_name' => (string) $row['card_name'],
+            ];
+        }
+    }
+
+    return $map;
+}
+
+function minicrm_store_uploaded_document_zip(?array $file): ?string
+{
+    if (!is_array($file) || !uploaded_file_is_present($file)) {
+        return null;
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('A ZIP feltöltése sikertelen.');
+    }
+
+    $originalName = (string) ($file['name'] ?? '');
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    if ($extension !== 'zip') {
+        throw new RuntimeException('Csak ZIP fájl dolgozható fel.');
+    }
+
+    $importPath = minicrm_document_import_path();
+    ensure_storage_dir($importPath);
+
+    $storedName = 'minicrm-documents-' . date('Ymd-His') . '.zip';
+    $targetPath = $importPath . '/' . $storedName;
+
+    if (!move_uploaded_file((string) ($file['tmp_name'] ?? ''), $targetPath)) {
+        throw new RuntimeException('A ZIP fájl mentése sikertelen.');
+    }
+
+    return $targetPath;
+}
+
+function minicrm_import_document_zip(?array $uploadFile = null): array
+{
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'message' => 'A szerveren nincs bekapcsolva a ZipArchive PHP kiegészítő.'];
+    }
+
+    if (minicrm_import_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Előbb hozd létre/frissítsd a MiniCRM import táblákat.'];
+    }
+
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(0);
+    }
+
+    try {
+        $zipPath = minicrm_store_uploaded_document_zip($uploadFile);
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A ZIP feltöltése sikertelen.'];
+    }
+
+    if ($zipPath === null) {
+        $candidates = minicrm_document_zip_candidates();
+        $zipPath = $candidates[0] ?? null;
+    }
+
+    if ($zipPath === null || !is_file($zipPath)) {
+        return ['ok' => false, 'message' => 'Nem található feldolgozható ZIP. Töltsd fel a storage/imports/minicrm-documents.zip fájlt, vagy válaszd ki az űrlapon.'];
+    }
+
+    $projectMap = minicrm_project_work_map();
+
+    if ($projectMap === []) {
+        return ['ok' => false, 'message' => 'Előbb importáld a MiniCRM Excel fájlokat, hogy legyen mihez kötni a dokumentumokat.'];
+    }
+
+    $documentUploadPath = minicrm_document_upload_path();
+    ensure_storage_dir($documentUploadPath);
+
+    $zip = new ZipArchive();
+
+    if ($zip->open($zipPath) !== true) {
+        return ['ok' => false, 'message' => 'A ZIP fájl nem nyitható meg.'];
+    }
+
+    $allowedExtensions = minicrm_document_allowed_extensions();
+    $processed = 0;
+    $imported = 0;
+    $updated = 0;
+    $existing = 0;
+    $unmatched = 0;
+    $unsupported = 0;
+    $errors = 0;
+    $matchedWorks = [];
+
+    for ($index = 0; $index < $zip->numFiles; $index++) {
+        $entryName = (string) $zip->getNameIndex($index);
+
+        if ($entryName === '' || str_ends_with($entryName, '/')) {
+            continue;
+        }
+
+        $processed++;
+        $baseName = basename(str_replace('\\', '/', $entryName));
+
+        if (!preg_match('/^(\d+)-(.+)$/u', $baseName, $matches)) {
+            $unmatched++;
+            continue;
+        }
+
+        $projectId = $matches[1];
+        $work = $projectMap[$projectId] ?? null;
+
+        if ($work === null) {
+            $unmatched++;
+            continue;
+        }
+
+        $extension = strtolower(pathinfo($baseName, PATHINFO_EXTENSION));
+
+        if (!isset($allowedExtensions[$extension])) {
+            $unsupported++;
+            continue;
+        }
+
+        $hash = hash('sha256', $entryName);
+        $existingFile = db_query(
+            'SELECT `id`, `storage_path` FROM `minicrm_work_item_files` WHERE `zip_entry_hash` = ? LIMIT 1',
+            [$hash]
+        )->fetch();
+
+        if (is_array($existingFile) && is_file((string) $existingFile['storage_path'])) {
+            $existing++;
+            $matchedWorks[(string) $work['source_id']] = true;
+            continue;
+        }
+
+        $targetDir = $documentUploadPath . '/' . minicrm_safe_filename((string) $work['source_id']);
+        ensure_storage_dir($targetDir);
+
+        $safeName = minicrm_safe_filename($matches[2]);
+        $storedName = $projectId . '-' . substr($hash, 0, 12) . '-' . $safeName;
+        $targetPath = $targetDir . '/' . $storedName;
+        $input = $zip->getStream($entryName);
+
+        if ($input === false) {
+            $errors++;
+            continue;
+        }
+
+        $output = fopen($targetPath, 'wb');
+
+        if ($output === false) {
+            fclose($input);
+            $errors++;
+            continue;
+        }
+
+        $copied = stream_copy_to_stream($input, $output);
+        fclose($input);
+        fclose($output);
+
+        if ($copied === false || !is_file($targetPath)) {
+            @unlink($targetPath);
+            $errors++;
+            continue;
+        }
+
+        $fileSize = (int) filesize($targetPath);
+        $mimeType = minicrm_document_mime_type($targetPath, $baseName);
+        $label = minicrm_document_label_from_filename($baseName);
+        $params = [
+            (int) $work['id'],
+            (string) $work['source_id'],
+            $projectId,
+            $label,
+            $baseName,
+            $storedName,
+            $entryName,
+            $hash,
+            $targetPath,
+            $mimeType,
+            $fileSize,
+        ];
+
+        if (is_array($existingFile)) {
+            db_query(
+                'UPDATE `minicrm_work_item_files`
+                 SET `work_item_id` = ?, `source_id` = ?, `project_id` = ?, `label` = ?, `original_name` = ?,
+                     `stored_name` = ?, `zip_entry` = ?, `zip_entry_hash` = ?, `storage_path` = ?, `mime_type` = ?, `file_size` = ?
+                 WHERE `id` = ?',
+                array_merge($params, [(int) $existingFile['id']])
+            );
+            $updated++;
+        } else {
+            db_query(
+                'INSERT INTO `minicrm_work_item_files`
+                    (`work_item_id`, `source_id`, `project_id`, `label`, `original_name`, `stored_name`, `zip_entry`,
+                     `zip_entry_hash`, `storage_path`, `mime_type`, `file_size`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                $params
+            );
+            $imported++;
+        }
+
+        $matchedWorks[(string) $work['source_id']] = true;
+    }
+
+    $zip->close();
+
+    return [
+        'ok' => true,
+        'message' => 'MiniCRM dokumentum ZIP feldolgozva: ' . $processed . ' fájl, ' . $imported . ' új, '
+            . $updated . ' újramentett, ' . $existing . ' már meglévő, ' . $unmatched . ' nem párosítható, '
+            . $unsupported . ' nem támogatott, ' . $errors . ' hibás. Érintett munkák: ' . count($matchedWorks) . '.',
+        'processed' => $processed,
+        'imported' => $imported,
+        'updated' => $updated,
+        'existing' => $existing,
+        'unmatched' => $unmatched,
+        'unsupported' => $unsupported,
+        'errors' => $errors,
+        'matched_works' => count($matchedWorks),
+    ];
+}
+
 function minicrm_import_batches(int $limit = 10): array
 {
     if (!db_table_exists('minicrm_import_batches')) {
@@ -10935,6 +11337,24 @@ function minicrm_work_item_count(): int
     return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn();
 }
 
+function minicrm_work_item_file_count(): int
+{
+    if (!db_table_exists('minicrm_work_item_files')) {
+        return 0;
+    }
+
+    return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_item_files`')->fetchColumn();
+}
+
+function minicrm_work_item_file_size_total(): int
+{
+    if (!db_table_exists('minicrm_work_item_files')) {
+        return 0;
+    }
+
+    return (int) db_query('SELECT COALESCE(SUM(`file_size`), 0) FROM `minicrm_work_item_files`')->fetchColumn();
+}
+
 function minicrm_work_item_status_counts(): array
 {
     if (!db_table_exists('minicrm_work_items')) {
@@ -10961,6 +11381,32 @@ function minicrm_work_item_document_links(array $item): array
     $decoded = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
 
     return is_array($decoded) ? $decoded : [];
+}
+
+function minicrm_work_item_files(int $workItemId): array
+{
+    if (!db_table_exists('minicrm_work_item_files')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT *
+         FROM `minicrm_work_item_files`
+         WHERE `work_item_id` = ?
+         ORDER BY `project_id` ASC, `original_name` ASC, `id` ASC',
+        [$workItemId]
+    )->fetchAll();
+}
+
+function find_minicrm_work_item_file(int $fileId): ?array
+{
+    if (!db_table_exists('minicrm_work_item_files')) {
+        return null;
+    }
+
+    $file = db_query('SELECT * FROM `minicrm_work_item_files` WHERE `id` = ? LIMIT 1', [$fileId])->fetch();
+
+    return is_array($file) ? $file : null;
 }
 
 function minicrm_work_item_raw_fields(array $item): array

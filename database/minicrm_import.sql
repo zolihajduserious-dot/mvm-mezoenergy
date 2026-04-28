@@ -61,3 +61,26 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `work_item_id` INT UNSIGNED NOT NULL,
+    `source_id` VARCHAR(80) NOT NULL,
+    `project_id` VARCHAR(40) NOT NULL,
+    `label` VARCHAR(190) DEFAULT NULL,
+    `original_name` VARCHAR(255) NOT NULL,
+    `stored_name` VARCHAR(255) NOT NULL,
+    `zip_entry` TEXT DEFAULT NULL,
+    `zip_entry_hash` CHAR(64) NOT NULL,
+    `storage_path` VARCHAR(500) NOT NULL,
+    `mime_type` VARCHAR(120) DEFAULT NULL,
+    `file_size` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_work_item_files_zip_hash` (`zip_entry_hash`),
+    KEY `idx_minicrm_work_item_files_work_item` (`work_item_id`),
+    KEY `idx_minicrm_work_item_files_source_id` (`source_id`),
+    KEY `idx_minicrm_work_item_files_project_id` (`project_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
