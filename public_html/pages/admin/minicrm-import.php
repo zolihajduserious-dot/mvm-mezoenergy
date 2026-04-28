@@ -8,10 +8,10 @@ $deps = dependency_status();
 $flash = get_flash();
 $importErrors = [];
 
-if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_file') {
+if (is_post() && in_array(($_POST['action'] ?? ''), ['import_minicrm_file', 'import_minicrm_files'], true)) {
     require_valid_csrf_token();
 
-    $result = minicrm_import_upload($_FILES['minicrm_file'] ?? []);
+    $result = minicrm_import_uploads($_FILES);
 
     if ($result['ok'] ?? false) {
         set_flash('success', (string) $result['message']);
@@ -75,12 +75,12 @@ $totalItems = count($items);
         <div class="form-grid two">
             <section class="auth-panel">
                 <h2>Excel import</h2>
-                <p class="muted-text">A MiniCRM egyszerre exportált csomagjai egymás után feltölthetők. Ha ugyanaz az azonosító már létezik, az import frissíti a meglévő munkát, nem hoz létre duplikációt.</p>
+                <p class="muted-text">Az 5 külön MiniCRM mezőexport egyszerre kijelölhető. Az import MiniCRM azonosító alapján összefésüli őket, ezért ugyanaz a munka nem duplikálódik, hanem kiegészül.</p>
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
                     <?= csrf_field(); ?>
-                    <input type="hidden" name="action" value="import_minicrm_file">
-                    <label for="minicrm_file">MiniCRM XLSX/XLS fájl</label>
-                    <input id="minicrm_file" name="minicrm_file" type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : 'required'; ?>>
+                    <input type="hidden" name="action" value="import_minicrm_files">
+                    <label for="minicrm_files">MiniCRM XLSX/XLS fájlok</label>
+                    <input id="minicrm_files" name="minicrm_files[]" type="file" multiple accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : 'required'; ?>>
                     <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : ''; ?>>Import indítása</button>
                 </form>
             </section>
@@ -149,12 +149,18 @@ $totalItems = count($items);
                         <div>
                             <span class="portal-kicker">MiniCRM munkaállomány</span>
                             <h2>Importált tételek</h2>
-                            <p>A lista a MiniCRM-ből áthozott adatokat a meglévő admin munkakártyákhoz hasonló bontásban mutatja.</p>
+                            <p>A lista az összefésült MiniCRM mezőket csoportosítva mutatja, hogy az adatlapok megnyitásakor minden beolvasott érték olvasható legyen.</p>
                         </div>
                         <strong><?= $totalItems; ?> db</strong>
                     </div>
 
-                    <div class="request-admin-list">
+                    <div class="minicrm-list-tools">
+                        <label for="minicrm_search">Keresés</label>
+                        <input id="minicrm_search" type="search" placeholder="Név, azonosító, cím, felelős vagy mezőérték" data-minicrm-search>
+                        <span data-minicrm-count><?= $totalItems; ?> db</span>
+                    </div>
+
+                    <div class="request-admin-list" data-minicrm-list>
                         <?php foreach ($items as $item): ?>
                             <?php
                             $documentLinks = minicrm_work_item_document_links($item);
@@ -163,7 +169,7 @@ $totalItems = count($items);
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
                             ?>
-                            <details class="admin-workflow-request">
+                            <details class="admin-workflow-request" data-minicrm-item>
                                 <summary class="admin-workflow-request-summary">
                                     <span class="admin-workflow-request-id">#<?= (int) $item['id']; ?></span>
                                     <span class="admin-workflow-request-main">
@@ -311,3 +317,33 @@ $totalItems = count($items);
         <?php endif; ?>
     </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.querySelector('[data-minicrm-search]');
+    const count = document.querySelector('[data-minicrm-count]');
+    const items = Array.from(document.querySelectorAll('[data-minicrm-item]'));
+
+    if (!input || !count || items.length === 0) {
+        return;
+    }
+
+    const searchable = items.map((item) => ({
+        item,
+        text: item.textContent.toLocaleLowerCase('hu-HU'),
+    }));
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim().toLocaleLowerCase('hu-HU');
+        let visible = 0;
+
+        searchable.forEach(({ item, text }) => {
+            const show = query === '' || text.includes(query);
+            item.hidden = !show;
+            visible += show ? 1 : 0;
+        });
+
+        count.textContent = `${visible} db`;
+    });
+});
+</script>

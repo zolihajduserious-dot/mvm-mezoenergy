@@ -3570,6 +3570,45 @@ a.metric-card {
     display: none;
 }
 
+.minicrm-list-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    align-items: end;
+    padding: 0 20px 18px;
+}
+
+.minicrm-list-tools label {
+    grid-column: 1 / -1;
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.minicrm-list-tools input {
+    min-width: 0;
+    min-height: 46px;
+    padding: 10px 14px;
+    border: 1px solid rgba(190, 205, 220, 0.95);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+}
+
+.minicrm-list-tools span {
+    min-height: 46px;
+    padding: 12px 14px;
+    border: 1px solid rgba(0, 140, 115, 0.22);
+    border-radius: 8px;
+    background: rgba(0, 140, 115, 0.08);
+    color: var(--color-primary-dark);
+    font-weight: 900;
+    white-space: nowrap;
+}
+
 .minicrm-readable-groups {
     display: grid;
     gap: 18px;

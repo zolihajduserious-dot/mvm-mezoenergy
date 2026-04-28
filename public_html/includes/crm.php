@@ -10253,7 +10253,7 @@ function minicrm_import_document_links(array $headers, array $values): array
 
         $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
         $labelKey = minicrm_import_key($label);
-        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf)/', $labelKey);
+        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf|villanyszamla|szamla|klima|matrica|papir|alairt|engedely|hozzajarulo|tulajdoni|foldhivatali)/', $labelKey);
 
         if (!$looksLikeDocument) {
             continue;
@@ -10382,7 +10382,7 @@ function minicrm_import_document_links_from_headers(array $headers, array $value
 
         $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
         $labelKey = minicrm_import_key($label);
-        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf)/', $labelKey);
+        $looksLikeDocument = $isUrl || preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki|fedlap|kivitelezoi|dokumentum|pdf|villanyszamla|szamla|klima|matrica|papir|alairt|engedely|hozzajarulo|tulajdoni|foldhivatali)/', $labelKey);
 
         if (!$looksLikeDocument) {
             continue;
@@ -10574,6 +10574,77 @@ function minicrm_import_upload(array $file): array
     return import_minicrm_workbook((string) $file['tmp_name'], $originalName);
 }
 
+function minicrm_import_uploads(array $files): array
+{
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(300);
+    }
+
+    $uploadedFiles = array_values(array_filter(
+        uploaded_files_for_key($files, 'minicrm_files'),
+        static fn (?array $file): bool => uploaded_file_is_present($file)
+    ));
+
+    if ($uploadedFiles === []) {
+        $uploadedFiles = array_values(array_filter(
+            uploaded_files_for_key($files, 'minicrm_file'),
+            static fn (?array $file): bool => uploaded_file_is_present($file)
+        ));
+    }
+
+    if ($uploadedFiles === []) {
+        return ['ok' => false, 'message' => 'Válassz ki legalább egy MiniCRM Excel fájlt.'];
+    }
+
+    $successCount = 0;
+    $rows = 0;
+    $imported = 0;
+    $updated = 0;
+    $skipped = 0;
+    $errors = 0;
+    $failed = [];
+
+    foreach ($uploadedFiles as $file) {
+        $result = minicrm_import_upload($file);
+        $originalName = (string) ($file['name'] ?? 'MiniCRM Excel');
+
+        if (!($result['ok'] ?? false)) {
+            $failed[] = $originalName . ': ' . (string) ($result['message'] ?? 'sikertelen import');
+            continue;
+        }
+
+        $successCount++;
+        $rows += (int) ($result['rows'] ?? 0);
+        $imported += (int) ($result['imported'] ?? 0);
+        $updated += (int) ($result['updated'] ?? 0);
+        $skipped += (int) ($result['skipped'] ?? 0);
+        $errors += (int) ($result['errors'] ?? 0);
+    }
+
+    if ($successCount === 0) {
+        return ['ok' => false, 'message' => implode(' ', $failed)];
+    }
+
+    $message = 'MiniCRM import kész: ' . $successCount . ' fájl, ' . $rows . ' feldolgozott sor, '
+        . $imported . ' új, ' . $updated . ' frissített, ' . $skipped . ' kihagyott, ' . $errors . ' hibás sor.';
+
+    if ($failed !== []) {
+        $message .= ' Nem importált fájlok: ' . implode(' ', $failed);
+    }
+
+    return [
+        'ok' => true,
+        'message' => $message,
+        'rows' => $rows,
+        'imported' => $imported,
+        'updated' => $updated,
+        'skipped' => $skipped,
+        'errors' => $errors,
+        'files' => $successCount,
+        'failed' => $failed,
+    ];
+}
+
 function minicrm_import_schema_sql(): string
 {
     return <<<'SQL'
@@ -10679,7 +10750,9 @@ function minicrm_import_install_schema(): array
 
 function import_minicrm_workbook(string $path, string $originalName): array
 {
-    $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($path);
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    $readerType = $extension === 'xls' ? 'Xls' : 'Xlsx';
+    $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader($readerType);
     $reader->setReadDataOnly(true);
     $spreadsheet = $reader->load($path);
     $sheet = $spreadsheet->getActiveSheet();
@@ -10687,6 +10760,8 @@ function import_minicrm_workbook(string $path, string $originalName): array
     $highestColumn = $sheet->getHighestDataColumn();
 
     if ($highestRow < 2) {
+        $spreadsheet->disconnectWorksheets();
+
         return ['ok' => false, 'message' => 'Az Excel nem tartalmaz importálható sort.'];
     }
 
@@ -10800,6 +10875,7 @@ function import_minicrm_workbook(string $path, string $originalName): array
         );
 
         $pdo->commit();
+        $spreadsheet->disconnectWorksheets();
 
         return [
             'ok' => true,
@@ -10814,6 +10890,8 @@ function import_minicrm_workbook(string $path, string $originalName): array
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+
+        $spreadsheet->disconnectWorksheets();
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM import sikertelen.'];
     }
@@ -10921,24 +10999,31 @@ function minicrm_work_item_field_groups(array $item): array
         'technical' => ['title' => 'Muszaki es kivitelezesi adatok', 'fields' => []],
         'finance' => ['title' => 'Penzugy es arajanlat', 'fields' => []],
         'documents' => ['title' => 'Dokumentumok es linkek', 'fields' => []],
+        'notes' => ['title' => 'Megjegyzesek es uzenetek', 'fields' => []],
         'other' => ['title' => 'Egyeb MiniCRM mezok', 'fields' => []],
     ];
 
     foreach (minicrm_work_item_raw_fields($item) as $field) {
         $key = minicrm_import_key((string) ($field['label'] ?? ''));
+        $value = (string) ($field['value'] ?? '');
+        $isUrl = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
 
-        if (preg_match('/^(azonosito|nev|felelos|statusz|folyamat statusz|terulet|regio|sorszam|uk szam|mvm felelos)$/', $key)) {
+        if ($isUrl) {
+            $groupKey = 'documents';
+        } elseif (preg_match('/^(azonosito|nev|felelos|statusz|folyamat statusz|terulet|regio|sorszam|uk szam|mvm felelos)$/', $key)) {
             $groupKey = 'base';
         } elseif (preg_match('/(szuletesi|anyja|ugyfel|levelezesi|felhasznalasi cim|iranyito|varos|utca|hazszam|emelet|helyrajzi|fogyasztasi hely|tulajdonos|berlo|haszonelvezo|lakossagi|nem lakossagi)/', $key)) {
             $groupKey = 'customer';
-        } elseif (preg_match('/(munka|igeny|igenyelt|meglevo|fazis|teljesitmeny|kva|h tarifa|vezerelt|uj fogyaszto|csatlakozo berendezes|foldkabeles|legvezetekes|felujitas|atepites|bekotesi datum|idopont|keszrejelentes)/', $key)) {
-            $groupKey = 'work';
-        } elseif (preg_match('/(vezetek|kabel|szekreny|mero|plomba|oszlop|tetotarto|foldeles|fi rele|feszultseg|hibafelmero|kivitelezes|gyarto|tipus|scop|futesi|villas?mos)/', $key)) {
-            $groupKey = 'technical';
-        } elseif (preg_match('/(arajanlat|fizetendo|dij|osszeg|brutto|egysegar|fizetes|dijbekero|elszamolhato|kifizetheto|szerelok|adminisztracios|komplett arajanlat)/', $key)) {
+        } elseif (preg_match('/(megjegyzes|uzenet|szoveggel|szoveg)$/', $key)) {
+            $groupKey = 'notes';
+        } elseif (preg_match('/(arajan|fizetendo|dij|osszeg|brutto|egysegar|fizetes|dijbekero|elszamolhato|kifizetheto|szerelok|adminisztracios|komplett arajanlat|tobbletkoltseg|koltseg)/', $key)) {
             $groupKey = 'finance';
-        } elseif (preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki atadas|fedlap|kivitelezoi|dokumentum|pdf|mgt|adatbekero|hc ssz|hcssz)/', $key)) {
+        } elseif (preg_match('/(feltoltes|foto|kep|lap|terv|nyilatkozat|meghatalmazas|terkep|skicc|hibalap|ugyinditas|beavatkozasi|muszaki atadas|fedlap|kivitelezoi|dokumentum|pdf|mgt|adatbekero|hcssz|villanyszamla|szamla|klima|matrica|papir|alairt|engedely|hozzajarulo|tulajdoni|foldhivatali)/', $key)) {
             $groupKey = 'documents';
+        } elseif (preg_match('/(munka|igeny|igenyelt|meglevo|fazis|teljesitmeny|kva|h tarifa|vezerelt|uj fogyaszto|csatlakozo berendezes|foldkabeles|legvezetekes|felujitas|atepites|bekotesi datum|idopont|keszrejelentes|haf|mindennapszaki|plombabontas|visszahivast|elfogadta)/', $key)) {
+            $groupKey = 'work';
+        } elseif (preg_match('/(vezetek|kabel|szekreny|mero|plomba|oszlop|tetotarto|foldeles|fi rele|feszultseg|hibafelmero|kivitelezes|gyarto|tipus|scop|futesi|villamos|fogyasztas|n31|s300|s20|nfa|nayy)/', $key)) {
+            $groupKey = 'technical';
         } else {
             $groupKey = 'other';
         }
