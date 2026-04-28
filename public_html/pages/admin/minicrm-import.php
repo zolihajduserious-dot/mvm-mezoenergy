@@ -22,6 +22,14 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_file') {
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
+    require_valid_csrf_token();
+
+    $result = minicrm_import_install_schema();
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) $result['message']);
+    redirect('/admin/minicrm-import');
+}
+
 $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
@@ -48,6 +56,13 @@ $totalItems = count($items);
         <?php if ($schemaErrors !== []): ?>
             <div class="alert alert-info">
                 <p>Az importált MiniCRM munkák tárolásához futtasd le phpMyAdminban a <strong>database/minicrm_import.sql</strong> fájlt.</p>
+                <?php if (is_admin_user()): ?>
+                    <form class="inline-form" method="post" action="<?= h(url_path('/admin/minicrm-import')); ?>">
+                        <?= csrf_field(); ?>
+                        <input type="hidden" name="action" value="install_minicrm_schema">
+                        <button class="button button-secondary" type="submit">MiniCRM import táblák létrehozása</button>
+                    </form>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 

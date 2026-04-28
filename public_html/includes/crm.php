@@ -10205,6 +10205,40 @@ function minicrm_import_upload(array $file): array
     return import_minicrm_workbook((string) $file['tmp_name'], $originalName);
 }
 
+function minicrm_import_install_schema(): array
+{
+    if (!is_admin_user()) {
+        return ['ok' => false, 'message' => 'A MiniCRM import tábláit csak admin jogosultsággal lehet létrehozni.'];
+    }
+
+    $path = APP_ROOT . '/database/minicrm_import.sql';
+    $sql = is_file($path) ? file_get_contents($path) : false;
+
+    if ($sql === false) {
+        return ['ok' => false, 'message' => 'A database/minicrm_import.sql fájl nem található.'];
+    }
+
+    $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql) ?: [];
+    $executed = 0;
+
+    try {
+        foreach ($statements as $statement) {
+            $statement = trim($statement);
+
+            if ($statement === '') {
+                continue;
+            }
+
+            db()->exec($statement);
+            $executed++;
+        }
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM import táblák létrehozása sikertelen.'];
+    }
+
+    return ['ok' => true, 'message' => 'A MiniCRM import táblák létrejöttek. Futtatott SQL parancsok: ' . $executed . '.'];
+}
+
 function import_minicrm_workbook(string $path, string $originalName): array
 {
     $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($path);
