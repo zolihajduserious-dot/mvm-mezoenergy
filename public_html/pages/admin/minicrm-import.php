@@ -414,6 +414,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
+                                        <strong><?= h((string) ($item['card_name'] ?? '')); ?></strong>
                                     </span>
                                     <span class="minicrm-work-date">
                                         <?= h($displayDate !== '' ? $displayDate : '-'); ?>

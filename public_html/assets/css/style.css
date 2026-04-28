@@ -3772,7 +3772,7 @@ a.metric-card {
 .minicrm-work-table-head,
 .minicrm-work-row-summary {
     display: grid;
-    grid-template-columns: minmax(420px, 2.4fr) minmax(130px, 0.5fr) minmax(120px, 0.42fr) minmax(115px, 0.38fr);
+    grid-template-columns: minmax(260px, 1.6fr) minmax(150px, 0.68fr) minmax(135px, 0.5fr) minmax(130px, 0.48fr);
     align-items: center;
     gap: 12px;
 }
@@ -3813,9 +3813,6 @@ a.metric-card {
 
 .minicrm-work-row-summary .admin-workflow-request-main strong {
     font-size: 0.9rem;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    word-break: break-word;
 }
 
 .minicrm-work-row-summary .admin-workflow-request-main small,
