@@ -230,6 +230,206 @@ function connection_crm_detail_path(int $requestId): string
 {
     return '/admin/connection-requests?request=' . $requestId . '#request-' . $requestId;
 }
+
+function connection_crm_value($value): string
+{
+    $value = trim((string) ($value ?? ''));
+
+    return $value !== '' ? $value : '-';
+}
+
+function connection_crm_latest_date(array $rows, string $fallback): string
+{
+    foreach ($rows as $row) {
+        foreach (['accepted_at', 'sent_at', 'generated_at', 'uploaded_at', 'created_at', 'updated_at'] as $column) {
+            if (!empty($row[$column])) {
+                return (string) $row[$column];
+            }
+        }
+    }
+
+    return $fallback;
+}
+
+function connection_crm_timeline_event(array &$events, string $date, string $title, string $actor, string $body, string $kind = 'system'): void
+{
+    $date = connection_crm_value($date);
+    $events[] = [
+        'date' => $date,
+        'sort' => $date === '-' ? '' : $date,
+        'title' => $title,
+        'actor' => $actor,
+        'body' => $body,
+        'kind' => $kind,
+    ];
+}
+
+function connection_crm_request_timeline_events(
+    array $request,
+    string $workflowStageTitle,
+    array $quoteState,
+    array $mvmDocuments,
+    array $files,
+    array $beforeWorkFiles,
+    array $afterWorkFiles,
+    array $quotes,
+    ?array $acceptedQuote,
+    string $quoteMissingReason,
+    array $requestStatusLabels,
+    array $electricianStatusLabels,
+    array $emailStatusLabels
+): array {
+    $events = [];
+    $baseDate = (string) ($request['updated_at'] ?? $request['closed_at'] ?? $request['submitted_at'] ?? $request['created_at'] ?? '');
+    $requestStatus = (string) ($request['request_status'] ?? 'finalized');
+    $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
+    $emailStatus = (string) ($request['email_status'] ?? 'pending');
+
+    connection_crm_timeline_event(
+        $events,
+        $baseDate,
+        'Folyamatlépés',
+        !empty($request['electrician_name']) ? (string) $request['electrician_name'] : 'Mező Energy',
+        $workflowStageTitle,
+        'status'
+    );
+
+    connection_crm_timeline_event(
+        $events,
+        (string) ($request['closed_at'] ?? $request['submitted_at'] ?? $request['created_at'] ?? ''),
+        'Igény állapota',
+        connection_crm_value($request['requester_name'] ?? ''),
+        $requestStatusLabels[$requestStatus] ?? $requestStatus,
+        $requestStatus === 'finalized' ? 'success' : 'system'
+    );
+
+    if ($acceptedQuote !== null) {
+        connection_crm_timeline_event(
+            $events,
+            (string) ($acceptedQuote['accepted_at'] ?? $acceptedQuote['sent_at'] ?? $acceptedQuote['created_at'] ?? $baseDate),
+            'Árajánlat elfogadva',
+            'Ügyfél',
+            quote_display_total($acceptedQuote),
+            'success'
+        );
+    } elseif ($quotes !== []) {
+        $latestQuote = $quotes[0];
+        connection_crm_timeline_event(
+            $events,
+            (string) ($latestQuote['sent_at'] ?? $latestQuote['created_at'] ?? $baseDate),
+            'Árajánlat',
+            'Mező Energy',
+            (string) $quoteState['title'] . ' · ' . (string) $quoteState['amount'],
+            'system'
+        );
+    } elseif ($quoteMissingReason !== '') {
+        connection_crm_timeline_event($events, $baseDate, 'Árajánlat hiánya', 'Mező Energy', $quoteMissingReason, 'warning');
+    }
+
+    if (!empty($request['assigned_electrician_user_id']) || $electricianStatus !== 'unassigned') {
+        connection_crm_timeline_event(
+            $events,
+            $baseDate,
+            'Szerelői kiadás',
+            connection_crm_value($request['electrician_name'] ?? ''),
+            $electricianStatusLabels[$electricianStatus] ?? $electricianStatus,
+            'status'
+        );
+    }
+
+    if ($mvmDocuments !== []) {
+        connection_crm_timeline_event($events, connection_crm_latest_date($mvmDocuments, $baseDate), 'MVM dokumentumok', 'Rendszer', count($mvmDocuments) . ' dokumentum elérhető.', 'document');
+    }
+
+    $fileCount = count($files) + count($beforeWorkFiles) + count($afterWorkFiles);
+    if ($fileCount > 0) {
+        connection_crm_timeline_event(
+            $events,
+            connection_crm_latest_date(array_merge($files, $beforeWorkFiles, $afterWorkFiles), $baseDate),
+            'Fotók és kitöltött dokumentumok',
+            'Rendszer',
+            $fileCount . ' fájl kapcsolva az igényhez.',
+            'document'
+        );
+    }
+
+    if ($emailStatus !== 'pending') {
+        $emailBody = $emailStatusLabels[$emailStatus] ?? $emailStatus;
+        if (!empty($request['email_error'])) {
+            $emailBody .= ' · ' . (string) $request['email_error'];
+        }
+
+        connection_crm_timeline_event($events, $baseDate, 'Admin értesítés', 'Rendszer', $emailBody, $emailStatus === 'failed' ? 'warning' : 'success');
+    }
+
+    usort($events, static function (array $a, array $b): int {
+        $timeA = strtotime((string) ($a['sort'] ?? '')) ?: 0;
+        $timeB = strtotime((string) ($b['sort'] ?? '')) ?: 0;
+
+        return $timeB <=> $timeA;
+    });
+
+    return $events;
+}
+
+function connection_crm_request_field_groups(
+    array $request,
+    string $siteAddress,
+    string $requestOwnerType,
+    string $workflowStageTitle,
+    string $quoteSummaryAmount,
+    string $quoteSummaryLabel,
+    string $quoteMissingReason,
+    array $requestStatusLabels,
+    array $electricianStatusLabels,
+    array $emailStatusLabels
+): array {
+    $requestStatus = (string) ($request['request_status'] ?? 'finalized');
+    $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
+    $emailStatus = (string) ($request['email_status'] ?? 'pending');
+
+    return [
+        [
+            'title' => 'Ügyfél és cím',
+            'fields' => [
+                ['label' => 'Név', 'value' => connection_crm_value($request['requester_name'] ?? '')],
+                ['label' => 'Típus', 'value' => $requestOwnerType],
+                ['label' => 'Email', 'value' => connection_crm_value($request['email'] ?? '')],
+                ['label' => 'Telefon', 'value' => connection_crm_value($request['phone'] ?? '')],
+                ['label' => 'Generálkivitelező', 'value' => connection_crm_value($request['contractor_name'] ?? '')],
+                ['label' => 'Kapcsolattartó', 'value' => connection_crm_value($request['contractor_contact_name'] ?? '')],
+                ['label' => 'Cím', 'value' => $siteAddress !== '' ? $siteAddress : '-'],
+                ['label' => 'HRSZ', 'value' => connection_crm_value($request['hrsz'] ?? '')],
+            ],
+        ],
+        [
+            'title' => 'Munka és mérő',
+            'fields' => [
+                ['label' => 'Munka neve', 'value' => connection_crm_value($request['project_name'] ?? '')],
+                ['label' => 'Igénytípus', 'value' => connection_request_type_label($request['request_type'] ?? null)],
+                ['label' => 'Folyamatlépés', 'value' => $workflowStageTitle],
+                ['label' => 'Igény állapota', 'value' => $requestStatusLabels[$requestStatus] ?? $requestStatus],
+                ['label' => 'Szerelő státusz', 'value' => $electricianStatusLabels[$electricianStatus] ?? $electricianStatus],
+                ['label' => 'Kiadva szerelőnek', 'value' => connection_crm_value($request['electrician_name'] ?? '')],
+                ['label' => 'Mérő gyári szám', 'value' => connection_crm_value($request['meter_serial'] ?? '')],
+                ['label' => 'Fogyasztási hely', 'value' => connection_crm_value($request['consumption_place_id'] ?? '')],
+            ],
+        ],
+        [
+            'title' => 'Teljesítmény és ajánlat',
+            'fields' => [
+                ['label' => 'Mindennapszaki meglévő', 'value' => connection_crm_value($request['existing_general_power'] ?? '')],
+                ['label' => 'Mindennapszaki igényelt', 'value' => connection_crm_value($request['requested_general_power'] ?? '')],
+                ['label' => 'H tarifa', 'value' => connection_crm_value($request['existing_h_tariff_power'] ?? '') . ' / ' . connection_crm_value($request['requested_h_tariff_power'] ?? '')],
+                ['label' => 'Vezérelt', 'value' => connection_crm_value($request['existing_controlled_power'] ?? '') . ' / ' . connection_crm_value($request['requested_controlled_power'] ?? '')],
+                ['label' => 'Árajánlat', 'value' => $quoteSummaryAmount . ' · ' . $quoteSummaryLabel],
+                ['label' => 'Árajánlat hiányának oka', 'value' => connection_crm_value($quoteMissingReason)],
+                ['label' => 'Email állapot', 'value' => $emailStatusLabels[$emailStatus] ?? $emailStatus],
+                ['label' => 'Megjegyzés', 'value' => connection_crm_value($request['notes'] ?? '')],
+            ],
+        ],
+    ];
+}
 ?>
 <section class="admin-section connection-crm-page">
     <div class="container admin-requests-container">
@@ -411,6 +611,33 @@ function connection_crm_detail_path(int $requestId): string
                         $quoteSummaryAmount,
                     ]);
                     $requestOwnerType = !empty($request['contractor_name']) ? 'Generálkivitelezőn keresztül' : 'Közvetlen ügyfél';
+                    $timelineEvents = $isSelectedRequest ? connection_crm_request_timeline_events(
+                        $request,
+                        (string) $workflowStageDefinition['title'],
+                        $quoteState,
+                        $mvmDocuments,
+                        $files,
+                        $beforeWorkFiles,
+                        $afterWorkFiles,
+                        $quotes,
+                        $acceptedQuote,
+                        $quoteMissingReason,
+                        $requestStatusLabels,
+                        $electricianStatusLabels,
+                        $emailStatusLabels
+                    ) : [];
+                    $fieldGroups = $isSelectedRequest ? connection_crm_request_field_groups(
+                        $request,
+                        $siteAddress,
+                        $requestOwnerType,
+                        (string) $workflowStageDefinition['title'],
+                        $quoteSummaryAmount,
+                        $quoteSummaryLabel,
+                        $quoteMissingReason,
+                        $requestStatusLabels,
+                        $electricianStatusLabels,
+                        $emailStatusLabels
+                    ) : [];
                     ?>
 
                     <details class="admin-workflow-request minicrm-work-row connection-crm-row" id="request-<?= $requestId; ?>" data-connection-crm-item data-connection-crm-search-text="<?= h($searchText); ?>" data-connection-crm-loaded="<?= $isSelectedRequest ? '1' : '0'; ?>" data-connection-crm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedRequest ? 'open' : ''; ?>>
@@ -461,6 +688,51 @@ function connection_crm_detail_path(int $requestId): string
                             </div>
                         </div>
 
+                        <div class="minicrm-work-detail-layout connection-crm-detail-layout">
+                            <aside class="minicrm-work-facts connection-crm-facts">
+                                <dl>
+                                    <div><dt>Ügyfél</dt><dd><?= h(connection_crm_value($request['requester_name'] ?? '')); ?></dd></div>
+                                    <div><dt>Felelős</dt><dd><?= h(connection_crm_value($request['electrician_name'] ?? '')); ?></dd></div>
+                                    <div><dt>Folyamat</dt><dd><?= h((string) $workflowStageDefinition['title']); ?></dd></div>
+                                    <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
+                                    <div><dt>HRSZ</dt><dd><?= h(connection_crm_value($request['hrsz'] ?? '')); ?></dd></div>
+                                    <div><dt>Mérő</dt><dd><?= h(connection_crm_value($request['meter_serial'] ?? '')); ?></dd></div>
+                                    <div><dt>Leadás</dt><dd><?= h(connection_crm_value($dateValue)); ?></dd></div>
+                                </dl>
+
+                                <section class="minicrm-compact-docs connection-crm-quick-actions">
+                                    <h3>Anyagok <span><?= $materialCount; ?></span></h3>
+                                    <div>
+                                        <?php if ($canManageMvmDocuments): ?>
+                                            <a href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">MVM dokumentumok<span><?= count($mvmDocuments); ?></span></a>
+                                        <?php endif; ?>
+                                        <a href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $request['id']); ?>">Igény szerkesztése<span>Edit</span></a>
+                                        <a href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . (int) $request['id']); ?>">Árajánlat készítése<span>Ajánlat</span></a>
+                                        <a href="<?= h(url_path('/admin/connection-requests/quote-upload') . '?id=' . (int) $request['id']); ?>">Árajánlat feltöltése<span>PDF</span></a>
+                                    </div>
+                                </section>
+                            </aside>
+
+                            <div class="minicrm-work-main connection-crm-main">
+                                <section class="minicrm-timeline-panel">
+                                    <div class="admin-request-section-title">
+                                        <h3>Előzmények</h3>
+                                        <span><?= count($timelineEvents); ?> esemény</span>
+                                    </div>
+                                    <ol class="minicrm-timeline">
+                                        <?php foreach ($timelineEvents as $event): ?>
+                                            <li class="minicrm-timeline-event minicrm-timeline-<?= h((string) $event['kind']); ?>">
+                                                <time><?= h((string) $event['date']); ?></time>
+                                                <div>
+                                                    <strong><?= h((string) $event['title']); ?></strong>
+                                                    <span><?= h((string) $event['actor']); ?></span>
+                                                    <p><?= h((string) $event['body']); ?></p>
+                                                </div>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ol>
+                                </section>
+
                         <div class="quote-state-card quote-state-card-<?= h((string) $quoteState['class']); ?>">
                             <div>
                                 <span class="portal-kicker">Árajánlat állapota</span>
@@ -474,52 +746,27 @@ function connection_crm_detail_path(int $requestId): string
                             <div class="alert alert-error request-admin-alert"><p><?= h($request['email_error']); ?></p></div>
                         <?php endif; ?>
 
-                        <div class="admin-request-panel-grid">
-                            <section class="admin-request-panel">
-                                <h3>Ügyfél</h3>
-                                <dl class="admin-request-data-list">
-                                    <div><dt>Név</dt><dd><?= h($request['requester_name']); ?></dd></div>
-                                    <div><dt>Típus</dt><dd><?= h($requestOwnerType); ?></dd></div>
-                                    <div><dt>Email</dt><dd><?= h($request['email']); ?></dd></div>
-                                    <div><dt>Telefon</dt><dd><?= h($request['phone']); ?></dd></div>
-                                    <?php if (!empty($request['contractor_name'])): ?>
-                                        <div><dt>Generálkivitelező</dt><dd><?= h($request['contractor_name']); ?></dd></div>
-                                        <div><dt>Kapcsolattartó</dt><dd><?= h($request['contractor_contact_name'] ?: '-'); ?></dd></div>
-                                    <?php endif; ?>
-                                    <?php if ($schemaErrors === []): ?>
-                                        <div><dt>Kiadva szerelőnek</dt><dd><?= !empty($request['electrician_name']) ? h((string) $request['electrician_name']) : 'Nincs kiadva'; ?></dd></div>
-                                    <?php endif; ?>
-                                </dl>
-                            </section>
+                        <section class="minicrm-readable-groups minicrm-field-groups connection-crm-field-groups">
+                            <?php foreach ($fieldGroups as $groupIndex => $fieldGroup): ?>
+                                <details class="minicrm-field-group" <?= $groupIndex < 3 ? 'open' : ''; ?>>
+                                    <summary>
+                                        <strong><?= h((string) $fieldGroup['title']); ?></strong>
+                                        <span><?= count($fieldGroup['fields']); ?> mező</span>
+                                    </summary>
+                                    <div class="minicrm-readable-grid">
+                                        <?php foreach ($fieldGroup['fields'] as $field): ?>
+                                            <article class="minicrm-readable-row">
+                                                <span><?= h((string) $field['label']); ?></span>
+                                                <strong><?= h((string) $field['value']); ?></strong>
+                                            </article>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </details>
+                            <?php endforeach; ?>
+                        </section>
 
-                            <section class="admin-request-panel">
-                                <h3>Igény adatai</h3>
-                                <dl class="admin-request-data-list">
-                                    <div><dt>Igénytípus</dt><dd><?= h(connection_request_type_label($request['request_type'] ?? null)); ?></dd></div>
-                                    <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
-                                    <div><dt>HRSZ</dt><dd><?= h($request['hrsz'] ?: '-'); ?></dd></div>
-                                    <div><dt>Mérő</dt><dd><?= h($request['meter_serial'] ?: '-'); ?></dd></div>
-                                    <div><dt>Fogyasztási hely</dt><dd><?= h($request['consumption_place_id'] ?: '-'); ?></dd></div>
-                                </dl>
-                            </section>
-
-                            <section class="admin-request-panel admin-request-panel-wide">
-                                <h3>Teljesítmény és ajánlat</h3>
-                                <dl class="admin-request-data-list admin-request-data-list-compact">
-                                    <div><dt>Mindennapszaki</dt><dd><?= h($request['existing_general_power'] ?: '-'); ?></dd></div>
-                                    <div><dt>Igényelt</dt><dd><?= h($request['requested_general_power'] ?: '-'); ?></dd></div>
-                                    <div><dt>H tarifa</dt><dd><?= h(($request['existing_h_tariff_power'] ?: '-') . ' / ' . ($request['requested_h_tariff_power'] ?: '-')); ?></dd></div>
-                                    <div><dt>Vezérelt</dt><dd><?= h(($request['existing_controlled_power'] ?: '-') . ' / ' . ($request['requested_controlled_power'] ?: '-')); ?></dd></div>
-                                    <?php if (!empty($request['notes'])): ?>
-                                        <div class="admin-request-data-wide"><dt>Megjegyzés</dt><dd><?= h($request['notes']); ?></dd></div>
-                                    <?php endif; ?>
-                                    <div><dt>Árajánlat</dt><dd><?= h($quoteSummaryAmount); ?> · <?= h($quoteSummaryLabel); ?></dd></div>
-                                </dl>
-                            </section>
-                        </div>
-
-                        <div class="request-admin-footer">
-                            <section class="admin-request-panel admin-request-documents">
+                        <div class="request-admin-footer connection-crm-function-stack">
+                            <section class="admin-request-panel admin-request-documents minicrm-document-preview-panel connection-crm-documents">
                                 <?php if ($canManageMvmDocuments): ?>
                                 <div class="admin-request-section-title">
                                     <h3>Beavatkozási lap</h3>
@@ -709,7 +956,7 @@ function connection_crm_detail_path(int $requestId): string
                                 <?php endif; ?>
                             </section>
 
-                            <div class="request-admin-actions">
+                            <div class="request-admin-actions connection-crm-action-panel">
                                 <?php if ($workflowStageSchemaReady): ?>
                                     <form class="workflow-stage-form" method="post" action="<?= h($detailUrl); ?>">
                                         <?= csrf_field(); ?>
@@ -763,6 +1010,8 @@ function connection_crm_detail_path(int $requestId): string
                                 <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $request['id']); ?>">Igény szerkesztése</a>
                                 <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . (int) $request['id']); ?>">Árajánlat készítése</a>
                                 <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/quote-upload') . '?id=' . (int) $request['id']); ?>">Árajánlat feltöltése</a>
+                            </div>
+                        </div>
                             </div>
                         </div>
                     </article>
