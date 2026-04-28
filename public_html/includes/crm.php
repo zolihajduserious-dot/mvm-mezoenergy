@@ -11026,7 +11026,7 @@ function minicrm_project_ids_from_text(string $text): array
         return [];
     }
 
-    preg_match_all('~/Project-\d+/(\d+)/DownloadDocument~i', $text, $matches);
+    preg_match_all('~/Project-\d+/(\d+)(?:/|$)~i', $text, $matches);
 
     return array_values(array_unique($matches[1] ?? []));
 }

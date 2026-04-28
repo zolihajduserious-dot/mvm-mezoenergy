@@ -109,6 +109,30 @@ function minicrm_import_first_matching_field(array $rawFields, array $patterns):
     return '';
 }
 
+function minicrm_import_actual_document_links(array $documentLinks): array
+{
+    return array_values(array_filter($documentLinks, static function (mixed $link): bool {
+        if (!is_array($link)) {
+            return false;
+        }
+
+        $value = trim((string) ($link['value'] ?? ''));
+
+        return $value !== '' && (str_starts_with($value, 'http://') || str_starts_with($value, 'https://'));
+    }));
+}
+
+function minicrm_import_document_link_count(array $item): int
+{
+    $decoded = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
+
+    if (!is_array($decoded)) {
+        return 0;
+    }
+
+    return count(minicrm_import_actual_document_links($decoded));
+}
+
 function minicrm_import_timeline_events(array $item, array $rawFields, array $localFiles): array
 {
     $events = [];
@@ -367,17 +391,13 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $displayDate = trim((string) ($item['submitted_date'] ?: $item['date_value'] ?: $item['updated_at'] ?: $item['created_at'] ?: ''));
                             $detailUrl = url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId;
                             $documentLinks = $isSelectedItem ? minicrm_work_item_document_links($item) : [];
+                            $actualDocumentLinks = $isSelectedItem ? minicrm_import_actual_document_links($documentLinks) : [];
                             $localFiles = $isSelectedItem ? minicrm_work_item_files($itemId) : [];
                             $rawFields = $isSelectedItem ? minicrm_work_item_raw_fields($item) : [];
                             $fieldGroups = $isSelectedItem ? minicrm_work_item_field_groups($item) : [];
                             $timelineEvents = $isSelectedItem ? minicrm_import_timeline_events($item, $rawFields, $localFiles) : [];
                             $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
-                            $documentLinkCount = count($documentLinks);
-
-                            if (!$isSelectedItem) {
-                                $decodedDocumentLinks = json_decode((string) ($item['document_links_json'] ?? '[]'), true);
-                                $documentLinkCount = is_array($decodedDocumentLinks) ? count($decodedDocumentLinks) : 0;
-                            }
+                            $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
                             ?>
                             <details class="admin-workflow-request minicrm-work-row" id="minicrm-work-<?= $itemId; ?>" data-minicrm-item data-minicrm-loaded="<?= $isSelectedItem ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedItem ? 'open' : ''; ?>>
                                 <summary class="admin-workflow-request-summary minicrm-work-row-summary">
@@ -430,15 +450,15 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                             </dl>
 
                                             <section class="minicrm-compact-docs">
-                                                <h3>MiniCRM linkek <span><?= count($documentLinks); ?></span></h3>
-                                                <?php if ($documentLinks === []): ?>
-                                                    <p class="request-admin-empty">Nincs link.</p>
+                                                <h3><?= $localFiles !== [] ? 'Régi MiniCRM linkek' : 'MiniCRM linkek'; ?> <span><?= count($actualDocumentLinks); ?></span></h3>
+                                                <?php if ($localFiles !== []): ?>
+                                                    <p class="request-admin-empty">A dokumentumok már saját tárhelyről nyílnak. Ezek csak ellenőrzéshez maradnak.</p>
+                                                <?php elseif ($actualDocumentLinks === []): ?>
+                                                    <p class="request-admin-empty">Ehhez a munkához még nincs saját tárhelyes fájl és nincs használható MiniCRM letöltési link sem.</p>
                                                 <?php else: ?>
                                                     <div>
-                                                        <?php foreach ($documentLinks as $documentLink): ?>
-                                                            <?php if (!empty($documentLink['is_url'])): ?>
-                                                                <a href="<?= h((string) $documentLink['value']); ?>" target="_blank" rel="noopener"><?= h(minicrm_import_short_text((string) $documentLink['label'], 64)); ?><span>link</span></a>
-                                                            <?php endif; ?>
+                                                        <?php foreach ($actualDocumentLinks as $documentLink): ?>
+                                                            <a href="<?= h((string) $documentLink['value']); ?>" target="_blank" rel="noopener"><?= h(minicrm_import_short_text((string) $documentLink['label'], 64)); ?><span>MiniCRM</span></a>
                                                         <?php endforeach; ?>
                                                     </div>
                                                 <?php endif; ?>
@@ -465,12 +485,14 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                 </ol>
                                             </section>
 
-                                            <?php if ($localFiles !== []): ?>
-                                                <section class="minicrm-document-preview-panel">
-                                                    <div class="admin-request-section-title">
-                                                        <h3>Dokumentumok</h3>
-                                                        <span><?= count($localFiles); ?> fájl</span>
-                                                    </div>
+                                            <section class="minicrm-document-preview-panel">
+                                                <div class="admin-request-section-title">
+                                                    <h3>Saját tárhelyes dokumentumok</h3>
+                                                    <span><?= count($localFiles); ?> fájl</span>
+                                                </div>
+                                                <?php if ($localFiles === []): ?>
+                                                    <p class="request-admin-empty">Ehhez a munkához még nincs saját tárhelyes dokumentum kapcsolva. A hiányzó fájl valószínűleg egy további MiniCRM dokumentum ZIP-ben lesz.</p>
+                                                <?php else: ?>
                                                     <div class="admin-request-doc-grid">
                                                         <?php foreach ($localFiles as $localFile): ?>
                                                             <?php
@@ -497,8 +519,8 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                             </article>
                                                         <?php endforeach; ?>
                                                     </div>
-                                                </section>
-                                            <?php endif; ?>
+                                                <?php endif; ?>
+                                            </section>
 
                                             <?php if ($fieldGroups === []): ?>
                                                 <section class="minicrm-readable-panel">
