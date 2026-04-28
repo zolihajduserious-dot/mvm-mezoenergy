@@ -5,6 +5,8 @@ require_role(['admin', 'specialist']);
 
 $flash = get_flash();
 $customers = [];
+$requestsByCustomer = [];
+$requestStatusLabels = connection_request_status_labels();
 
 if (is_post() && ($_POST['action'] ?? '') === 'delete_customer') {
     require_valid_csrf_token();
@@ -40,6 +42,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_customer') {
 
 try {
     $customers = all_customers();
+    $requestsByCustomer = connection_request_summaries_for_customers(array_column($customers, 'id'));
 } catch (Throwable $exception) {
     $flash = ['type' => 'error', 'message' => APP_DEBUG ? $exception->getMessage() : 'Az ügyfelek betöltése sikertelen.'];
 }
@@ -64,15 +67,32 @@ try {
         <?php else: ?>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Ügyfél</th><th>Felelős</th><th>Telefon</th><th>Cím</th><th>Státusz</th><th>Műveletek</th></tr></thead>
+                    <thead><tr><th>Ügyfél</th><th>Felelős</th><th>Telefon</th><th>Cím</th><th>Státusz</th><th>Igények</th><th>Műveletek</th></tr></thead>
                     <tbody>
                         <?php foreach ($customers as $customer): ?>
+                            <?php $customerRequests = $requestsByCustomer[(int) $customer['id']] ?? []; ?>
                             <tr>
                                 <td><strong><?= h($customer['requester_name']); ?></strong><span><?= h($customer['email']); ?></span></td>
                                 <td><?= h(customer_owner_label($customer)); ?></td>
                                 <td><?= h($customer['phone']); ?></td>
                                 <td><?= h($customer['postal_code']); ?> <?= h($customer['city']); ?>, <?= h($customer['postal_address']); ?></td>
                                 <td><?= h($customer['status']); ?></td>
+                                <td>
+                                    <div class="inline-link-list customer-request-links">
+                                        <?php foreach ($customerRequests as $customerRequest): ?>
+                                            <?php
+                                            $requestLabel = trim((string) ($customerRequest['project_name'] ?? ''));
+                                            $requestLabel = $requestLabel !== '' ? $requestLabel : '#' . (int) $customerRequest['id'];
+                                            $requestStatus = (string) ($customerRequest['request_status'] ?? 'draft');
+                                            ?>
+                                            <a href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $customerRequest['id']); ?>">
+                                                <?= h($requestLabel); ?>
+                                                <span><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></span>
+                                            </a>
+                                        <?php endforeach; ?>
+                                        <a href="<?= h(url_path('/admin/connection-requests/edit') . '?customer_id=' . (int) $customer['id']); ?>">Új igény</a>
+                                    </div>
+                                </td>
                                 <td>
                                     <div class="table-actions">
                                         <a href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Szerkesztes</a>

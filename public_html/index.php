@@ -181,6 +181,10 @@ $routes = [
         'title' => 'Mérőhelyi igények',
         'file' => PAGE_PATH . '/admin/connection-requests.php',
     ],
+    'admin/connection-requests/edit' => [
+        'title' => 'Mérőhelyi igény szerkesztése',
+        'file' => PAGE_PATH . '/admin/connection-request-form.php',
+    ],
     'admin/connection-requests/file' => [
         'title' => 'Mérőhelyi igény fájl',
         'file' => PAGE_PATH . '/admin/connection-request-file.php',

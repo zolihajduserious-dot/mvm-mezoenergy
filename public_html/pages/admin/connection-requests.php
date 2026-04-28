@@ -693,6 +693,7 @@ foreach ($requests as $workflowRequest) {
                                 <?php if ($canManageMvmDocuments): ?>
                                     <a class="button" href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">MVM dokumentumok</a>
                                 <?php endif; ?>
+                                <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $request['id']); ?>">Igény szerkesztése</a>
                                 <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . (int) $request['id']); ?>">Árajánlat készítése</a>
                                 <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/quote-upload') . '?id=' . (int) $request['id']); ?>">Árajánlat feltöltése</a>
                             </div>

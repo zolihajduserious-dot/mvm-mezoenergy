@@ -3864,6 +3864,30 @@ function connection_requests_for_customer(int $customerId): array
     )->fetchAll();
 }
 
+function connection_request_summaries_for_customers(array $customerIds): array
+{
+    $customerIds = array_values(array_unique(array_filter(array_map('intval', $customerIds))));
+
+    if ($customerIds === []) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT `id`, `customer_id`, `project_name`, `request_type`, `request_status`, `site_address`, `site_postal_code`, `created_at`
+         FROM `connection_requests`
+         WHERE `customer_id` IN (' . db_in_placeholders($customerIds) . ')
+         ORDER BY `customer_id` ASC, `created_at` DESC, `id` DESC',
+        $customerIds
+    )->fetchAll();
+    $grouped = [];
+
+    foreach ($rows as $row) {
+        $grouped[(int) $row['customer_id']][] = $row;
+    }
+
+    return $grouped;
+}
+
 function connection_requests_for_submitter(int $submittedByUserId): array
 {
     return db_query(

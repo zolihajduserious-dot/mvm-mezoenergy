@@ -1778,6 +1778,24 @@ a.metric-card {
     overflow-wrap: anywhere;
 }
 
+.customer-request-links {
+    max-width: 360px;
+}
+
+.customer-request-links a {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    white-space: normal;
+}
+
+.customer-request-links a span {
+    margin-top: 2px;
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
 .request-row-actions {
     margin-top: 14px;
 }
