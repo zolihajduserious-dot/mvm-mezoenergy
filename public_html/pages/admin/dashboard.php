@@ -16,8 +16,10 @@ $documentCount = null;
 $electricianCount = null;
 $staffUserCount = null;
 $minicrmImportCount = null;
+$standaloneConnectionRequestCount = null;
 $workflowStages = admin_workflow_stage_definitions();
 $workflowStageCounts = array_fill_keys(array_keys($workflowStages), 0);
+$showDashboardWorkflow = false;
 
 try {
     $customerCount = db_table_exists('customers') ? (int) db_query('SELECT COUNT(*) FROM `customers`')->fetchColumn() : 0;
@@ -28,8 +30,18 @@ try {
     $electricianCount = db_table_exists('electricians') ? (int) db_query('SELECT COUNT(*) FROM `electricians`')->fetchColumn() : 0;
     $staffUserCount = users_table_exists() ? (int) db_query('SELECT COUNT(*) FROM `users` WHERE `role` IN (?, ?) OR `is_admin` = ?', ['admin', 'specialist', 1])->fetchColumn() : 0;
     $minicrmImportCount = db_table_exists('minicrm_work_items') ? (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn() : 0;
+    $standaloneConnectionRequestCount = $connectionRequestCount;
 
-    if (db_table_exists('connection_requests')) {
+    if (db_table_exists('connection_requests') && db_table_exists('minicrm_connection_request_links')) {
+        $standaloneConnectionRequestCount = (int) db_query(
+            'SELECT COUNT(*)
+             FROM `connection_requests` cr
+             LEFT JOIN `minicrm_connection_request_links` l ON l.connection_request_id = cr.id
+             WHERE l.id IS NULL'
+        )->fetchColumn();
+    }
+
+    if ($showDashboardWorkflow && db_table_exists('connection_requests')) {
         foreach (all_connection_requests() as $workflowRequest) {
             $requestId = (int) $workflowRequest['id'];
             $quotes = quotes_for_connection_request($requestId);
@@ -56,7 +68,7 @@ $dashboardCards = [
         'label' => 'Ügyfelek',
         'value' => $customerCount ?? '-',
         'description' => 'Ügyféladatok megtekintése, javítása és új ügyfelek rögzítése.',
-        'href' => '/admin/customers',
+        'href' => '/admin/minicrm-import',
         'variant' => 'primary',
     ],
     [
@@ -65,7 +77,7 @@ $dashboardCards = [
         'description' => $canManageMvmDocuments
             ? 'Beküldött munkaigények, fájlok, ajánlatfeltöltés és MVM dokumentumok.'
             : 'Beküldött munkaigények, fájlok és ajánlatfeltöltés.',
-        'href' => '/admin/connection-requests',
+        'href' => '/admin/minicrm-import',
         'variant' => 'accent',
     ],
     [
@@ -88,6 +100,44 @@ $dashboardCards = [
         'description' => 'Excel exportból áthozott munkaállomány és MiniCRM dokumentumlinkek.',
         'href' => '/admin/minicrm-import',
         'variant' => 'system',
+    ],
+    [
+        'label' => 'Ajánlatok',
+        'value' => $quoteCount ?? '-',
+        'description' => 'Ajánlatok készítése, szerkesztése, PDF generálása és kiküldése.',
+        'href' => '/admin/quotes',
+        'variant' => 'primary',
+    ],
+    [
+        'label' => 'Árlista tételek',
+        'value' => $priceItemCount ?? '-',
+        'description' => 'Díjtétel nevek, egységárak, ÁFA és aktív árlista elemek kezelése.',
+        'href' => '/admin/price-items',
+        'variant' => 'accent',
+    ],
+];
+
+$dashboardCards = [
+    [
+        'label' => 'Munkaközpont',
+        'value' => ($standaloneConnectionRequestCount ?? 0) + ($minicrmImportCount ?? 0),
+        'description' => 'MiniCRM importok, portálos munkák, ügyféladatok, ajánlatok és dokumentumok egy helyen.',
+        'href' => '/admin/minicrm-import',
+        'variant' => 'accent',
+    ],
+    [
+        'label' => 'Szerelők',
+        'value' => $electricianCount ?? '-',
+        'description' => 'Szerelői fiókok kezelése és munkák kiadása.',
+        'href' => '/admin/electricians',
+        'variant' => 'system',
+    ],
+    [
+        'label' => 'Dokumentumtár',
+        'value' => $documentCount ?? '-',
+        'description' => 'Letölthető meghatalmazások, nyilatkozatok és ügyintézési dokumentumok.',
+        'href' => '/admin/documents',
+        'variant' => 'accent',
     ],
     [
         'label' => 'Ajánlatok',
@@ -165,7 +215,7 @@ if ($canManageAdminUsers) {
             <?php endforeach; ?>
         </div>
 
-        <?php if (($connectionRequestCount ?? 0) > 0): ?>
+        <?php if ($showDashboardWorkflow && ($connectionRequestCount ?? 0) > 0): ?>
             <section class="dashboard-workflow-section">
                 <div class="section-heading compact-heading">
                     <p class="eyebrow">Igényfolyamat</p>
@@ -175,7 +225,7 @@ if ($canManageAdminUsers) {
 
                 <div class="admin-workflow-board dashboard-workflow-board">
                     <?php foreach ($workflowStages as $stageKey => $stage): ?>
-                        <a class="admin-workflow-card admin-workflow-card-<?= h((string) $stage['variant']); ?>" href="<?= h(url_path('/admin/connection-requests') . '#workflow-stage-' . $stageKey); ?>">
+                        <a class="admin-workflow-card admin-workflow-card-<?= h((string) $stage['variant']); ?>" href="<?= h(url_path('/admin/minicrm-import') . '#portal-works'); ?>">
                             <span><?= (int) $stage['number']; ?></span>
                             <strong><?= h((string) $stage['title']); ?></strong>
                             <em><?= (int) ($workflowStageCounts[$stageKey] ?? 0); ?> igény</em>

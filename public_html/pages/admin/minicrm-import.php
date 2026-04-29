@@ -133,19 +133,26 @@ if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
 }
 
 $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
+$standaloneRequests = $schemaErrors === [] ? admin_standalone_connection_request_items(1000) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
 $customerProfilesBySource = $schemaErrors === [] ? minicrm_customer_profiles_by_source_ids(array_column($items, 'source_id')) : [];
+$customerProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by_connection_request_ids(array_column($standaloneRequests, 'id')) : [];
 $quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
+$requestStatusLabels = $schemaErrors === [] ? connection_request_status_labels() : [];
+$electricianStatusLabels = $schemaErrors === [] ? electrician_work_status_labels() : [];
 $totalItems = count($items);
+$totalUnifiedItems = $totalItems + count($standaloneRequests);
 $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
 $localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
 $documentZipCandidates = minicrm_document_zip_candidates();
 $itemsByStatus = [];
 $selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
+$selectedRequestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
+$standaloneRequestsByStatus = [];
 
 foreach ($items as $item) {
-    if ($selectedItemId === 0) {
+    if ($selectedItemId === 0 && $selectedRequestId === 0) {
         $selectedItemId = (int) ($item['id'] ?? 0);
     }
 
@@ -154,6 +161,17 @@ foreach ($items as $item) {
 }
 
 uasort($itemsByStatus, static fn (array $a, array $b): int => count($b) <=> count($a));
+
+foreach ($standaloneRequests as $request) {
+    if ($selectedItemId === 0 && $selectedRequestId === 0) {
+        $selectedRequestId = (int) ($request['id'] ?? 0);
+    }
+
+    $statusName = connection_request_type_label($request['request_type'] ?? null);
+    $standaloneRequestsByStatus[$statusName][] = $request;
+}
+
+uasort($standaloneRequestsByStatus, static fn (array $a, array $b): int => count($b) <=> count($a));
 
 function minicrm_import_dom_id(string $value): string
 {
@@ -441,12 +459,12 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
             </section>
         <?php endif; ?>
 
-        <?php if ($schemaErrors === [] && $items === []): ?>
+        <?php if ($schemaErrors === [] && $items === [] && $standaloneRequests === []): ?>
             <div class="empty-state" data-minicrm-panel="works">
                 <h2>Még nincs importált MiniCRM munka</h2>
                 <p>Tölts fel egy MiniCRM Excel exportot, és a munkák itt jelennek meg.</p>
             </div>
-        <?php elseif ($items !== []): ?>
+        <?php elseif ($items !== [] || $standaloneRequests !== []): ?>
             <div class="admin-workflow-list minicrm-workspace" id="minicrm-works" data-minicrm-panel="works">
                 <section class="admin-workflow-stage">
                     <div class="admin-workflow-stage-head minicrm-workspace-head">
@@ -455,13 +473,13 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             <h2>MiniCRM munkaállomány</h2>
                             <p>Státuszonként csoportosított, kompakt lista kereséssel és munkán belüli idővonallal.</p>
                         </div>
-                        <strong><?= $totalItems; ?> db</strong>
+                        <strong><?= $totalUnifiedItems; ?> db</strong>
                     </div>
 
                     <div class="minicrm-list-tools">
                         <label for="minicrm_search">Keresés a munkák között</label>
                         <input id="minicrm_search" type="search" placeholder="Név, azonosító, cím, felelős, státusz vagy mezőérték" data-minicrm-search>
-                        <span data-minicrm-count><?= $totalItems; ?> db</span>
+                        <span data-minicrm-count><?= $totalUnifiedItems; ?> db</span>
                     </div>
 
                     <nav class="minicrm-status-nav" aria-label="MiniCRM státuszok">
@@ -471,6 +489,12 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                 <strong><?= count($statusItems); ?></strong>
                             </a>
                         <?php endforeach; ?>
+                        <?php if ($standaloneRequests !== []): ?>
+                            <a href="#portal-works">
+                                <span>Port&#225;los munk&#225;k</span>
+                                <strong><?= count($standaloneRequests); ?></strong>
+                            </a>
+                        <?php endif; ?>
                     </nav>
 
                     <div class="minicrm-status-groups" data-minicrm-list>
@@ -859,6 +883,180 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             </section>
                         <?php endforeach; ?>
                     </div>
+
+                    <?php if ($standaloneRequestsByStatus !== []): ?>
+                        <section class="minicrm-status-group" id="portal-works" data-minicrm-status-group>
+                            <header class="minicrm-status-group-head">
+                                <div>
+                                    <span class="status-badge status-badge-finalized">Port&#225;lon r&#246;gz&#237;tett munk&#225;k</span>
+                                    <strong><?= count($standaloneRequests); ?> munka</strong>
+                                </div>
+                                <span data-minicrm-status-count><?= count($standaloneRequests); ?> l&#225;that&#243;</span>
+                            </header>
+
+                            <?php foreach ($standaloneRequestsByStatus as $requestGroupName => $requestItems): ?>
+                                <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $requestGroupName); ?> port&#225;los munk&#225;k">
+                                    <div class="minicrm-work-table-head" role="row">
+                                        <span><?= h((string) $requestGroupName); ?></span>
+                                        <span>Szerel&#337;</span>
+                                        <span>D&#225;tum</span>
+                                        <span>Anyag</span>
+                                    </div>
+                                    <?php foreach ($requestItems as $request): ?>
+                                        <?php
+                                        $requestId = (int) ($request['id'] ?? 0);
+                                        $isSelectedRequest = $requestId === $selectedRequestId;
+                                        $requestStatus = (string) ($request['request_status'] ?? 'finalized');
+                                        $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
+                                        $requestTitle = trim((string) ($request['project_name'] ?? '')) ?: connection_request_type_label($request['request_type'] ?? null);
+                                        $requestCustomerName = trim((string) ($request['requester_name'] ?? '')) ?: '-';
+                                        $requestSiteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
+                                        $requestDetailUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+                                        $requestQuotes = $isSelectedRequest ? quotes_for_connection_request($requestId) : [];
+                                        $requestFiles = $isSelectedRequest ? connection_request_files($requestId) : [];
+                                        $requestWorkFiles = $isSelectedRequest ? connection_request_work_files($requestId) : [];
+                                        $requestDocuments = $isSelectedRequest ? connection_request_documents($requestId) : [];
+                                        $requestProfile = $customerProfilesByRequest[$requestId] ?? null;
+                                        $profileEmail = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
+                                        $profilePhone = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
+                                        $displayEmail = $profileEmail !== '' ? $profileEmail : trim((string) ($request['email'] ?? ''));
+                                        $displayPhone = $profilePhone !== '' ? $profilePhone : trim((string) ($request['phone'] ?? ''));
+                                        $requestContactLine = trim(implode(' · ', array_filter([$displayEmail, $displayPhone], static fn (string $value): bool => $value !== '')));
+                                        $requestSearchText = implode(' ', [
+                                            $requestTitle,
+                                            $requestCustomerName,
+                                            $displayEmail,
+                                            $displayPhone,
+                                            $requestSiteAddress,
+                                            (string) ($request['electrician_name'] ?? ''),
+                                            $requestStatusLabels[$requestStatus] ?? $requestStatus,
+                                            $electricianStatusLabels[$electricianStatus] ?? $electricianStatus,
+                                        ]);
+                                        ?>
+                                        <details class="admin-workflow-request minicrm-work-row" id="portal-work-<?= $requestId; ?>" data-minicrm-item data-minicrm-search-text="<?= h($requestSearchText); ?>" data-minicrm-loaded="<?= $isSelectedRequest ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($requestDetailUrl); ?>" <?= $isSelectedRequest ? 'open' : ''; ?>>
+                                            <summary class="admin-workflow-request-summary minicrm-work-row-summary">
+                                                <span class="admin-workflow-request-main">
+                                                    <strong><?= h($requestTitle); ?></strong>
+                                                    <small><?= h($requestSiteAddress !== '' ? $requestSiteAddress : $requestCustomerName); ?></small>
+                                                </span>
+                                                <span class="admin-workflow-request-meta">
+                                                    <span><?= h((string) ($request['electrician_name'] ?? 'Nincs szerelő')); ?></span>
+                                                    <strong><?= h($requestContactLine !== '' ? $requestContactLine : $requestCustomerName); ?></strong>
+                                                </span>
+                                                <span class="minicrm-work-date"><?= h((string) ($request['created_at'] ?? '-')); ?></span>
+                                                <span class="admin-workflow-request-badges">
+                                                    <strong><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></strong>
+                                                    <small><?= h($electricianStatusLabels[$electricianStatus] ?? $electricianStatus); ?></small>
+                                                </span>
+                                            </summary>
+
+                                            <?php if (!$isSelectedRequest): ?>
+                                                <div class="minicrm-work-card minicrm-work-card-placeholder">
+                                                    <p class="request-admin-empty">Az adatlap megnyit&#225;s&#225;hoz kattints a sorra; a r&#233;szletek k&#252;l&#246;n t&#246;lt&#337;dnek be, hogy a lista gyors maradjon.</p>
+                                                    <a class="button button-secondary" href="<?= h($requestDetailUrl); ?>">Adatlap megnyit&#225;sa</a>
+                                                </div>
+                                            <?php else: ?>
+                                                <article class="request-admin-card minicrm-work-card">
+                                                    <div class="request-admin-card-head">
+                                                        <div>
+                                                            <span class="portal-kicker">Port&#225;l munka #<?= $requestId; ?></span>
+                                                            <h2><?= h($requestTitle); ?></h2>
+                                                            <p><?= h($requestSiteAddress !== '' ? $requestSiteAddress : $requestCustomerName); ?></p>
+                                                        </div>
+                                                        <div class="request-admin-status">
+                                                            <span class="status-badge status-badge-<?= h($requestStatus); ?>"><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></span>
+                                                            <span class="status-badge status-badge-<?= h($electricianStatus); ?>"><?= h($electricianStatusLabels[$electricianStatus] ?? $electricianStatus); ?></span>
+                                                            <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . $requestId); ?>">Aj&#225;nlat</a>
+                                                            <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . $requestId); ?>">MVM dokumentumok</a>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="minicrm-work-detail-layout">
+                                                        <aside class="minicrm-work-facts">
+                                                            <dl>
+                                                                <div><dt>&#220;gyf&#233;l</dt><dd><?= h($requestCustomerName); ?></dd></div>
+                                                                <div><dt>Email</dt><dd><?= h($displayEmail !== '' ? $displayEmail : '-'); ?></dd></div>
+                                                                <div><dt>Telefon</dt><dd><?= h($displayPhone !== '' ? $displayPhone : '-'); ?></dd></div>
+                                                                <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
+                                                                <div><dt>C&#237;m</dt><dd><?= h($requestSiteAddress !== '' ? $requestSiteAddress : '-'); ?></dd></div>
+                                                                <div><dt>HRSZ</dt><dd><?= h((string) ($request['lot_number'] ?? '-')); ?></dd></div>
+                                                                <div><dt>Munka t&#237;pusa</dt><dd><?= h(connection_request_type_label($request['request_type'] ?? null)); ?></dd></div>
+                                                                <div><dt>M&#233;r&#337;</dt><dd><?= h((string) ($request['meter_serial'] ?? '-')); ?></dd></div>
+                                                                <div><dt>R&#246;gz&#237;tve</dt><dd><?= h((string) ($request['created_at'] ?? '-')); ?></dd></div>
+                                                            </dl>
+                                                        </aside>
+
+                                                        <div class="minicrm-work-main">
+                                                            <section class="minicrm-document-preview-panel minicrm-quote-panel">
+                                                                <div class="admin-request-section-title">
+                                                                    <h3>Aj&#225;nlatok</h3>
+                                                                    <span><?= count($requestQuotes); ?> aj&#225;nlat</span>
+                                                                </div>
+                                                                <div class="form-actions">
+                                                                    <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . $requestId); ?>">&#218;j aj&#225;nlat k&#233;sz&#237;t&#233;se</a>
+                                                                    <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . $requestId); ?>">Adatok szerkeszt&#233;se</a>
+                                                                </div>
+                                                                <?php if ($requestQuotes === []): ?>
+                                                                    <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs aj&#225;nlat.</p>
+                                                                <?php else: ?>
+                                                                    <div class="quote-mini-list">
+                                                                        <?php foreach ($requestQuotes as $quote): ?>
+                                                                            <?php
+                                                                            $quoteId = (int) $quote['id'];
+                                                                            $quoteStatus = (string) ($quote['status'] ?? 'draft');
+                                                                            ?>
+                                                                            <article class="quote-mini-card">
+                                                                                <div>
+                                                                                    <strong><?= h((string) ($quote['quote_number'] ?? ('#' . $quoteId))); ?></strong>
+                                                                                    <span><?= h((string) ($quote['subject'] ?? 'Ajánlat')); ?></span>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <span class="status-badge status-badge-<?= h($quoteStatus); ?>"><?= h($quoteStatusLabels[$quoteStatus] ?? $quoteStatus); ?></span>
+                                                                                    <strong><?= h(quote_display_total($quote)); ?></strong>
+                                                                                </div>
+                                                                                <div class="inline-link-list">
+                                                                                    <a href="<?= h(url_path('/admin/quotes/edit') . '?id=' . $quoteId . '&request_id=' . $requestId); ?>">Szerkeszt&#233;s</a>
+                                                                                    <a href="<?= h(url_path('/admin/quotes/send') . '?id=' . $quoteId . '&request_id=' . $requestId); ?>">PDF / email</a>
+                                                                                    <?php if (quote_file_is_available($quote)): ?>
+                                                                                        <a href="<?= h(url_path('/admin/quotes/file') . '?id=' . $quoteId); ?>" target="_blank">PDF megnyit&#225;sa</a>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                <?php endif; ?>
+                                                            </section>
+
+                                                            <section class="minicrm-document-preview-panel">
+                                                                <div class="admin-request-section-title">
+                                                                    <h3>Dokumentumok &#233;s fot&#243;k</h3>
+                                                                    <span><?= count($requestFiles) + count($requestWorkFiles) + count($requestDocuments); ?> f&#225;jl</span>
+                                                                </div>
+                                                                <div class="inline-link-list">
+                                                                    <?php foreach (array_slice($requestFiles, 0, 8) as $file): ?>
+                                                                        <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) ($file['label'] ?? $file['original_name'] ?? 'Fájl')); ?></a>
+                                                                    <?php endforeach; ?>
+                                                                    <?php foreach (array_slice($requestWorkFiles, 0, 8) as $file): ?>
+                                                                        <a href="<?= h(url_path('/admin/connection-requests/work-file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) ($file['label'] ?? $file['original_name'] ?? 'Munka fájl')); ?></a>
+                                                                    <?php endforeach; ?>
+                                                                    <?php foreach (array_slice($requestDocuments, 0, 8) as $document): ?>
+                                                                        <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?></a>
+                                                                    <?php endforeach; ?>
+                                                                </div>
+                                                                <?php if ($requestFiles === [] && $requestWorkFiles === [] && $requestDocuments === []): ?>
+                                                                    <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs felt&#246;lt&#246;tt f&#225;jl vagy gener&#225;lt MVM dokumentum.</p>
+                                                                <?php endif; ?>
+                                                            </section>
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            <?php endif; ?>
+                                        </details>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </section>
+                    <?php endif; ?>
                 </section>
             </div>
         <?php endif; ?>

@@ -3855,6 +3855,44 @@ function all_connection_requests(): array
     )->fetchAll();
 }
 
+function admin_standalone_connection_request_items(int $limit = 500): array
+{
+    if (!db_table_exists('connection_requests') || !db_table_exists('customers')) {
+        return [];
+    }
+
+    $limit = max(1, min(1000, $limit));
+    $hasElectricians = db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id');
+    $hasMinicrmLinks = minicrm_connection_request_link_schema_errors() === [];
+    $electricianSelect = $hasElectricians
+        ? ', e.name AS electrician_name, e.phone AS electrician_phone, e.email AS electrician_email'
+        : ", NULL AS electrician_name, NULL AS electrician_phone, NULL AS electrician_email";
+    $electricianJoin = $hasElectricians
+        ? ' LEFT JOIN `electricians` e ON e.user_id = cr.assigned_electrician_user_id'
+        : '';
+    $minicrmSelect = $hasMinicrmLinks ? ', l.work_item_id AS minicrm_work_item_id' : ', NULL AS minicrm_work_item_id';
+    $minicrmJoin = $hasMinicrmLinks
+        ? ' LEFT JOIN `minicrm_connection_request_links` l ON l.connection_request_id = cr.id'
+        : '';
+    $where = $hasMinicrmLinks ? ' WHERE l.id IS NULL' : '';
+
+    return db_query(
+        'SELECT cr.*, c.requester_name, c.birth_name, c.company_name, c.tax_number, c.is_legal_entity,
+                c.phone, c.email, c.postal_address, c.postal_code, c.city,
+                c.mother_name, c.birth_place, c.birth_date,
+                ct.contractor_name, ct.contact_name AS contractor_contact_name,
+                ct.phone AS contractor_phone, ct.email AS contractor_email,
+                ct.postal_code AS contractor_postal_code, ct.city AS contractor_city, ct.postal_address AS contractor_postal_address'
+                . $electricianSelect . $minicrmSelect . '
+         FROM `connection_requests` cr
+         INNER JOIN `customers` c ON c.id = cr.customer_id
+         LEFT JOIN `contractors` ct ON ct.user_id = cr.submitted_by_user_id'
+         . $electricianJoin . $minicrmJoin . $where . '
+         ORDER BY cr.created_at DESC, cr.id DESC
+         LIMIT ' . $limit
+    )->fetchAll();
+}
+
 function connection_requests_for_customer(int $customerId): array
 {
     return db_query(
