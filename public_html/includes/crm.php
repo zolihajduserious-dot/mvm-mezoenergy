@@ -2281,7 +2281,9 @@ function send_connection_request_status_change_email(int $requestId, string $pre
     $nextDefinition = admin_workflow_stage_definitions()[$nextStage] ?? null;
     $previousLabel = $previousDefinition !== null ? (string) $previousDefinition['title'] : admin_workflow_stage_label($previousStage);
     $nextLabel = $nextDefinition !== null ? (string) $nextDefinition['title'] : admin_workflow_stage_label($nextStage);
-    $subject = APP_NAME . ' státuszváltozás - ' . (string) ($request['project_name'] ?? ('Munka #' . $requestId));
+    $token = customer_email_thread_token($requestId, 'status-' . $nextStage);
+    $subject = customer_email_thread_subject(APP_NAME . ' státuszváltozás - ' . (string) ($request['project_name'] ?? ('Munka #' . $requestId)), $token);
+    $replyAddress = mvm_mail_reply_address();
     $sections = [
         [
             'title' => 'Munka állapota',
@@ -2291,6 +2293,7 @@ function send_connection_request_status_change_email(int $requestId, string $pre
                 ['label' => 'Új státusz', 'value' => $nextLabel],
                 ['label' => 'Mit jelent ez?', 'value' => (string) ($nextDefinition['description'] ?? '')],
                 ['label' => 'Kivitelezés címe', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                ['label' => 'Válaszazonosító', 'value' => $token],
             ],
         ],
     ];
@@ -2304,16 +2307,30 @@ function send_connection_request_status_change_email(int $requestId, string $pre
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
         $mail->addAddress($recipientEmail, $recipientName);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
         $mail->Subject = $subject;
+        $emailTitle = 'Státuszváltozás történt';
+        $emailLead = 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
         apply_branded_email(
             $mail,
-            'Státuszváltozás történt',
-            'Frissült a mérőhelyi ügyintézés állapota. Az aktuális státuszt és a következő lépést az alábbi összefoglalóban látod.',
+            $emailTitle,
+            $emailLead,
             $sections,
             $actions,
             $recipientName
         );
         $mail->send();
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+        record_customer_email_thread(
+            $requestId,
+            $token,
+            $recipientEmail,
+            $subject,
+            'Ügyfél státuszértesítés',
+            branded_email_text($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            branded_email_html($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            $messageId !== '' ? $messageId : null
+        );
 
         db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
 
@@ -5363,6 +5380,88 @@ function mvm_email_token(int $requestId, int $documentId): string
     return 'MEZO-IGENY-' . $requestId . '-DOK-' . $documentId . '-' . strtoupper(bin2hex(random_bytes(3)));
 }
 
+function customer_email_thread_token(int $requestId, string $purpose): string
+{
+    $purpose = strtoupper((string) preg_replace('/[^A-Za-z0-9]+/', '-', $purpose));
+    $purpose = trim($purpose, '-');
+    $purpose = $purpose !== '' ? $purpose : 'UZENET';
+    $hash = strtoupper(substr(hash('sha256', $requestId . '|' . $purpose . '|' . mvm_mail_reply_address()), 0, 8));
+
+    return 'MEZO-UGYFEL-' . $requestId . '-' . $hash;
+}
+
+function customer_email_thread_subject(string $subject, string $token): string
+{
+    return str_contains($subject, '[' . $token . ']') ? $subject : $subject . ' [' . $token . ']';
+}
+
+function record_customer_email_thread(
+    int $requestId,
+    string $token,
+    string $recipientEmail,
+    string $subject,
+    string $label,
+    string $bodyText,
+    string $bodyHtml,
+    ?string $messageId = null
+): void {
+    if (!mvm_email_schema_is_ready()) {
+        return;
+    }
+
+    try {
+        $user = current_user();
+        db_query(
+            'INSERT INTO `mvm_email_threads`
+                (`connection_request_id`, `connection_request_document_id`, `token`, `mvm_recipient`, `subject`, `document_label`, `status`, `sent_message_id`, `last_message_at`, `created_by_user_id`)
+             VALUES (?, NULL, ?, ?, ?, ?, ?, ?, NOW(), ?)
+             ON DUPLICATE KEY UPDATE
+                `mvm_recipient` = VALUES(`mvm_recipient`),
+                `subject` = VALUES(`subject`),
+                `document_label` = VALUES(`document_label`),
+                `status` = IF(`status` = \'replied\', `status`, VALUES(`status`)),
+                `sent_message_id` = COALESCE(VALUES(`sent_message_id`), `sent_message_id`),
+                `last_message_at` = COALESCE(`last_message_at`, VALUES(`last_message_at`))',
+            [
+                $requestId,
+                $token,
+                $recipientEmail,
+                $subject,
+                $label,
+                'sent',
+                $messageId,
+                is_array($user) ? (int) $user['id'] : null,
+            ]
+        );
+
+        $thread = db_query('SELECT * FROM `mvm_email_threads` WHERE `token` = ? LIMIT 1', [$token])->fetch();
+
+        if (!is_array($thread)) {
+            return;
+        }
+
+        db_query(
+            'INSERT INTO `mvm_email_messages`
+                (`thread_id`, `connection_request_id`, `direction`, `message_id`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `body_html`, `received_at`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+            [
+                (int) $thread['id'],
+                $requestId,
+                'outbound',
+                $messageId !== '' ? $messageId : null,
+                mvm_mail_reply_address(),
+                MAIL_FROM_NAME,
+                $recipientEmail,
+                $subject,
+                $bodyText,
+                $bodyHtml,
+            ]
+        );
+    } catch (Throwable) {
+        // Az email kiküldés ne bukjon el attól, ha a naplózás átmenetileg nem írható.
+    }
+}
+
 function mvm_recipient_config_key_for_document_type(string $documentType): string
 {
     $normalized = strtoupper((string) preg_replace('/[^A-Za-z0-9]+/', '_', $documentType));
@@ -5385,7 +5484,7 @@ function mvm_email_thread_status_labels(): array
 {
     return [
         'sent' => 'Elküldve, válaszra vár',
-        'replied' => 'MVM válasz érkezett',
+        'replied' => 'Válasz érkezett',
         'failed' => 'Küldési hiba',
     ];
 }
@@ -5730,7 +5829,7 @@ function mvm_find_email_thread_for_message(string $subject, string $body, string
 
     $haystack = $subject . "\n" . $body . "\n" . $headers;
 
-    if (preg_match('/MEZO-IGENY-\d+-DOK-\d+-[A-F0-9]{6}/i', $haystack, $matches)) {
+    if (preg_match('/MEZO-(?:IGENY-\d+-DOK-\d+-[A-F0-9]{6}|UGYFEL-\d+-[A-Z0-9]{8})/i', $haystack, $matches)) {
         $statement = db_query('SELECT * FROM `mvm_email_threads` WHERE `token` = ? LIMIT 1', [strtoupper($matches[0])]);
         $thread = $statement->fetch();
 
@@ -10068,7 +10167,16 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
-    $subject = APP_NAME . ' komplett dokumentumcsomag - ' . $request['project_name'];
+    $recipientEmail = trim((string) ($request['email'] ?? ''));
+    $recipientName = email_recipient_name($request['requester_name'] ?? '');
+
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'A komplett dokumentum email nem küldhető, mert hiányzik az ügyfél email címe.'];
+    }
+
+    $token = customer_email_thread_token((int) $request['id'], 'complete-package');
+    $subject = customer_email_thread_subject(APP_NAME . ' komplett dokumentumcsomag - ' . $request['project_name'], $token);
+    $replyAddress = mvm_mail_reply_address();
     $sections = [
         [
             'title' => 'Dokumentum adatai',
@@ -10076,6 +10184,7 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
                 ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
                 ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
                 ['label' => 'Fájlméret', 'value' => format_bytes((int) $document['file_size'])],
+                ['label' => 'Válaszazonosító', 'value' => $token],
             ],
         ],
     ];
@@ -10087,26 +10196,40 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
         configure_mailer_transport($mail);
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
-        $mail->addAddress((string) $request['email'], (string) $request['requester_name']);
+        $mail->addAddress($recipientEmail, $recipientName);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
         $mail->Subject = $subject;
+        $emailTitle = 'Elkészült a komplett dokumentumcsomag';
+        $emailLead = 'A mérőhelyi ügyintézéshez összeállított komplett dokumentumcsomagot csatoltuk. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
         apply_branded_email(
             $mail,
-            'Elkészült a komplett dokumentumcsomag',
-            'A mérőhelyi ügyintézéshez összeállított komplett dokumentumcsomagot csatoltuk.',
+            $emailTitle,
+            $emailLead,
             $sections,
             $actions,
-            (string) ($request['requester_name'] ?? '')
+            $recipientName
         );
         $mail->addAttachment((string) $document['storage_path'], (string) $document['original_name']);
         $mail->send();
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+        record_customer_email_thread(
+            (int) $request['id'],
+            $token,
+            $recipientEmail,
+            $subject,
+            'Ügyfél dokumentumcsomag',
+            branded_email_text($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            branded_email_html($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            $messageId !== '' ? $messageId : null
+        );
 
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, (string) $request['email'], $subject, 'sent']);
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
 
         return ['ok' => true, 'message' => 'A komplett dokumentumot elküldtük az ügyfélnek.'];
     } catch (Throwable $exception) {
         db_query(
             'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [null, (string) $request['email'], $subject, 'failed', $exception->getMessage()]
+            [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
         );
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A komplett dokumentum email küldése sikertelen.'];

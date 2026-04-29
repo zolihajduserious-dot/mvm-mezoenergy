@@ -203,7 +203,7 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
 
                         <?php if ($mvmEmailThreads !== []): ?>
                             <div class="portal-card-files">
-                                <h3>MVM levelezés</h3>
+                                <h3>Üzenetek</h3>
                                 <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
                                     <?php foreach ($mvmEmailThreads as $thread): ?>
                                         <article class="mvm-mail-thread">

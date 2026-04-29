@@ -376,7 +376,7 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                     <?php if ($mvmEmailThreads !== []): ?>
                         <section class="admin-request-panel admin-request-documents">
                             <div class="admin-request-section-title">
-                                <h3>MVM levelezés</h3>
+                                <h3>Üzenetek</h3>
                                 <span><?= count($mvmEmailThreads); ?> db</span>
                             </div>
                             <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
