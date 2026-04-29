@@ -16,10 +16,35 @@ try {
 
     if (is_file($secretConfigPath)) {
         @rename($secretConfigPath, $secretConfigPath . '.broken-' . date('Ymd-His'));
-        require $configPath;
-    } else {
-        throw $exception;
+        try {
+            require $configPath;
+        } catch (Throwable $secondException) {
+            $exception = $secondException;
+        }
     }
+
+    if (!defined('APP_ROOT')) {
+        define('APP_ROOT', dirname(__DIR__));
+    }
+
+    $bootstrapLogDir = APP_ROOT . '/private_logs';
+
+    if (!is_dir($bootstrapLogDir)) {
+        @mkdir($bootstrapLogDir, 0775, true);
+    }
+
+    @file_put_contents(
+        $bootstrapLogDir . '/bootstrap-error.log',
+        '[' . date('Y-m-d H:i:s') . '] ' . get_class($exception) . ': ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine() . PHP_EOL,
+        FILE_APPEND | LOCK_EX
+    );
+
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "Bootstrap hiba.\n";
+    echo "A pontos hiba naplozva lett: private_logs/bootstrap-error.log\n";
+    echo "Hiba: " . $exception->getMessage() . "\n";
+    exit;
 }
 
 $vendorAutoload = APP_ROOT . '/vendor/autoload.php';
