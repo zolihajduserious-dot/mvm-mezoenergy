@@ -147,6 +147,54 @@ if (is_post() && ($_POST['action'] ?? '') === 'assign_minicrm_electricians') {
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'assign_minicrm_work_electrician') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $electricianUserIdRaw = trim((string) ($_POST['electrician_user_id'] ?? ''));
+    $electricianUserId = $electricianUserIdRaw !== '' ? (int) $electricianUserIdRaw : null;
+
+    if ($workItemId <= 0) {
+        set_flash('error', 'Hiányzó MiniCRM munka azonosító.');
+        redirect('/admin/minicrm-import');
+    }
+
+    if ($electricianSchemaErrors !== []) {
+        set_flash('error', 'A szerelői kiosztáshoz előbb futtasd le a database/electrician_workflow.sql fájlt.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    if ($electricianUserId !== null && find_electrician_by_user($electricianUserId) === null) {
+        set_flash('error', 'A kiválasztott szerelő nem található.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $linkResult = ensure_minicrm_work_item_connection_request($workItemId);
+
+    if (!($linkResult['ok'] ?? false)) {
+        set_flash('error', (string) ($linkResult['message'] ?? 'A MiniCRM munka normál munkához kapcsolása sikertelen.'));
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $requestId = (int) ($linkResult['request_id'] ?? 0);
+
+    if ($requestId <= 0) {
+        set_flash('error', 'A MiniCRM munka normál munka azonosítója hiányzik.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    if ($electricianUserId === null) {
+        assign_connection_request_to_electrician($requestId, null);
+        set_flash('success', 'A MiniCRM munka visszakerült kiosztatlan állapotba.');
+    } else {
+        minicrm_set_request_electrician_assignment($requestId, $electricianUserId);
+        $notification = send_electrician_assignment_email($requestId, $electricianUserId);
+        set_flash('success', 'A MiniCRM munka ki lett adva a szerelőnek. ' . $notification['message']);
+    }
+
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') {
     require_valid_csrf_token();
 
@@ -611,10 +659,12 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $summaryNote = $isSelectedItem ? minicrm_import_first_matching_field($rawFields, ['/megjegyzes/', '/uzenet/', '/munka rovid leirasa/', '/szoveg/']) : '';
                             $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
                             $linkedMvmRequestId = $isSelectedItem ? minicrm_work_item_connection_request_id($itemId) : null;
+                            $linkedMvmRequest = $linkedMvmRequestId !== null ? find_connection_request((int) $linkedMvmRequestId) : null;
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
                             $mvmGeneratorUrl = url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . $itemId;
                             $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
                             $assignedElectricianName = minicrm_work_item_electrician_assignment_name($item);
+                            $linkedAssignedElectricianUserId = is_array($linkedMvmRequest) ? (int) ($linkedMvmRequest['assigned_electrician_user_id'] ?? 0) : 0;
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
                             $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
                             if ($customerProfile === null && $isSelectedItem) {
@@ -707,6 +757,33 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             <a href="<?= h((string) $documentLink['value']); ?>" target="_blank" rel="noopener"><?= h(minicrm_import_short_text((string) $documentLink['label'], 64)); ?><span>MiniCRM</span></a>
                                                         <?php endforeach; ?>
                                                     </div>
+                                                <?php endif; ?>
+                                            </section>
+
+                                            <section class="minicrm-compact-docs portal-assignment-panel">
+                                                <h3>Szerelőhöz rendelés</h3>
+                                                <p class="muted-text">Itt lehet kézzel kiadni vagy visszavenni ezt a MiniCRM munkát a szerelői felületről. Mentéskor a rendszer normál munkához kapcsolja a MiniCRM tételt.</p>
+                                                <?php if ($electricianSchemaErrors !== []): ?>
+                                                    <p class="request-admin-empty">A szerelői kiosztáshoz futtasd le a database/electrician_workflow.sql fájlt.</p>
+                                                <?php elseif ($electricians === []): ?>
+                                                    <p class="request-admin-empty">Nincs aktív szerelői fiók. Előbb hozz létre szerelőt a Szerelők menüben.</p>
+                                                <?php else: ?>
+                                                    <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="assign_minicrm_work_electrician">
+                                                        <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                        <label for="minicrm_electrician_<?= $itemId; ?>">Szerelő</label>
+                                                        <select id="minicrm_electrician_<?= $itemId; ?>" name="electrician_user_id">
+                                                            <option value="">Nincs szerelőnek kiadva</option>
+                                                            <?php foreach ($electricians as $electrician): ?>
+                                                                <?php $electricianUserId = (int) ($electrician['user_id'] ?? 0); ?>
+                                                                <option value="<?= $electricianUserId; ?>" <?= $linkedAssignedElectricianUserId === $electricianUserId ? 'selected' : ''; ?>>
+                                                                    <?= h((string) ($electrician['name'] ?? $electrician['user_name'] ?? $electrician['user_email'] ?? ('#' . $electricianUserId))); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                        <button class="button" type="submit">Szerelő mentése</button>
+                                                    </form>
                                                 <?php endif; ?>
                                             </section>
                                         </aside>
