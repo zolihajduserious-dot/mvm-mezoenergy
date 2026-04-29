@@ -11391,6 +11391,11 @@ function import_minicrm_customer_profile_workbook(string $path, string $original
     }
 
     $headers = $sheet->rangeToArray('A1:' . $highestColumn . '1', null, true, true, false)[0];
+    $headerMap = minicrm_import_header_map($headers);
+    $hasContactColumns = isset($headerMap[minicrm_import_key('Szemely1 Email')])
+        || isset($headerMap[minicrm_import_key('Személy1: Email')])
+        || isset($headerMap[minicrm_import_key('Szemely1 Telefon')])
+        || isset($headerMap[minicrm_import_key('Személy1: Telefon')]);
     $columns = [
         'source_id',
         'customer_id',
@@ -11457,11 +11462,45 @@ function import_minicrm_customer_profile_workbook(string $path, string $original
                     continue;
                 }
 
-                $existingId = db_query(
-                    'SELECT `id` FROM `minicrm_customer_profiles` WHERE `source_id` = ? LIMIT 1',
+                $existingProfile = db_query(
+                    'SELECT * FROM `minicrm_customer_profiles` WHERE LOWER(`source_id`) = LOWER(?) LIMIT 1',
                     [$data['source_id']]
-                )->fetchColumn();
+                )->fetch();
+                $existingId = is_array($existingProfile) ? (int) $existingProfile['id'] : false;
                 $customerId = minicrm_customer_profile_customer_id($data);
+                $preserveColumns = [
+                    'person_type',
+                    'person_name',
+                    'person_first_name',
+                    'person_last_name',
+                    'person_email',
+                    'person_phone',
+                    'person_summary',
+                    'person_created_by_name',
+                    'person_created_date',
+                    'person_modified_by_name',
+                    'person_modified_date',
+                    'person_position',
+                    'person_website',
+                    'person_consent',
+                ];
+
+                if (is_array($existingProfile)) {
+                    if ($customerId === null && !empty($existingProfile['customer_id'])) {
+                        $customerId = (int) $existingProfile['customer_id'];
+                    }
+
+                    foreach ($preserveColumns as $preserveColumn) {
+                        if (trim((string) ($data[$preserveColumn] ?? '')) === '' && trim((string) ($existingProfile[$preserveColumn] ?? '')) !== '') {
+                            $data[$preserveColumn] = (string) $existingProfile[$preserveColumn];
+                        }
+                    }
+
+                    if (!$hasContactColumns && trim((string) ($existingProfile['raw_payload'] ?? '')) !== '') {
+                        $data['raw_payload'] = (string) $existingProfile['raw_payload'];
+                    }
+                }
+
                 $data['customer_id'] = $customerId;
 
                 if ($customerId !== null) {
@@ -11498,10 +11537,16 @@ function import_minicrm_customer_profile_workbook(string $path, string $original
         $pdo->commit();
         $spreadsheet->disconnectWorksheets();
 
+        $message = 'MiniCRM ugyfeladat import kesz: ' . $importedCount . ' uj, ' . $updatedCount . ' frissitett, '
+            . $matchedCount . ' ugyfelhez rendelve, ' . $unmatchedCount . ' parositatlan.';
+
+        if (!$hasContactColumns) {
+            $message .= ' Figyelem: ez az Excel nem tartalmaz Szemely1 Email/Telefon oszlopot, ezert csak a korabban mar importalt kontaktadatokat oriztuk meg.';
+        }
+
         return [
             'ok' => true,
-            'message' => 'MiniCRM ugyfeladat import kesz: ' . $importedCount . ' uj, ' . $updatedCount . ' frissitett, '
-                . $matchedCount . ' ugyfelhez rendelve, ' . $unmatchedCount . ' parositatlan.',
+            'message' => $message,
             'rows' => $rowCount,
             'imported' => $importedCount,
             'updated' => $updatedCount,
