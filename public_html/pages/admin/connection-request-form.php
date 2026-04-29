@@ -71,7 +71,7 @@ if (is_post()) {
             </div>
             <div class="form-actions">
                 <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Ügyfelek</a>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests')); ?>">Igénylista</a>
+                <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/minicrm-import') . '#portal-works'); ?>">Munkalista</a>
                 <a class="button button-secondary" href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Ügyfél szerkesztése</a>
             </div>
         </div>

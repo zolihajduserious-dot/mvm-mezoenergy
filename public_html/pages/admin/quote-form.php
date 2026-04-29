@@ -44,10 +44,10 @@ if ($customer === null) {
 
 $backUrl = $minicrmItemId
     ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
-    : ($request !== null ? url_path('/admin/connection-requests') : url_path('/admin/quotes'));
+    : ($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/quotes'));
 $backLabel = $minicrmItemId
     ? 'Vissza a MiniCRM munkához'
-    : ($request !== null ? 'Vissza az igényekhez' : 'Ajánlatlista');
+    : ($request !== null ? 'Vissza a munkához' : 'Ajánlatlista');
 
 $customerRequests = connection_requests_for_customer((int) $customer['id']);
 

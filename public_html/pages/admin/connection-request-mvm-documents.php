@@ -38,8 +38,8 @@ $mvmRedirectPath = $isMiniCrmContext
     : '/admin/connection-requests/mvm-documents?id=' . (int) $request['id'];
 $mvmBackUrl = $isMiniCrmContext
     ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
-    : url_path('/admin/connection-requests');
-$mvmBackLabel = $isMiniCrmContext ? 'Vissza a MiniCRM munkahoz' : 'Vissza az igenyekhez';
+    : url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'];
+$mvmBackLabel = $isMiniCrmContext ? 'Vissza a MiniCRM munkahoz' : 'Vissza a munkahoz';
 
 $schemaErrors = mvm_document_schema_errors();
 $mvmFormSchemaErrors = mvm_form_schema_errors();

@@ -72,7 +72,7 @@ $dashboardCards = [
         'variant' => 'primary',
     ],
     [
-        'label' => 'Mérőhelyi igények',
+        'label' => 'Munkák',
         'value' => $connectionRequestCount ?? '-',
         'description' => $canManageMvmDocuments
             ? 'Beküldött munkaigények, fájlok, ajánlatfeltöltés és MVM dokumentumok.'

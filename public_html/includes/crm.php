@@ -4655,7 +4655,7 @@ function send_connection_request_file_upload_notification(int $requestId, array 
         ],
     ];
     $emailActions = [
-        ['label' => 'Igények megnyitása', 'url' => absolute_url('/admin/connection-requests')],
+        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
     $replyToEmail = !empty($request['contractor_email']) ? (string) $request['contractor_email'] : (string) $request['email'];
@@ -4714,7 +4714,7 @@ function send_electrician_work_stage_notification(int $requestId, string $stage)
         ],
     ];
     $actions = [
-        ['label' => 'Igények megnyitása', 'url' => absolute_url('/admin/connection-requests')],
+        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
@@ -9937,7 +9937,7 @@ function connection_request_email_body(array $request, array $files): string
         'Új mérőhelyi munkaigény érkezett',
         'Új igénybejelentést rögzítettek a weboldalon. Az adatok és a csatolt fájlok az alábbi összefoglalóban találhatók.',
         connection_request_email_sections($request, $files),
-        [['label' => 'Igények megnyitása', 'url' => absolute_url('/index.php?route=admin/connection-requests')]]
+        [['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])]]
     );
 }
 
@@ -9964,7 +9964,7 @@ function send_connection_request_email(int $requestId, bool $finalized = false):
         : 'Új igénybejelentést rögzítettek a weboldalon. Az adatok és a csatolt fájlok az alábbi összefoglalóban találhatók.';
     $emailSections = connection_request_email_sections($request, $files);
     $emailActions = [
-        ['label' => 'Igények megnyitása', 'url' => absolute_url('/index.php?route=admin/connection-requests')],
+        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
     ];
 
     if (!empty($request['contractor_name'])) {

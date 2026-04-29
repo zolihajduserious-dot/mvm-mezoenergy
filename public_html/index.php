@@ -178,7 +178,7 @@ $routes = [
         'file' => PAGE_PATH . '/admin/quotes.php',
     ],
     'admin/connection-requests' => [
-        'title' => 'Mérőhelyi igények',
+        'title' => 'Munkák',
         'file' => PAGE_PATH . '/admin/connection-requests.php',
     ],
     'admin/connection-requests/edit' => [

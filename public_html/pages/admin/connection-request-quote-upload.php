@@ -39,7 +39,7 @@ if (is_post()) {
                 set_flash('error', 'Az árajánlat feltöltve, de az értesítő e-mail nem ment ki: ' . $mailResult['message']);
             }
 
-            redirect('/admin/connection-requests');
+            redirect('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id']);
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az árajánlat feltöltése sikertelen.';
         }
@@ -54,7 +54,7 @@ if (is_post()) {
                 <h1>Árajánlat feltöltése</h1>
                 <p><?= h($request['requester_name']); ?> - <?= h($request['project_name']); ?></p>
             </div>
-            <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests')); ?>">Vissza az igényekhez</a>
+            <a class="button button-secondary" href="<?= h(url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id']); ?>">Vissza a munkához</a>
         </div>
 
         <?php if ($schemaErrors !== []): ?>
