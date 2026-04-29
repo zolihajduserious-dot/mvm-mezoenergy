@@ -10037,6 +10037,28 @@ function minicrm_import_value(array $values, int $column): string
 function minicrm_import_key(string $value): string
 {
     $value = minicrm_import_lower(trim($value));
+    $value = strtr((string) $value, [
+        "\u{00E1}" => 'a',
+        "\u{00E9}" => 'e',
+        "\u{00ED}" => 'i',
+        "\u{00F3}" => 'o',
+        "\u{00F6}" => 'o',
+        "\u{0151}" => 'o',
+        "\u{00FA}" => 'u',
+        "\u{00FC}" => 'u',
+        "\u{0171}" => 'u',
+    ]);
+    $value = strtr((string) $value, [
+        'á' => 'a',
+        'é' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ö' => 'o',
+        'ő' => 'o',
+        'ú' => 'u',
+        'ü' => 'u',
+        'ű' => 'u',
+    ]);
     $value = preg_replace('/^adatlap:\s*/u', '', $value);
     $value = strtr((string) $value, [
         'á' => 'a',
@@ -11612,6 +11634,227 @@ function minicrm_work_item_raw_value_by_patterns(array $item, array $patterns): 
     return '';
 }
 
+function minicrm_work_item_electrician_assignment_name(array $item): string
+{
+    return minicrm_work_item_raw_value_by_patterns($item, [
+        '/^a kivitelezest elvegezte$/',
+        '/kivitelezest elvegezte/',
+        '/kivitelezest vegzo/',
+        '/kivitelezo szerelo/',
+        '/villanyszerelo/',
+        '/szerelo/',
+    ]);
+}
+
+function minicrm_electrician_assignment_key(string $name): string
+{
+    return minicrm_import_key($name);
+}
+
+function minicrm_electrician_assignment_map(): array
+{
+    $map = [];
+
+    foreach (electrician_users(true) as $electrician) {
+        $userId = (int) ($electrician['user_id'] ?? 0);
+
+        if ($userId <= 0) {
+            continue;
+        }
+
+        foreach ([
+            (string) ($electrician['name'] ?? ''),
+            (string) ($electrician['user_name'] ?? ''),
+        ] as $name) {
+            $key = minicrm_electrician_assignment_key($name);
+
+            if ($key === '') {
+                continue;
+            }
+
+            $map[$key][] = [
+                'user_id' => $userId,
+                'name' => (string) ($electrician['name'] ?? $name),
+            ];
+        }
+    }
+
+    return $map;
+}
+
+function minicrm_find_electrician_assignment(string $name, ?array $electricianMap = null): ?array
+{
+    $key = minicrm_electrician_assignment_key($name);
+
+    if ($key === '') {
+        return null;
+    }
+
+    $electricianMap ??= minicrm_electrician_assignment_map();
+    $matches = $electricianMap[$key] ?? [];
+    $unique = [];
+
+    foreach ($matches as $match) {
+        $unique[(int) $match['user_id']] = $match;
+    }
+
+    return count($unique) === 1 ? reset($unique) : null;
+}
+
+function minicrm_set_request_electrician_assignment(int $requestId, int $electricianUserId): void
+{
+    $request = find_connection_request($requestId);
+    $currentStatus = is_array($request) ? (string) ($request['electrician_status'] ?? 'unassigned') : 'unassigned';
+    $status = in_array($currentStatus, ['in_progress', 'completed'], true) ? $currentStatus : 'assigned';
+
+    db_query(
+        'UPDATE `connection_requests`
+         SET `assigned_electrician_user_id` = ?, `electrician_status` = ?
+         WHERE `id` = ?',
+        [$electricianUserId, $status, $requestId]
+    );
+}
+
+function minicrm_assign_request_to_imported_electrician(array $item, int $requestId, ?array $electricianMap = null): array
+{
+    if ($requestId <= 0 || !db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
+        return ['assigned' => false, 'reason' => 'missing_schema'];
+    }
+
+    $assignmentName = minicrm_work_item_electrician_assignment_name($item);
+
+    if ($assignmentName === '') {
+        return ['assigned' => false, 'reason' => 'missing_name'];
+    }
+
+    $electrician = minicrm_find_electrician_assignment($assignmentName, $electricianMap);
+
+    if ($electrician === null) {
+        return ['assigned' => false, 'reason' => 'unmatched', 'name' => $assignmentName];
+    }
+
+    minicrm_set_request_electrician_assignment($requestId, (int) $electrician['user_id']);
+
+    return [
+        'assigned' => true,
+        'name' => $assignmentName,
+        'electrician_user_id' => (int) $electrician['user_id'],
+    ];
+}
+
+function minicrm_assign_work_item_to_electrician(int $workItemId, ?array $electricianMap = null): array
+{
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['assigned' => false, 'reason' => 'missing_item'];
+    }
+
+    $assignmentName = minicrm_work_item_electrician_assignment_name($item);
+
+    if ($assignmentName === '') {
+        return ['assigned' => false, 'reason' => 'missing_name'];
+    }
+
+    $electrician = minicrm_find_electrician_assignment($assignmentName, $electricianMap);
+
+    if ($electrician === null) {
+        return ['assigned' => false, 'reason' => 'unmatched', 'name' => $assignmentName];
+    }
+
+    $linkResult = ensure_minicrm_work_item_connection_request($workItemId);
+
+    if (!($linkResult['ok'] ?? false)) {
+        return ['assigned' => false, 'reason' => 'link_failed', 'message' => (string) ($linkResult['message'] ?? '')];
+    }
+
+    $requestId = (int) ($linkResult['request_id'] ?? 0);
+
+    if ($requestId <= 0) {
+        return ['assigned' => false, 'reason' => 'link_failed'];
+    }
+
+    minicrm_set_request_electrician_assignment($requestId, (int) $electrician['user_id']);
+
+    return [
+        'assigned' => true,
+        'name' => $assignmentName,
+        'electrician_user_id' => (int) $electrician['user_id'],
+    ];
+}
+
+function minicrm_assign_imported_work_items_to_electricians(): array
+{
+    if (minicrm_import_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Elobb hozd letre/frissitsd a MiniCRM import tablakat.'];
+    }
+
+    if (electrician_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Elobb futtasd le a database/electrician_workflow.sql fajlt, es hozz letre szereloi fiokokat.'];
+    }
+
+    $items = db_query(
+        'SELECT *
+         FROM `minicrm_work_items`
+         ORDER BY `id` ASC'
+    )->fetchAll();
+
+    if ($items === []) {
+        return ['ok' => false, 'message' => 'Nincs szetoszthato MiniCRM munka.'];
+    }
+
+    $electricianMap = minicrm_electrician_assignment_map();
+    $assigned = 0;
+    $missingName = 0;
+    $unmatched = [];
+    $failed = 0;
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $result = minicrm_assign_work_item_to_electrician((int) $item['id'], $electricianMap);
+
+        if ($result['assigned'] ?? false) {
+            $assigned++;
+            continue;
+        }
+
+        $reason = (string) ($result['reason'] ?? '');
+
+        if ($reason === 'missing_name') {
+            $missingName++;
+        } elseif ($reason === 'unmatched') {
+            $name = trim((string) ($result['name'] ?? ''));
+
+            if ($name !== '') {
+                $unmatched[$name] = ($unmatched[$name] ?? 0) + 1;
+            }
+        } else {
+            $failed++;
+        }
+    }
+
+    $message = 'MiniCRM munkak szetosztasa kesz: ' . $assigned . ' munka szerelore kiadva, '
+        . $missingName . ' szerelo nev nelkuli, ' . array_sum($unmatched) . ' nem parosithato nev, '
+        . $failed . ' hiba.';
+
+    if ($unmatched !== []) {
+        arsort($unmatched);
+        $message .= ' Nem talalt szerelok: ' . implode(', ', array_slice(array_keys($unmatched), 0, 12)) . '.';
+    }
+
+    return [
+        'ok' => true,
+        'message' => $message,
+        'assigned' => $assigned,
+        'missing_name' => $missingName,
+        'unmatched' => $unmatched,
+        'failed' => $failed,
+    ];
+}
+
 function minicrm_work_item_raw_email(array $item): string
 {
     $email = minicrm_work_item_raw_value_by_patterns($item, ['/e-?mail/', '/email/', '/levelcim/']);
@@ -12037,7 +12280,19 @@ function ensure_minicrm_work_item_connection_request(int $workItemId): array
     $warnings = [];
 
     try {
-        $warnings = sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId);
+        $assignment = minicrm_assign_request_to_imported_electrician($item, $requestId);
+
+        if (($assignment['reason'] ?? '') === 'unmatched' && !empty($assignment['name'])) {
+            $warnings[] = 'Nem talalhato aktiv szerelo ezzel a MiniCRM nevvel: ' . (string) $assignment['name'];
+        }
+    } catch (Throwable $exception) {
+        $warnings[] = APP_DEBUG
+            ? 'MiniCRM szereloi kiosztas sikertelen: ' . $exception->getMessage()
+            : 'A MiniCRM szereloi kiosztas automatikus beallitasa nem sikerult.';
+    }
+
+    try {
+        $warnings = array_merge($warnings, sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId));
     } catch (Throwable $exception) {
         $warnings[] = APP_DEBUG
             ? 'MiniCRM fajlok szinkronizalasa sikertelen: ' . $exception->getMessage()

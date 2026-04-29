@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_role(['admin', 'specialist']);
 
 $schemaErrors = minicrm_import_schema_errors();
+$electricianSchemaErrors = electrician_schema_errors();
 $deps = dependency_status();
 $flash = get_flash();
 $importErrors = [];
@@ -61,6 +62,14 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
 
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A MiniCRM mezők mentése sikertelen.'));
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'assign_minicrm_electricians') {
+    require_valid_csrf_token();
+
+    $result = minicrm_assign_imported_work_items_to_electricians();
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A MiniCRM munkak szereloi kiosztasa sikertelen.'));
+    redirect('/admin/minicrm-import');
 }
 
 if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') {
@@ -322,6 +331,15 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                 </form>
             </section>
 
+            <section class="auth-panel" data-minicrm-panel="import">
+                <h2>Szerel&#337;i kioszt&#225;s</h2>
+                <form class="form" method="post" action="<?= h(url_path('/admin/minicrm-import')); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="assign_minicrm_electricians">
+                    <button class="button button-secondary" type="submit" <?= ($schemaErrors !== [] || $electricianSchemaErrors !== [] || $totalItems === 0) ? 'disabled' : ''; ?>>Munk&#225;k sz&#233;toszt&#225;sa szerel&#337;knek</button>
+                    <p class="muted-text">A MiniCRM szerel&#337;i mez&#337;j&#233;ben szerepl&#337; n&#233;v alapj&#225;n a rendszer megkeresi az akt&#237;v szerel&#337;i fi&#243;kot, &#233;s a munk&#225;t kiadja neki.</p>
+                </form>
+            </section>
             <section class="auth-panel" id="minicrm-documents" data-minicrm-panel="documents">
                 <h2>Dokumentum ZIP összefűzés</h2>
                 <p class="muted-text">A MiniCRM dokumentum ZIP fájljai a fájlnév elején lévő projektazonosító alapján kapcsolódnak a munkákhoz. Nagy ZIP esetén FTP-vel töltsd fel ide: <strong>storage/imports/minicrm-documents.zip</strong>, majd indítsd el a feldolgozást.</p>
@@ -468,12 +486,14 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
                             $mvmGeneratorUrl = url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . $itemId;
                             $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
+                            $assignedElectricianName = minicrm_work_item_electrician_assignment_name($item);
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
                                 (string) ($item['responsible'] ?? ''),
                                 (string) ($item['minicrm_status'] ?? ''),
+                                $assignedElectricianName,
                                 $siteAddress,
                             ]);
                             ?>
