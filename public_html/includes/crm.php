@@ -12908,6 +12908,46 @@ function minicrm_customer_profiles_for_customer(int $customerId): array
     )->fetchAll();
 }
 
+function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
+{
+    if (!db_table_exists('minicrm_customer_profiles')) {
+        return [];
+    }
+
+    $sourceIds = array_values(array_unique(array_filter(
+        array_map(static fn (mixed $sourceId): string => trim((string) $sourceId), $sourceIds),
+        static fn (string $sourceId): bool => $sourceId !== ''
+    )));
+
+    if ($sourceIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($sourceIds), '?'));
+    $rows = db_query(
+        'SELECT *
+         FROM `minicrm_customer_profiles`
+         WHERE `source_id` IN (' . $placeholders . ')
+         ORDER BY COALESCE(`modified_date`, `person_modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC',
+        $sourceIds
+    )->fetchAll();
+    $profiles = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $sourceId = (string) ($row['source_id'] ?? '');
+
+        if ($sourceId !== '' && !isset($profiles[$sourceId])) {
+            $profiles[$sourceId] = $row;
+        }
+    }
+
+    return $profiles;
+}
+
 function minicrm_customer_profile_raw_fields(array $profile): array
 {
     $decoded = json_decode((string) ($profile['raw_payload'] ?? '{}'), true);

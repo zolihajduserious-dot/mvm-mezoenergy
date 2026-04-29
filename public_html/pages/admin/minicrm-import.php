@@ -135,6 +135,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
 $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
+$customerProfilesBySource = $schemaErrors === [] ? minicrm_customer_profiles_by_source_ids(array_column($items, 'source_id')) : [];
 $quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
 $totalItems = count($items);
 $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
@@ -513,12 +514,20 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
                             $assignedElectricianName = minicrm_work_item_electrician_assignment_name($item);
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
+                            $customerProfile = $customerProfilesBySource[(string) ($item['source_id'] ?? '')] ?? null;
+                            $profileName = is_array($customerProfile) ? trim((string) ($customerProfile['person_name'] ?? '')) : '';
+                            $profileEmail = is_array($customerProfile) ? trim((string) ($customerProfile['person_email'] ?? '')) : '';
+                            $profilePhone = is_array($customerProfile) ? trim((string) ($customerProfile['person_phone'] ?? '')) : '';
+                            $profileContactLine = trim(implode(' · ', array_filter([$profileEmail, $profilePhone], static fn (string $value): bool => $value !== '')));
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
                                 (string) ($item['responsible'] ?? ''),
                                 (string) ($item['minicrm_status'] ?? ''),
                                 $assignedElectricianName,
+                                $profileName,
+                                $profileEmail,
+                                $profilePhone,
                                 $siteAddress,
                             ]);
                             ?>
@@ -530,7 +539,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                     </span>
                                     <span class="admin-workflow-request-meta">
                                         <span><?= h((string) ($item['responsible'] ?: 'Nincs felelős')); ?></span>
-                                        <strong><?= h((string) ($item['card_name'] ?? '')); ?></strong>
+                                        <strong><?= h($profileContactLine !== '' ? $profileContactLine : (string) ($item['card_name'] ?? '')); ?></strong>
                                     </span>
                                     <span class="minicrm-work-date">
                                         <?= h($displayDate !== '' ? $displayDate : '-'); ?>
@@ -566,6 +575,8 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         <aside class="minicrm-work-facts">
                                             <dl>
                                                 <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
+                                                <div><dt>Email</dt><dd><?= h($profileEmail !== '' ? $profileEmail : '-'); ?></dd></div>
+                                                <div><dt>Telefon</dt><dd><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></dd></div>
                                                 <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
                                                 <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                 <div><dt>HRSZ</dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
@@ -608,6 +619,28 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                         </li>
                                                     <?php endforeach; ?>
                                                 </ol>
+                                            </section>
+
+                                            <section class="minicrm-document-preview-panel">
+                                                <div class="admin-request-section-title">
+                                                    <h3>&#220;gyf&#233;l el&#233;rhet&#337;s&#233;ge</h3>
+                                                    <span><?= $customerProfile !== null ? 'MiniCRM adatlap' : 'Nincs adat'; ?></span>
+                                                </div>
+                                                <?php if ($customerProfile === null): ?>
+                                                    <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs import&#225;lt MiniCRM &#252;gyf&#233;l adatlap. T&#246;ltsd fel a b&#337;v&#237;tett &#252;gyf&#233;l adatlap exportot az Import&#225;l&#225;s f&#252;l&#246;n.</p>
+                                                <?php else: ?>
+                                                    <div class="minicrm-readable-grid">
+                                                        <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Email</span><strong><?= h($profileEmail !== '' ? $profileEmail : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h((string) (($customerProfile['person_consent'] ?? '') ?: '-')); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h((string) (($customerProfile['person_position'] ?? '') ?: '-')); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h((string) (($customerProfile['person_website'] ?? '') ?: '-')); ?></strong></div>
+                                                        <?php if (trim((string) ($customerProfile['person_summary'] ?? '')) !== ''): ?>
+                                                            <div class="minicrm-readable-row customer-crm-wide"><span>&#214;sszefoglal&#243;</span><strong><?= h((string) ($customerProfile['person_summary'] ?? '')); ?></strong></div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php endif; ?>
                                             </section>
 
                                             <section class="minicrm-document-preview-panel minicrm-quote-panel">
