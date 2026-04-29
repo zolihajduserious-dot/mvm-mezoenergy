@@ -736,7 +736,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
 
             <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
                 <div class="alert alert-info">
-                    <p>A válaszok automatikus beolvasásához állítsd be a <strong>MVM_IMAP_HOST</strong>, <strong>MVM_IMAP_USER</strong> és <strong>MVM_IMAP_PASS</strong> értékeket a <strong>storage/config/local.php</strong> fájlban. A jelszót ne írd be a chatbe.</p>
+                    <p>A válaszok automatikus beolvasásához az <strong>MVM_IMAP_HOST</strong> és <strong>MVM_IMAP_USER</strong> már be van állítva. Az <strong>MVM_IMAP_PASS</strong> jelszót a <strong>storage/config/local.secret.php</strong> fájlban add meg, ne chatben.</p>
                 </div>
             <?php endif; ?>
 

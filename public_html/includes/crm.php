@@ -5126,13 +5126,22 @@ function mvm_config_value(string $key, string $default = ''): string
 
     if ($localConfig === null) {
         $localConfig = [];
-        $localConfigPath = defined('STORAGE_PATH') ? STORAGE_PATH . '/config/local.php' : '';
+        $localConfigPaths = defined('STORAGE_PATH')
+            ? [
+                STORAGE_PATH . '/config/local.php',
+                STORAGE_PATH . '/config/local.secret.php',
+            ]
+            : [];
 
-        if ($localConfigPath !== '' && is_file($localConfigPath)) {
+        foreach ($localConfigPaths as $localConfigPath) {
+            if ($localConfigPath === '' || !is_file($localConfigPath)) {
+                continue;
+            }
+
             $loadedLocalConfig = require $localConfigPath;
 
             if (is_array($loadedLocalConfig)) {
-                $localConfig = $loadedLocalConfig;
+                $localConfig = array_replace($localConfig, $loadedLocalConfig);
             }
         }
     }
@@ -5651,7 +5660,7 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
     $password = (string) mvm_config_value('MVM_IMAP_PASS', '');
 
     if ($user === '' || $password === '') {
-        return ['ok' => false, 'message' => 'Nincs beállítva az MVM_IMAP_USER és MVM_IMAP_PASS a storage/config/local.php fájlban.', 'matched' => 0, 'ignored' => 0];
+        return ['ok' => false, 'message' => 'Nincs beállítva az MVM_IMAP_USER és MVM_IMAP_PASS a storage/config/local.php vagy storage/config/local.secret.php fájlban.', 'matched' => 0, 'ignored' => 0];
     }
 
     $imap = @imap_open(mvm_imap_mailbox_string(), $user, $password);
