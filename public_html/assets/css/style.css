@@ -5072,6 +5072,95 @@ a.metric-card {
     padding-right: 100px;
 }
 
+.minicrm-work-row > .minicrm-work-row-summary {
+    grid-template-columns: minmax(420px, 1.55fr) minmax(220px, 0.72fr) minmax(150px, 0.42fr) minmax(190px, 0.48fr);
+    gap: 18px;
+    align-items: center;
+    padding: 14px 22px;
+}
+
+.minicrm-work-table-head {
+    grid-template-columns: minmax(420px, 1.55fr) minmax(220px, 0.72fr) minmax(150px, 0.42fr) minmax(190px, 0.48fr);
+    padding-right: 22px;
+    padding-left: 22px;
+}
+
+.minicrm-work-row > .minicrm-work-row-summary::after {
+    display: none;
+}
+
+.minicrm-work-row > .minicrm-work-row-summary .admin-workflow-request-badges {
+    align-items: start;
+    justify-content: start;
+    padding-right: 0;
+}
+
+.portal-work-row .admin-workflow-request-main,
+.portal-work-row .admin-workflow-request-meta,
+.portal-work-row .admin-workflow-request-badges {
+    min-width: 0;
+}
+
+.portal-work-row .admin-workflow-request-main {
+    gap: 4px;
+}
+
+.portal-work-row .admin-workflow-request-main strong {
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.25;
+}
+
+.portal-work-row .admin-workflow-request-main small {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.28;
+}
+
+.portal-work-row .admin-workflow-request-main .portal-work-type {
+    margin-top: 2px;
+    color: var(--color-primary-dark);
+    font-weight: 900;
+}
+
+.portal-work-row .admin-workflow-request-main strong,
+.portal-work-row .admin-workflow-request-main small,
+.portal-work-row .admin-workflow-request-meta span,
+.portal-work-row .admin-workflow-request-meta strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.portal-work-row .admin-workflow-request-meta {
+    gap: 4px;
+}
+
+.portal-work-row .admin-workflow-request-meta strong {
+    color: var(--color-text);
+    font-size: 0.9rem;
+    line-height: 1.25;
+}
+
+.portal-work-row .admin-workflow-request-meta span {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+
+.portal-work-row .admin-workflow-request-badges strong {
+    color: var(--color-primary-dark);
+    font-size: 0.9rem;
+    line-height: 1.25;
+}
+
+.portal-work-row .admin-workflow-request-badges small,
+.portal-work-row .minicrm-work-date {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.3;
+}
+
 .admin-workflow-request > .request-admin-card {
     margin: 0;
     border: 0;
@@ -5536,6 +5625,13 @@ a.metric-card {
     .minicrm-work-row-summary {
         gap: 7px;
         padding: 12px;
+    }
+
+    .portal-work-row .admin-workflow-request-main strong,
+    .portal-work-row .admin-workflow-request-main small,
+    .portal-work-row .admin-workflow-request-meta span,
+    .portal-work-row .admin-workflow-request-meta strong {
+        white-space: normal;
     }
 
     .minicrm-work-detail-layout {

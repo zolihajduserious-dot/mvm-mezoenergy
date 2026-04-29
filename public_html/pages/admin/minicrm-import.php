@@ -934,7 +934,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         <span>Ügyfél / cím / munka</span>
                                         <span>Szerel&#337;</span>
                                         <span>D&#225;tum</span>
-                                        <span>Anyag</span>
+                                        <span>Állapot</span>
                                     </div>
                                     <?php foreach ($requestItems as $request): ?>
                                         <?php
