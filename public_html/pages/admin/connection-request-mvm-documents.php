@@ -186,19 +186,6 @@ if (is_post()) {
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
             redirect($mvmRedirectPath . '#mvm-mailbox');
         }
-    } elseif ($action === 'save_mvm_imap_secret') {
-        $imapPassword = (string) ($_POST['mvm_imap_pass'] ?? '');
-
-        if (!is_admin_user()) {
-            set_flash('error', 'Az IMAP jelszót csak admin módosíthatja.');
-        } elseif ($imapPassword === '') {
-            set_flash('error', 'Add meg az MVM IMAP jelszót.');
-        } else {
-            $result = mvm_save_secret_config_value('MVM_IMAP_PASS', $imapPassword);
-            set_flash($result['ok'] ? 'success' : 'error', $result['message']);
-        }
-
-        redirect($mvmRedirectPath . '#mvm-mailbox');
     } elseif ($action === 'sync_mvm_mailbox') {
         if ($mvmMailSchemaErrors !== []) {
             $errors = array_merge($errors, $mvmMailSchemaErrors);
@@ -749,19 +736,8 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
 
             <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
                 <div class="alert alert-info">
-                    <p>A válaszok automatikus beolvasásához az <strong>MVM_IMAP_HOST</strong> és <strong>MVM_IMAP_USER</strong> már be van állítva. Az <strong>MVM_IMAP_PASS</strong> jelszót itt add meg, ne chatben.</p>
+                    <p>A válaszok automatikus beolvasásához az <strong>MVM_IMAP_HOST</strong> és <strong>MVM_IMAP_USER</strong> már be van állítva. Az <strong>MVM_IMAP_PASS</strong> jelszót a <strong>storage/config/local.secret.php</strong> fájlban add meg, ne chatben.</p>
                 </div>
-            <?php endif; ?>
-
-            <?php if (is_admin_user()): ?>
-                <form class="mvm-imap-secret-form" method="post" action="<?= h($mvmPageUrl . '#mvm-mailbox'); ?>">
-                    <?= csrf_field(); ?>
-                    <label for="mvm-imap-pass">
-                        MVM IMAP jelszó
-                        <input id="mvm-imap-pass" type="password" name="mvm_imap_pass" autocomplete="new-password" placeholder="<?= trim(mvm_config_value('MVM_IMAP_PASS', '')) === '' ? 'Postafiók jelszó' : 'Új jelszó megadása'; ?>">
-                    </label>
-                    <button class="button button-secondary" name="action" value="save_mvm_imap_secret" type="submit">IMAP jelszó mentése</button>
-                </form>
             <?php endif; ?>
 
             <?php if ($mvmEmailThreads === []): ?>

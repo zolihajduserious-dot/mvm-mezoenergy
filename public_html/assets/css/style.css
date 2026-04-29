@@ -5499,35 +5499,6 @@ a.metric-card {
     scroll-margin-top: 96px;
 }
 
-.mvm-imap-secret-form {
-    display: grid;
-    grid-template-columns: minmax(220px, 1fr) auto;
-    gap: 10px;
-    align-items: end;
-    margin: 14px 0 18px;
-    padding: 14px;
-    border: 1px solid rgba(0, 140, 115, 0.16);
-    border-radius: 8px;
-    background: #f8fffd;
-}
-
-.mvm-imap-secret-form label {
-    display: grid;
-    gap: 6px;
-    margin: 0;
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.mvm-imap-secret-form input {
-    width: 100%;
-    margin: 0;
-    font-size: 15px;
-}
-
 .mvm-send-form {
     display: grid;
     min-width: 260px;
