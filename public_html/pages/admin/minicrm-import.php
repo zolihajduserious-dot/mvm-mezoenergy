@@ -277,6 +277,41 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') 
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_service_fee_request') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $feeType = (string) ($_POST['fee_type'] ?? '');
+
+    if (!is_admin_user()) {
+        set_flash('error', 'Ezt a díjbekérőt csak admin indíthatja.');
+        redirect($workItemId > 0 ? '/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId : '/admin/minicrm-import');
+    }
+
+    if ($workItemId <= 0 || service_fee_request_option($feeType) === null) {
+        set_flash('error', 'Hiányzó MiniCRM munka vagy ügykezelési díj típus.');
+        redirect('/admin/minicrm-import');
+    }
+
+    $linkResult = ensure_minicrm_work_item_connection_request($workItemId);
+
+    if (!($linkResult['ok'] ?? false)) {
+        set_flash('error', (string) ($linkResult['message'] ?? 'A MiniCRM munka normál igényhez kapcsolása sikertelen.'));
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $requestId = (int) ($linkResult['request_id'] ?? 0);
+
+    if ($requestId <= 0) {
+        set_flash('error', 'A MiniCRM munka normál munka azonosítója hiányzik.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $result = send_connection_request_service_fee_request($requestId, $feeType);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ügykezelési díjbekérő küldése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
     require_valid_csrf_token();
 
@@ -715,6 +750,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 : 'case_starting';
                             $linkedWorkflowDefinition = admin_workflow_stage_definitions()[$linkedWorkflowStage] ?? null;
                             $linkedNextWorkflowStage = next_admin_workflow_stage($linkedWorkflowStage);
+                            $serviceFeeOptions = service_fee_request_options();
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
                             $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
                             if ($customerProfile === null && $isSelectedItem) {
@@ -921,6 +957,50 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                 <div class="form-actions">
                                                     <a class="button" href="<?= h($quoteCreateUrl); ?>">Új árajánlat készítése</a>
                                                 </div>
+                                                <?php if (is_admin_user()): ?>
+                                                    <div class="quote-mini-list service-fee-request-list">
+                                                        <?php foreach ($serviceFeeOptions as $feeType => $feeOption): ?>
+                                                            <?php
+                                                            $feeLine = service_fee_request_line((string) $feeType);
+                                                            $feeRequestFileUrl = $linkedMvmRequestId !== null && connection_request_service_fee_request_file_is_available((int) $linkedMvmRequestId, (string) $feeType)
+                                                                ? url_path('/admin/minicrm-import/fee-request-file') . '?request_id=' . (int) $linkedMvmRequestId . '&fee_type=' . rawurlencode((string) $feeType)
+                                                                : null;
+                                                            $feeRequestBlockedMessage = null;
+
+                                                            if ($linkedMvmRequestId === null) {
+                                                                $feeRequestBlockedMessage = 'Küldéskor a rendszer előbb normál munkához kapcsolja a MiniCRM tételt.';
+                                                            } elseif (szamlazz_config_value('SZAMLAZZ_AGENT_KEY') === '') {
+                                                                $feeRequestBlockedMessage = 'Nincs beállítva a Számlázz.hu Agent kulcs.';
+                                                            }
+                                                            ?>
+                                                            <article class="quote-mini-card service-fee-request-card">
+                                                                <div>
+                                                                    <strong><?= h((string) $feeOption['label']); ?></strong>
+                                                                    <span><?= h((string) $feeOption['name']); ?></span>
+                                                                    <span><?= h(format_money((float) $feeOption['gross'])); ?> bruttó</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span class="status-badge status-badge-accent">Ügykezelési díj</span>
+                                                                    <strong><?= $feeLine !== null ? h(format_money($feeLine['line_gross'])) : '-'; ?></strong>
+                                                                </div>
+                                                                <div class="inline-link-list">
+                                                                    <?php if ($feeRequestFileUrl !== null): ?>
+                                                                        <a href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a>
+                                                                    <?php else: ?>
+                                                                        <form class="inline-form" method="post" action="<?= h($detailUrl); ?>" onsubmit="return confirm('Biztosan elkészíted és elküldöd ezt az ügykezelési díjbekérőt?');">
+                                                                            <?= csrf_field(); ?>
+                                                                            <input type="hidden" name="action" value="send_minicrm_service_fee_request">
+                                                                            <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                                            <input type="hidden" name="fee_type" value="<?= h((string) $feeType); ?>">
+                                                                            <button class="text-button" type="submit">Díjbekérő küldése</button>
+                                                                        </form>
+                                                                        <?php if ($feeRequestBlockedMessage !== null): ?><small><?= h($feeRequestBlockedMessage); ?></small><?php endif; ?>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                            </article>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
                                                 <?php if ($linkedMiniCrmQuotes === []): ?>
                                                     <p class="request-admin-empty">Ehhez a MiniCRM munkához még nincs árajánlat.</p>
                                                 <?php else: ?>

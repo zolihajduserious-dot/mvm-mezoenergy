@@ -2982,6 +2982,96 @@ function quote_fee_request_file_is_available(array $quote): bool
     return is_file($path) && filesize($path) > 0;
 }
 
+function service_fee_request_options(): array
+{
+    return [
+        'full' => [
+            'label' => 'Teljes ügykezelés',
+            'name' => 'Kiszállási díjak, ügyintézés, kezelési díjak',
+            'gross' => 86000.0,
+        ],
+        'simple' => [
+            'label' => 'Egyszerűsített ügykezelés',
+            'name' => 'Egyszerű ügyintézési díj',
+            'gross' => 50000.0,
+        ],
+    ];
+}
+
+function service_fee_request_option(?string $feeType): ?array
+{
+    $feeType = trim((string) $feeType);
+    $options = service_fee_request_options();
+
+    return $options[$feeType] ?? null;
+}
+
+function service_fee_request_line(string $feeType): ?array
+{
+    $option = service_fee_request_option($feeType);
+
+    if ($option === null) {
+        return null;
+    }
+
+    $gross = round((float) $option['gross'], 2);
+    $net = round($gross / 1.27, 2);
+    $vat = round($gross - $net, 2);
+
+    return [
+        'price_item_id' => null,
+        'category' => 'MVM Partneri tevékenységek',
+        'name' => (string) $option['name'],
+        'unit' => 'db',
+        'quantity' => 1,
+        'unit_price' => $net,
+        'vat_rate' => 27,
+        'line_net' => $net,
+        'line_vat' => $vat,
+        'line_gross' => $gross,
+    ];
+}
+
+function connection_request_service_fee_request_quote(int $requestId, string $feeType): ?array
+{
+    $request = find_connection_request($requestId);
+    $option = service_fee_request_option($feeType);
+
+    if ($request === null || $option === null) {
+        return null;
+    }
+
+    $suffix = $feeType === 'simple' ? 'EGYSZERU' : 'TELJES';
+
+    return [
+        'id' => 'request-' . $requestId . '-' . $feeType,
+        'quote_number' => 'UGYDIJ-' . $requestId . '-' . $suffix,
+        'company_name' => (string) ($request['company_name'] ?? ''),
+        'requester_name' => (string) ($request['requester_name'] ?? ''),
+        'email' => (string) ($request['email'] ?? ''),
+        'phone' => (string) ($request['phone'] ?? ''),
+        'postal_address' => (string) ($request['postal_address'] ?? ''),
+        'postal_code' => (string) ($request['postal_code'] ?? ''),
+        'city' => (string) ($request['city'] ?? ''),
+        'fee_request_note' => (string) $option['label'] . ' díjbekérője. Munkaazonosító: #' . $requestId,
+        'fee_request_email_text' => 'Az ügykezelési díjról elkészült díjbekérőt csatolva küldjük.',
+    ];
+}
+
+function connection_request_service_fee_request_file_is_available(int $requestId, string $feeType): bool
+{
+    $quote = connection_request_service_fee_request_quote($requestId, $feeType);
+
+    return $quote !== null && quote_fee_request_file_is_available($quote);
+}
+
+function connection_request_service_fee_request_pdf_path(int $requestId, string $feeType): ?string
+{
+    $quote = connection_request_service_fee_request_quote($requestId, $feeType);
+
+    return $quote !== null ? quote_fee_request_pdf_path($quote) : null;
+}
+
 function quote_fee_request_customer_errors(array $quote): array
 {
     $errors = [];
@@ -3099,7 +3189,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     $dueDate = date('Y-m-d', strtotime('+8 days') ?: time());
     $customerName = trim((string) ($quote['company_name'] ?? '')) ?: trim((string) ($quote['requester_name'] ?? ''));
     $emailSubject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
-    $emailText = 'Az elfogadott árajánlat ügykezelési díjáról elkészült díjbekérőt csatolva küldjük.';
+    $emailText = (string) ($quote['fee_request_email_text'] ?? 'Az elfogadott árajánlat ügykezelési díjáról elkészült díjbekérőt csatolva küldjük.');
     $quantity = max(1.0, (float) ($line['quantity'] ?? 1));
     $net = round((float) ($line['line_net'] ?? 0), 2);
     $vat = round((float) ($line['line_vat'] ?? 0), 2);
@@ -3122,7 +3212,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     szamlazz_append_text($document, $header, 'fizmod', szamlazz_config_value('SZAMLAZZ_PAYMENT_METHOD', 'Átutalás'));
     szamlazz_append_text($document, $header, 'penznem', 'HUF');
     szamlazz_append_text($document, $header, 'szamlaNyelve', 'hu');
-    szamlazz_append_text($document, $header, 'megjegyzes', 'Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-'));
+    szamlazz_append_text($document, $header, 'megjegyzes', (string) ($quote['fee_request_note'] ?? ('Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-'))));
     szamlazz_append_text($document, $header, 'arfolyamBank', '');
     szamlazz_append_text($document, $header, 'arfolyam', '0.0');
     szamlazz_append_text($document, $header, 'rendelesSzam', (string) ($quote['quote_number'] ?? ''));
@@ -3176,7 +3266,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     szamlazz_append_text($document, $item, 'nettoErtek', szamlazz_xml_decimal($net));
     szamlazz_append_text($document, $item, 'afaErtek', szamlazz_xml_decimal($vat));
     szamlazz_append_text($document, $item, 'bruttoErtek', szamlazz_xml_decimal($gross));
-    szamlazz_append_text($document, $item, 'megjegyzes', 'Elfogadott árajánlat: ' . (string) ($quote['quote_number'] ?? '-'));
+    szamlazz_append_text($document, $item, 'megjegyzes', (string) ($quote['fee_request_note'] ?? ('Elfogadott árajánlat: ' . (string) ($quote['quote_number'] ?? '-'))));
 
     return (string) $document->saveXML();
 }
@@ -3340,6 +3430,61 @@ function send_quote_fee_request_email(int $quoteId): array
     db_query(
         'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
         [$quoteId, $quote['email'], $subject, 'failed', $result['message']]
+    );
+
+    return $result;
+}
+
+function send_connection_request_service_fee_request(int $requestId, string $feeType): array
+{
+    $quote = connection_request_service_fee_request_quote($requestId, $feeType);
+    $line = service_fee_request_line($feeType);
+
+    if ($quote === null || $line === null) {
+        return ['ok' => false, 'message' => 'A kiválasztott ügykezelési díj vagy munka nem található.'];
+    }
+
+    if (quote_fee_request_file_is_available($quote)) {
+        return [
+            'ok' => true,
+            'message' => 'A díjbekérő már elkészült.',
+            'path' => quote_fee_request_pdf_path($quote),
+            'invoice_number' => null,
+        ];
+    }
+
+    $customerErrors = quote_fee_request_customer_errors($quote);
+
+    if ($customerErrors !== []) {
+        return ['ok' => false, 'message' => 'A díjbekérő nem küldhető, mert ' . implode(', ', $customerErrors) . '.'];
+    }
+
+    $subject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
+    $result = szamlazz_create_quote_fee_request($quote, $line);
+
+    if ($result['ok']) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)',
+            [null, $quote['email'], $subject, 'sent']
+        );
+
+        $message = (string) $result['message'];
+
+        if (!empty($result['invoice_number'])) {
+            $message .= ' Díjbekérő száma: ' . (string) $result['invoice_number'] . '.';
+        }
+
+        return [
+            'ok' => true,
+            'message' => $message,
+            'path' => $result['path'] ?? null,
+            'invoice_number' => $result['invoice_number'] ?? null,
+        ];
+    }
+
+    db_query(
+        'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+        [null, $quote['email'], $subject, 'failed', $result['message']]
     );
 
     return $result;
