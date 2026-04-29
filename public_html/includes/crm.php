@@ -11682,6 +11682,16 @@ function minicrm_work_item_project_ids(array $item): array
 {
     $ids = [];
 
+    foreach ([
+        (string) ($item['card_url'] ?? ''),
+        (string) ($item['document_links_json'] ?? ''),
+        (string) ($item['raw_payload'] ?? ''),
+    ] as $text) {
+        foreach (minicrm_project_ids_from_text($text) as $projectId) {
+            $ids[$projectId] = $projectId;
+        }
+    }
+
     foreach (minicrm_work_item_document_links($item) as $link) {
         foreach (minicrm_project_ids_from_text((string) ($link['value'] ?? '')) as $projectId) {
             $ids[$projectId] = $projectId;
@@ -11691,6 +11701,25 @@ function minicrm_work_item_project_ids(array $item): array
     foreach (minicrm_work_item_raw_fields($item) as $field) {
         foreach (minicrm_project_ids_from_text((string) ($field['value'] ?? '')) as $projectId) {
             $ids[$projectId] = $projectId;
+        }
+    }
+
+    $workItemId = (int) ($item['id'] ?? 0);
+
+    if ($workItemId > 0 && db_table_exists('minicrm_work_item_files')) {
+        $rows = db_query(
+            'SELECT DISTINCT `project_id`
+             FROM `minicrm_work_item_files`
+             WHERE `work_item_id` = ? AND `project_id` <> \'\'',
+            [$workItemId]
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $projectId = trim((string) ($row['project_id'] ?? ''));
+
+            if ($projectId !== '') {
+                $ids[$projectId] = $projectId;
+            }
         }
     }
 
@@ -13052,6 +13081,21 @@ function minicrm_customer_profile_for_work_item(array $item): ?array
             if (is_array($profile)) {
                 return $profile;
             }
+        }
+    }
+
+    foreach (minicrm_work_item_project_ids($item) as $projectId) {
+        $profile = db_query(
+            'SELECT *
+             FROM `minicrm_customer_profiles`
+             WHERE `project_id` = ?
+             ORDER BY COALESCE(`modified_date`, `person_modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC
+             LIMIT 1',
+            [$projectId]
+        )->fetch();
+
+        if (is_array($profile)) {
+            return $profile;
         }
     }
 
