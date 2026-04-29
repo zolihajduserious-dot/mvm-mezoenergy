@@ -1862,7 +1862,8 @@ function send_quote_registration_offer(int $quoteId): array
             'Saját ügyfélprofil létrehozása',
             'Köszönjük az árajánlat elfogadását. A folytatáshoz létrehozhat saját ügyfélprofilt, ahol később az igény adatai és dokumentumai is kezelhetők.',
             $emailSections,
-            $emailActions
+            $emailActions,
+            (string) ($quote['requester_name'] ?? '')
         );
         $mail->send();
 
@@ -2386,8 +2387,17 @@ function email_display_value(mixed $value): string
     return $string !== '' ? $string : '-';
 }
 
-function branded_email_html(string $title, string $lead, array $sections = [], array $actions = []): string
+function email_recipient_name(mixed $value): string
 {
+    $name = trim((string) ($value ?? ''));
+
+    return $name !== '' ? $name : '';
+}
+
+function branded_email_html(string $title, string $lead, array $sections = [], array $actions = [], string $recipientName = ''): string
+{
+    $recipientName = email_recipient_name($recipientName);
+
     ob_start();
     ?>
     <!doctype html>
@@ -2411,6 +2421,9 @@ function branded_email_html(string $title, string $lead, array $sections = [], a
                         </tr>
                         <tr>
                             <td style="padding:26px 30px 10px;">
+                                <?php if ($recipientName !== ''): ?>
+                                    <p style="margin:0 0 12px;color:#17212f;font-size:17px;font-weight:700;">Kedves <?= h($recipientName); ?>!</p>
+                                <?php endif; ?>
                                 <p style="margin:0;color:#405266;font-size:16px;"><?= nl2br(h($lead)); ?></p>
                             </td>
                         </tr>
@@ -2471,16 +2484,23 @@ function branded_email_html(string $title, string $lead, array $sections = [], a
     return (string) ob_get_clean();
 }
 
-function branded_email_text(string $title, string $lead, array $sections = [], array $actions = []): string
+function branded_email_text(string $title, string $lead, array $sections = [], array $actions = [], string $recipientName = ''): string
 {
+    $recipientName = email_recipient_name($recipientName);
     $lines = [
         APP_NAME,
         '',
         $title,
         '',
-        $lead,
-        '',
     ];
+
+    if ($recipientName !== '') {
+        $lines[] = 'Kedves ' . $recipientName . '!';
+        $lines[] = '';
+    }
+
+    $lines[] = $lead;
+    $lines[] = '';
 
     foreach ($sections as $section) {
         $lines[] = (string) ($section['title'] ?? 'Adatok');
@@ -2518,11 +2538,11 @@ function branded_email_text(string $title, string $lead, array $sections = [], a
     return implode("\n", $lines);
 }
 
-function apply_branded_email(object $mail, string $title, string $lead, array $sections = [], array $actions = []): void
+function apply_branded_email(object $mail, string $title, string $lead, array $sections = [], array $actions = [], string $recipientName = ''): void
 {
     $mail->isHTML(true);
-    $mail->Body = branded_email_html($title, $lead, $sections, $actions);
-    $mail->AltBody = branded_email_text($title, $lead, $sections, $actions);
+    $mail->Body = branded_email_html($title, $lead, $sections, $actions, $recipientName);
+    $mail->AltBody = branded_email_text($title, $lead, $sections, $actions, $recipientName);
 }
 
 function send_password_reset_email(array $user, string $token): array
@@ -2556,7 +2576,7 @@ function send_password_reset_email(array $user, string $token): array
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
         $mail->addAddress((string) $user['email'], (string) ($user['name'] ?? ''));
         $mail->Subject = $subject;
-        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
+        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($user['name'] ?? ''));
         $mail->send();
 
         db_query(
@@ -2625,7 +2645,7 @@ function send_uploaded_quote_notification(int $quoteId): array
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
         $mail->addAddress((string) $quote['email'], (string) $quote['requester_name']);
         $mail->Subject = $subject;
-        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
+        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($quote['requester_name'] ?? ''));
         $mail->send();
 
         db_query('UPDATE `quotes` SET `status` = ?, `sent_at` = COALESCE(`sent_at`, NOW()) WHERE `id` = ?', ['sent', $quoteId]);
@@ -3067,7 +3087,7 @@ function connection_request_service_fee_request_quote(int $requestId, string $fe
         'postal_code' => (string) ($request['postal_code'] ?? ''),
         'city' => (string) ($request['city'] ?? ''),
         'fee_request_note' => fee_request_note_with_extra($baseNote, $note),
-        'fee_request_email_text' => 'Az ügykezelési díjról elkészült díjbekérőt csatolva küldjük.',
+        'fee_request_email_text' => 'Kedves ' . (string) ($request['requester_name'] ?? '') . "!\n\nAz ügykezelési díjról elkészült díjbekérőt csatolva küldjük.",
     ];
 }
 
@@ -3210,7 +3230,15 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     $dueDate = date('Y-m-d', strtotime('+8 days') ?: time());
     $customerName = trim((string) ($quote['company_name'] ?? '')) ?: trim((string) ($quote['requester_name'] ?? ''));
     $emailSubject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
-    $emailText = (string) ($quote['fee_request_email_text'] ?? 'Az elfogadott árajánlat ügykezelési díjáról elkészült díjbekérőt csatolva küldjük.');
+    $defaultFeeRequestEmailText = 'Az elfogadott árajánlat ügykezelési díjáról elkészült díjbekérőt csatolva küldjük.';
+    $customerGreetingName = email_recipient_name($quote['requester_name'] ?? '');
+    $emailText = (string) ($quote['fee_request_email_text'] ?? '');
+
+    if ($emailText === '') {
+        $emailText = $customerGreetingName !== ''
+            ? 'Kedves ' . $customerGreetingName . "!\n\n" . $defaultFeeRequestEmailText
+            : $defaultFeeRequestEmailText;
+    }
     $quantity = max(1.0, (float) ($line['quantity'] ?? 1));
     $net = round((float) ($line['line_net'] ?? 0), 2);
     $vat = round((float) ($line['line_vat'] ?? 0), 2);
@@ -3568,7 +3596,7 @@ function send_quote_email(int $quoteId): array
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
         $mail->addAddress((string) $quote['email'], (string) $quote['requester_name']);
         $mail->Subject = $subject;
-        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
+        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($quote['requester_name'] ?? ''));
         $mail->addAttachment((string) $pdfResult['path']);
         $mail->send();
 
@@ -4036,7 +4064,7 @@ function send_electrician_assignment_email(int $requestId, int $electricianUserI
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
         $mail->addAddress((string) $electrician['email'], (string) $electrician['name']);
         $mail->Subject = $subject;
-        apply_branded_email($mail, 'Új kivitelezési munka érkezett', 'Az admin új munkát adott ki neked. A munka megkezdése előtt töltsd fel a kötelező induló fotókat.', $sections, $actions);
+        apply_branded_email($mail, 'Új kivitelezési munka érkezett', 'Az admin új munkát adott ki neked. A munka megkezdése előtt töltsd fel a kötelező induló fotókat.', $sections, $actions, (string) ($electrician['name'] ?? ''));
         $mail->send();
 
         db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, (string) $electrician['email'], $subject, 'sent']);
@@ -9989,7 +10017,8 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
             'Elkészült a komplett dokumentumcsomag',
             'A mérőhelyi ügyintézéshez összeállított komplett dokumentumcsomagot csatoltuk.',
             $sections,
-            $actions
+            $actions,
+            (string) ($request['requester_name'] ?? '')
         );
         $mail->addAttachment((string) $document['storage_path'], (string) $document['original_name']);
         $mail->send();
