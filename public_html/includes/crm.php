@@ -5691,7 +5691,7 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
             }
 
             $uid = (int) $uid;
-            $overview = @imap_fetch_overview($imap, $uid, FT_UID);
+            $overview = @imap_fetch_overview($imap, (string) $uid, FT_UID);
             $overviewItem = is_array($overview) && isset($overview[0]) ? $overview[0] : null;
             $subject = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->subject ?? '')) : '';
             $from = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->from ?? '')) : '';
