@@ -175,10 +175,10 @@ function electrician_work_status_class(string $status): string
 
                                     <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $statusGroup['label']); ?> munkak">
                                         <div class="minicrm-work-table-head" role="row">
-                                            <span>Munka</span>
-                                            <span>&#220;gyf&#233;l</span>
+                                            <span>&#220;gyf&#233;l / c&#237;m / munka</span>
                                             <span>&#193;llapot</span>
-                                            <span>Anyag</span>
+                                            <span>D&#225;tum</span>
+                                            <span>F&#225;jlok</span>
                                         </div>
 
                                         <?php foreach ($statusGroup['items'] as $request): ?>
@@ -186,8 +186,10 @@ function electrician_work_status_class(string $status): string
                                             $requestId = (int) $request['id'];
                                             $status = (string) ($request['electrician_status'] ?? 'assigned');
                                             $statusLabel = $statusLabels[$status] ?? $status;
+                                            $customerFiles = connection_request_files($requestId);
                                             $beforeFiles = connection_request_work_files($requestId, 'before');
                                             $afterFiles = connection_request_work_files($requestId, 'after');
+                                            $allVisibleFilesCount = count($customerFiles) + count($beforeFiles) + count($afterFiles);
                                             $quotes = quotes_for_connection_request($requestId);
                                             $acceptedQuote = accepted_quote_for_connection_request($requestId);
                                             $latestQuote = $quotes[0] ?? null;
@@ -213,22 +215,23 @@ function electrician_work_status_class(string $status): string
                                                 (string) ($request['meter_serial'] ?? ''),
                                             ]);
                                             ?>
-                                            <details class="admin-workflow-request minicrm-work-row electrician-work-row" data-electrician-item data-electrician-search-text="<?= h($searchText); ?>">
+                                            <details class="admin-workflow-request minicrm-work-row portal-work-row electrician-work-row" data-electrician-item data-electrician-search-text="<?= h($searchText); ?>">
                                                 <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                                                     <span class="admin-workflow-request-main">
-                                                        <strong><?= h((string) $request['project_name']); ?></strong>
+                                                        <strong><?= h($customerName !== '' ? $customerName : '-'); ?></strong>
                                                         <small><?= h($siteAddress !== '' ? $siteAddress : ('#' . $requestId)); ?></small>
+                                                        <small class="portal-work-type"><?= h((string) $request['project_name']); ?></small>
                                                     </span>
                                                     <span class="admin-workflow-request-meta">
-                                                        <span><?= h($customerName !== '' ? $customerName : '-'); ?></span>
-                                                        <strong><?= h(trim($customerPhone . ' ' . $customerEmail) !== '' ? trim($customerPhone . ' · ' . $customerEmail, ' ·') : connection_request_type_label($request['request_type'] ?? null)); ?></strong>
+                                                        <strong><?= h($statusLabel); ?></strong>
+                                                        <span><?= h((string) $quoteState['status']); ?> - <?= h((string) $quoteState['amount']); ?></span>
                                                     </span>
                                                     <span class="minicrm-work-date">
                                                         <?= h($createdAt !== '' ? $createdAt : '-'); ?>
                                                     </span>
                                                     <span class="admin-workflow-request-badges">
-                                                        <strong><?= count($beforeFiles); ?> / <?= count($afterFiles); ?> f&#225;jl</strong>
-                                                        <small><?= h((string) $quoteState['status']); ?> - <?= h((string) $quoteState['amount']); ?></small>
+                                                        <strong><?= $allVisibleFilesCount; ?> f&#225;jl</strong>
+                                                        <small><?= count($beforeFiles); ?> el&#337;tte / <?= count($afterFiles); ?> ut&#225;na</small>
                                                     </span>
                                                 </summary>
 
@@ -276,6 +279,70 @@ function electrician_work_status_class(string $status): string
                                                                     </div>
                                                                     <strong><?= h((string) $quoteState['amount']); ?></strong>
                                                                 </div>
+                                                            </section>
+
+                                                            <section class="minicrm-document-preview-panel">
+                                                                <div class="admin-request-section-title">
+                                                                    <h3>Dokumentumok &#233;s fot&#243;k</h3>
+                                                                    <span><?= $allVisibleFilesCount; ?> f&#225;jl</span>
+                                                                </div>
+                                                                <?php if ($allVisibleFilesCount === 0): ?>
+                                                                    <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs megjelen&#237;thet&#337; dokumentum vagy fot&#243;.</p>
+                                                                <?php else: ?>
+                                                                    <div class="admin-request-doc-grid">
+                                                                        <?php foreach ($customerFiles as $file): ?>
+                                                                            <?php
+                                                                            $fileUrl = url_path('/electrician/work-requests/customer-file') . '?id=' . (int) $file['id'];
+                                                                            $previewKind = portal_file_preview_kind($file);
+                                                                            ?>
+                                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                <div class="admin-request-doc-thumb">
+                                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                                        <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? 'Fájl')); ?> megnyit&#225;sa">
+                                                                                            <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? 'Fájl')); ?>" width="92" height="92" loading="lazy">
+                                                                                        </a>
+                                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                        <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? 'Fájl')); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                    <?php else: ?>
+                                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                                <div class="admin-request-doc-meta">
+                                                                                    <strong><?= h((string) ($file['label'] ?? 'Fájl')); ?></strong>
+                                                                                    <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <a href="<?= h($fileUrl); ?>" target="_blank">Megnyit&#225;s</a>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+
+                                                                        <?php foreach (['Előtte fotók' => $beforeFiles, 'Utána fotók' => $afterFiles] as $stageLabel => $stageFiles): ?>
+                                                                            <?php foreach ($stageFiles as $file): ?>
+                                                                                <?php
+                                                                                $fileUrl = url_path('/electrician/work-requests/file') . '?id=' . (int) $file['id'];
+                                                                                $previewKind = portal_file_preview_kind($file);
+                                                                                ?>
+                                                                                <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                    <div class="admin-request-doc-thumb">
+                                                                                        <?php if ($previewKind === 'image'): ?>
+                                                                                            <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? $stageLabel)); ?> megnyit&#225;sa">
+                                                                                                <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? $stageLabel)); ?>" width="92" height="92" loading="lazy">
+                                                                                            </a>
+                                                                                        <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                            <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? $stageLabel)); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                        <?php else: ?>
+                                                                                            <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                                                                        <?php endif; ?>
+                                                                                    </div>
+                                                                                    <div class="admin-request-doc-meta">
+                                                                                        <strong><?= h((string) ($file['label'] ?? $stageLabel)); ?></strong>
+                                                                                        <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                        <a href="<?= h($fileUrl); ?>" target="_blank">Megnyit&#225;s</a>
+                                                                                    </div>
+                                                                                </article>
+                                                                            <?php endforeach; ?>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                <?php endif; ?>
                                                             </section>
 
                                                             <section class="minicrm-document-preview-panel">
