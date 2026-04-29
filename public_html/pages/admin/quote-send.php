@@ -20,6 +20,7 @@ if (is_post()) {
     require_valid_csrf_token();
     $action = (string) ($_POST['action'] ?? '');
     $feeType = (string) ($_POST['fee_type'] ?? '');
+    $feeNote = trim((string) ($_POST['fee_note'] ?? ''));
 
     if ($action === 'service_fee_request') {
         if (!is_admin_user()) {
@@ -27,12 +28,12 @@ if (is_post()) {
         } elseif ($serviceFeeRequestId <= 0 || service_fee_request_option($feeType) === null) {
             $result = ['ok' => false, 'message' => 'Hiányzó munka vagy ügykezelési díj típus.'];
         } else {
-            $result = send_connection_request_service_fee_request($serviceFeeRequestId, $feeType);
+            $result = send_connection_request_service_fee_request($serviceFeeRequestId, $feeType, $feeNote);
         }
     } else {
         $result = match ($action) {
             'send' => send_quote_email((int) $quote['id']),
-            'fee_request' => send_quote_fee_request_email((int) $quote['id']),
+            'fee_request' => send_quote_fee_request_email((int) $quote['id'], $feeNote),
             default => generate_quote_pdf((int) $quote['id']),
         };
     }
@@ -206,6 +207,10 @@ if ((string) ($quote['status'] ?? '') !== 'accepted') {
                         <p class="eyebrow">Megerősítés</p>
                         <h2 id="quoteActionDialogTitle">PDF generálása</h2>
                         <p id="quoteActionDialogText">Új PDF készül az aktuális ajánlatadatokból.</p>
+                        <label class="quote-action-note" id="quoteFeeNoteLabel" for="quoteFeeNoteInput" hidden>
+                            Megjegyzés a díjbekérőre
+                            <textarea id="quoteFeeNoteInput" name="fee_note" rows="3" placeholder="Példa: munka rövid leírása, cím, teljesítménybővítés..."></textarea>
+                        </label>
                     </div>
                     <div class="quote-action-dialog-summary">
                         <span><?= h((string) $quote['quote_number']); ?></span>
@@ -228,11 +233,20 @@ document.querySelectorAll('[data-quote-action]').forEach((button) => {
         const dialog = document.getElementById('quoteActionDialog');
         const actionInput = document.getElementById('quoteActionInput');
         const feeTypeInput = document.getElementById('quoteFeeTypeInput');
+        const feeNoteLabel = document.getElementById('quoteFeeNoteLabel');
+        const feeNoteInput = document.getElementById('quoteFeeNoteInput');
         const title = document.getElementById('quoteActionDialogTitle');
         const text = document.getElementById('quoteActionDialogText');
+        const action = button.dataset.quoteAction || 'pdf';
 
-        actionInput.value = button.dataset.quoteAction || 'pdf';
+        actionInput.value = action;
         feeTypeInput.value = button.dataset.quoteFeeType || '';
+        feeNoteLabel.hidden = !action.includes('fee_request');
+
+        if (feeNoteLabel.hidden && feeNoteInput) {
+            feeNoteInput.value = '';
+        }
+
         title.textContent = button.dataset.modalTitle || 'Művelet indítása';
         text.textContent = button.dataset.modalText || 'Biztosan indítod a műveletet?';
 

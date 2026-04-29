@@ -2342,6 +2342,28 @@ a.metric-card {
     background: linear-gradient(90deg, rgba(0, 140, 115, 0.05), #ffffff);
 }
 
+.inline-form textarea,
+.quote-action-note textarea {
+    width: 100%;
+    min-height: 72px;
+    padding: 9px 10px;
+    border: 1px solid rgba(194, 210, 222, 0.9);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+    resize: vertical;
+}
+
+.quote-action-note {
+    display: grid;
+    gap: 7px;
+    margin-top: 12px;
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
 .compact-table-wrap {
     margin-top: 12px;
 }

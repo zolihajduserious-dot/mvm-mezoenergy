@@ -3032,7 +3032,19 @@ function service_fee_request_line(string $feeType): ?array
     ];
 }
 
-function connection_request_service_fee_request_quote(int $requestId, string $feeType): ?array
+function fee_request_note_with_extra(string $baseNote, string $extraNote): string
+{
+    $baseNote = trim($baseNote);
+    $extraNote = trim($extraNote);
+
+    if ($extraNote === '') {
+        return $baseNote;
+    }
+
+    return $baseNote !== '' ? $baseNote . "\n" . $extraNote : $extraNote;
+}
+
+function connection_request_service_fee_request_quote(int $requestId, string $feeType, string $note = ''): ?array
 {
     $request = find_connection_request($requestId);
     $option = service_fee_request_option($feeType);
@@ -3042,18 +3054,19 @@ function connection_request_service_fee_request_quote(int $requestId, string $fe
     }
 
     $suffix = $feeType === 'simple' ? 'EGYSZERU' : 'TELJES';
+    $baseNote = (string) $option['label'] . ' díjbekérője. Munkaazonosító: #' . $requestId;
 
     return [
         'id' => 'request-' . $requestId . '-' . $feeType,
         'quote_number' => 'UGYDIJ-' . $requestId . '-' . $suffix,
-        'company_name' => (string) ($request['company_name'] ?? ''),
+        'company_name' => '',
         'requester_name' => (string) ($request['requester_name'] ?? ''),
         'email' => (string) ($request['email'] ?? ''),
         'phone' => (string) ($request['phone'] ?? ''),
         'postal_address' => (string) ($request['postal_address'] ?? ''),
         'postal_code' => (string) ($request['postal_code'] ?? ''),
         'city' => (string) ($request['city'] ?? ''),
-        'fee_request_note' => (string) $option['label'] . ' díjbekérője. Munkaazonosító: #' . $requestId,
+        'fee_request_note' => fee_request_note_with_extra($baseNote, $note),
         'fee_request_email_text' => 'Az ügykezelési díjról elkészült díjbekérőt csatolva küldjük.',
     ];
 }
@@ -3383,7 +3396,7 @@ function szamlazz_create_quote_fee_request(array $quote, array $line): array
     ];
 }
 
-function send_quote_fee_request_email(int $quoteId): array
+function send_quote_fee_request_email(int $quoteId, string $note = ''): array
 {
     $quote = find_quote($quoteId);
 
@@ -3416,6 +3429,8 @@ function send_quote_fee_request_email(int $quoteId): array
         return ['ok' => false, 'message' => (string) $selection['message']];
     }
 
+    $baseNote = 'Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-');
+    $quote['fee_request_note'] = fee_request_note_with_extra($baseNote, $note);
     $subject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
     $result = szamlazz_create_quote_fee_request($quote, $selection['line']);
 
@@ -3447,9 +3462,9 @@ function send_quote_fee_request_email(int $quoteId): array
     return $result;
 }
 
-function send_connection_request_service_fee_request(int $requestId, string $feeType): array
+function send_connection_request_service_fee_request(int $requestId, string $feeType, string $note = ''): array
 {
-    $quote = connection_request_service_fee_request_quote($requestId, $feeType);
+    $quote = connection_request_service_fee_request_quote($requestId, $feeType, $note);
     $line = service_fee_request_line($feeType);
 
     if ($quote === null || $line === null) {

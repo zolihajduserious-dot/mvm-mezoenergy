@@ -244,6 +244,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') 
 
     $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
     $quoteId = max(0, (int) ($_POST['quote_id'] ?? 0));
+    $feeNote = trim((string) ($_POST['fee_note'] ?? ''));
     $requestId = $workItemId > 0 ? minicrm_work_item_connection_request_id($workItemId) : null;
 
     if ($workItemId <= 0 || $quoteId <= 0) {
@@ -272,7 +273,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') 
         redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
     }
 
-    $result = send_quote_fee_request_email($quoteId);
+    $result = send_quote_fee_request_email($quoteId, $feeNote);
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A díjbekérő küldése sikertelen.'));
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
@@ -282,6 +283,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_service_fee_request'
 
     $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
     $feeType = (string) ($_POST['fee_type'] ?? '');
+    $feeNote = trim((string) ($_POST['fee_note'] ?? ''));
 
     if (!is_admin_user()) {
         set_flash('error', 'Ezt a díjbekérőt csak admin indíthatja.');
@@ -307,7 +309,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_service_fee_request'
         redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
     }
 
-    $result = send_connection_request_service_fee_request($requestId, $feeType);
+    $result = send_connection_request_service_fee_request($requestId, $feeType, $feeNote);
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ügykezelési díjbekérő küldése sikertelen.'));
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
@@ -992,6 +994,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                             <input type="hidden" name="action" value="send_minicrm_service_fee_request">
                                                                             <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
                                                                             <input type="hidden" name="fee_type" value="<?= h((string) $feeType); ?>">
+                                                                            <textarea name="fee_note" rows="2" placeholder="Megjegyzés a díjbekérőre, például a munka leírása"></textarea>
                                                                             <button class="text-button" type="submit">Díjbekérő küldése</button>
                                                                         </form>
                                                                         <?php if ($feeRequestBlockedMessage !== null): ?><small><?= h($feeRequestBlockedMessage); ?></small><?php endif; ?>
@@ -1053,6 +1056,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                             <input type="hidden" name="action" value="send_minicrm_quote_fee_request">
                                                                             <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
                                                                             <input type="hidden" name="quote_id" value="<?= $quoteId; ?>">
+                                                                            <textarea name="fee_note" rows="2" placeholder="Megjegyzés a díjbekérőre, például a munka leírása"></textarea>
                                                                             <button class="text-button" type="submit">Díjbekérő küldése</button>
                                                                         </form>
                                                                     <?php else: ?>
