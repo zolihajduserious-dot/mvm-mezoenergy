@@ -71,6 +71,32 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_file') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $fileId = max(0, (int) ($_POST['file_id'] ?? 0));
+    $fileSource = (string) ($_POST['file_source'] ?? '');
+
+    if ($requestId <= 0 || $fileId <= 0) {
+        set_flash('error', 'Hiányzó munka vagy fájl azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    if ($fileSource === 'request_file') {
+        $result = delete_connection_request_file($fileId, $requestId);
+    } elseif ($fileSource === 'work_file') {
+        $result = delete_connection_request_work_file($fileId, $requestId);
+    } elseif ($fileSource === 'mvm_document') {
+        $result = delete_connection_request_document($fileId, $requestId);
+    } else {
+        $result = ['ok' => false, 'message' => 'Ismeretlen fájltípus, a törlés nem futott le.'];
+    }
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+    redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     require_valid_csrf_token();
 
@@ -1092,6 +1118,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                     <strong><?= h((string) ($file['label'] ?? 'Fájl')); ?></strong>
                                                                                     <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                    <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt a fájlt? Ez nem visszavonható.');">
+                                                                                        <?= csrf_field(); ?>
+                                                                                        <input type="hidden" name="action" value="delete_portal_work_file">
+                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                        <input type="hidden" name="file_source" value="request_file">
+                                                                                        <input type="hidden" name="file_id" value="<?= (int) $file['id']; ?>">
+                                                                                        <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                                                                    </form>
                                                                                 </div>
                                                                             </article>
                                                                         <?php endforeach; ?>
@@ -1117,6 +1151,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                     <strong><?= h((string) ($file['label'] ?? 'Munka fájl')); ?></strong>
                                                                                     <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                    <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt a munka fájlt? Ez nem visszavonható.');">
+                                                                                        <?= csrf_field(); ?>
+                                                                                        <input type="hidden" name="action" value="delete_portal_work_file">
+                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                        <input type="hidden" name="file_source" value="work_file">
+                                                                                        <input type="hidden" name="file_id" value="<?= (int) $file['id']; ?>">
+                                                                                        <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                                                                    </form>
                                                                                 </div>
                                                                             </article>
                                                                         <?php endforeach; ?>
@@ -1142,6 +1184,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                     <strong><?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?></strong>
                                                                                     <span><?= h((string) ($document['original_name'] ?? '-')); ?></span>
                                                                                     <a href="<?= h($documentUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                    <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt az MVM dokumentumot? Ez nem visszavonható.');">
+                                                                                        <?= csrf_field(); ?>
+                                                                                        <input type="hidden" name="action" value="delete_portal_work_file">
+                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                        <input type="hidden" name="file_source" value="mvm_document">
+                                                                                        <input type="hidden" name="file_id" value="<?= (int) $document['id']; ?>">
+                                                                                        <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                                                                    </form>
                                                                                 </div>
                                                                             </article>
                                                                         <?php endforeach; ?>

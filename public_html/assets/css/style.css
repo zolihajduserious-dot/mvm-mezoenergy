@@ -4696,6 +4696,35 @@ a.metric-card {
     color: #ffffff;
 }
 
+.admin-request-doc-meta form {
+    margin: 0;
+}
+
+.admin-request-doc-meta .table-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    min-height: 30px;
+    margin-top: 0;
+    padding: 0 11px;
+    border: 1px solid rgba(179, 38, 58, 0.28);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #8f1f31;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.admin-request-doc-meta .table-action-button:hover,
+.admin-request-doc-meta .table-action-button:focus {
+    border-color: #b3263a;
+    background: #b3263a;
+    color: #ffffff;
+}
+
 .quote-mini-list {
     display: grid;
     gap: 10px;

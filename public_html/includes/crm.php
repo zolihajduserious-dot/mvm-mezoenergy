@@ -4564,6 +4564,20 @@ function find_connection_request_work_file(int $fileId): ?array
     return is_array($file) ? $file : null;
 }
 
+function delete_connection_request_work_file(int $fileId, int $requestId): array
+{
+    $file = find_connection_request_work_file($fileId);
+
+    if ($file === null || (int) ($file['connection_request_id'] ?? 0) !== $requestId) {
+        return ['ok' => false, 'message' => 'A törlendő munka fájl nem található.'];
+    }
+
+    db_query('DELETE FROM `connection_request_work_files` WHERE `id` = ?', [$fileId]);
+    delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'A munka fájl törölve.'];
+}
+
 function portal_file_preview_kind(array $file): string
 {
     $mimeType = strtolower((string) ($file['mime_type'] ?? ''));
@@ -4593,6 +4607,20 @@ function find_connection_request_file(int $fileId): ?array
     $file = $statement->fetch();
 
     return is_array($file) ? $file : null;
+}
+
+function delete_connection_request_file(int $fileId, int $requestId): array
+{
+    $file = find_connection_request_file($fileId);
+
+    if ($file === null || (int) ($file['connection_request_id'] ?? 0) !== $requestId) {
+        return ['ok' => false, 'message' => 'A törlendő fájl nem található.'];
+    }
+
+    db_query('DELETE FROM `connection_request_files` WHERE `id` = ?', [$fileId]);
+    delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'A fájl törölve.'];
 }
 
 function finalize_connection_request(int $requestId): array
@@ -9758,6 +9786,20 @@ function find_connection_request_document(int $documentId): ?array
     $document = $statement->fetch();
 
     return is_array($document) ? $document : null;
+}
+
+function delete_connection_request_document(int $documentId, int $requestId): array
+{
+    $document = find_connection_request_document($documentId);
+
+    if ($document === null || (int) ($document['connection_request_id'] ?? 0) !== $requestId) {
+        return ['ok' => false, 'message' => 'A törlendő dokumentum nem található.'];
+    }
+
+    db_query('DELETE FROM `connection_request_documents` WHERE `id` = ?', [$documentId]);
+    delete_storage_files([(string) ($document['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'A dokumentum törölve.'];
 }
 
 function customer_can_view_connection_request_document(array $document): bool
