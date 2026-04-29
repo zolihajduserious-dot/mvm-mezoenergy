@@ -65,7 +65,7 @@ if (is_post()) {
                     <tbody>
                         <?php foreach ($lines as $line): ?>
                             <tr>
-                                <td><strong><?= h($line['name']); ?></strong><span><?= h($line['category']); ?></span></td>
+                                <td><strong><?= h($line['name']); ?></strong><span><?= h(quote_effective_category((string) $line['category'], (string) $line['name'])); ?></span></td>
                                 <td><?= h($line['quantity']); ?> <?= h($line['unit']); ?></td>
                                 <td><?= h(format_money($line['unit_price'])); ?></td>
                                 <td><?= h(format_money($line['line_gross'])); ?></td>

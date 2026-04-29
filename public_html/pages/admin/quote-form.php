@@ -147,7 +147,7 @@ $priceItemsBySection = array_fill_keys(array_keys($quoteSections), []);
 $activePriceItemIds = [];
 
 foreach ($priceItems as $item) {
-    $category = quote_normalize_category((string) $item['category']);
+    $category = quote_effective_category((string) $item['category'], (string) $item['name']);
     $priceItemsBySection[$category][] = $item;
     $activePriceItemIds[(int) $item['id']] = true;
 }

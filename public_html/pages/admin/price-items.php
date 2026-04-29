@@ -49,7 +49,7 @@ $items = all_price_items();
 $itemsBySection = array_fill_keys(array_keys($quoteSections), []);
 
 foreach ($items as $item) {
-    $category = quote_normalize_category((string) $item['category']);
+    $category = quote_effective_category((string) $item['category'], (string) $item['name']);
     $itemsBySection[$category][] = $item;
 }
 

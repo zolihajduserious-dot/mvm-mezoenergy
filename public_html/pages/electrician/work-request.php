@@ -100,6 +100,7 @@ $acceptedQuote = $request !== null ? accepted_quote_for_connection_request((int)
 $latestQuote = $request !== null ? latest_quote_for_connection_request((int) $request['id']) : null;
 $workQuote = $acceptedQuote ?? $latestQuote;
 $workQuoteLines = $workQuote !== null ? quote_lines((int) $workQuote['id']) : [];
+$electricianDueBreakdown = $request !== null ? connection_request_electrician_due_breakdown((int) $request['id']) : ['quote' => null, 'registered' => 0.0, 'specialist' => 0.0, 'total' => 0.0];
 $quoteStatusLabels = quote_status_labels();
 $requestDocuments = $request !== null ? connection_request_documents((int) $request['id']) : [];
 $beforeFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'before') : [];
@@ -234,6 +235,20 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                     </div>
                     <strong><?= h((string) $quoteState['amount']); ?></strong>
                 </div>
+
+                <?php if ((float) ($electricianDueBreakdown['total'] ?? 0) > 0): ?>
+                    <section class="admin-request-panel workflow-stage-panel">
+                        <div class="admin-request-section-title">
+                            <h3>Kivitelezéskor beszedendő összeg</h3>
+                            <span><?= h(format_money((float) $electricianDueBreakdown['total'])); ?></span>
+                        </div>
+                        <dl class="admin-request-data-list admin-request-data-list-compact">
+                            <div><dt>Regisztrált villanyszerelői tételek</dt><dd><?= h(format_money((float) $electricianDueBreakdown['registered'])); ?></dd></div>
+                            <div><dt>Villanyszerelői szakmunkás tételek</dt><dd><?= h(format_money((float) $electricianDueBreakdown['specialist'])); ?></dd></div>
+                            <div><dt>Nem része</dt><dd>MVM csekk és ügykezelési díj</dd></div>
+                        </dl>
+                    </section>
+                <?php endif; ?>
 
                 <?php if ($workflowDefinition !== null): ?>
                     <section class="admin-request-panel workflow-stage-panel electrician-workflow-panel">

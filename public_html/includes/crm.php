@@ -98,13 +98,17 @@ function quote_price_sections(): array
             'title' => 'MVM-nek fizetendő tételek',
             'total_label' => 'MVM-nek fizetendő összes költség (bruttó)',
         ],
-        'MVM Partneri tevékenységek' => [
-            'title' => 'MVM Partneri tevékenységek után fizetendő tételek',
-            'total_label' => 'MVM Partneri tevékenységek után fizetendő összes költség (bruttó)',
+        'Ügykezelési díjak' => [
+            'title' => 'Ügykezelési díjak',
+            'total_label' => 'Ügykezelési díjak összesen (bruttó)',
         ],
-        'Villanyszerelői munkák' => [
-            'title' => 'Villanyszerelői munkák után fizetendő tételek',
-            'total_label' => 'Villanyszerelői munkák után fizetendő összes költség (bruttó)',
+        'Regisztrált villanyszerelői tételek' => [
+            'title' => 'Regisztrált villanyszerelői tételek',
+            'total_label' => 'Regisztrált villanyszerelői tételek összesen (bruttó)',
+        ],
+        'Villanyszerelői szakmunkás tételek' => [
+            'title' => 'Villanyszerelői szakmunkás tételek',
+            'total_label' => 'Villanyszerelői szakmunkás tételek összesen (bruttó)',
         ],
     ];
 }
@@ -143,13 +147,84 @@ function quote_normalize_category(string $category): string
     $legacyMap = [
         'MVM/Demasz sajat dijak' => 'MVM-nek fizetendő',
         'MVM/Démász saját díjak' => 'MVM-nek fizetendő',
-        'MVM/Demasz partneri munkadijak' => 'MVM Partneri tevékenységek',
-        'MVM/Démász partneri munkadíjak' => 'MVM Partneri tevékenységek',
-        'Mert elmeno kiepites' => 'Villanyszerelői munkák',
-        'Mért elmenő kiépítés' => 'Villanyszerelői munkák',
+        'MVM Partneri tevékenységek' => 'Regisztrált villanyszerelői tételek',
+        'MVM/Demasz partneri munkadijak' => 'Regisztrált villanyszerelői tételek',
+        'MVM/Démász partneri munkadíjak' => 'Regisztrált villanyszerelői tételek',
+        'Villanyszerelői munkák' => 'Villanyszerelői szakmunkás tételek',
+        'Mert elmeno kiepites' => 'Villanyszerelői szakmunkás tételek',
+        'Mért elmenő kiépítés' => 'Villanyszerelői szakmunkás tételek',
     ];
 
     return $legacyMap[$category] ?? array_key_first($sections);
+}
+
+function quote_effective_category(string $category, string $name = ''): string
+{
+    if (in_array($name, quote_fee_request_item_names(), true)) {
+        return 'Ügykezelési díjak';
+    }
+
+    return quote_normalize_category($category);
+}
+
+function quote_lines_with_effective_categories(array $lines): array
+{
+    foreach ($lines as &$line) {
+        $line['category'] = quote_effective_category((string) ($line['category'] ?? ''), (string) ($line['name'] ?? ''));
+    }
+    unset($line);
+
+    return $lines;
+}
+
+function quote_category_totals(array $lines): array
+{
+    $totals = array_fill_keys(array_keys(quote_price_sections()), 0.0);
+
+    foreach ($lines as $line) {
+        $category = quote_effective_category((string) ($line['category'] ?? ''), (string) ($line['name'] ?? ''));
+        $totals[$category] = ($totals[$category] ?? 0.0) + (float) ($line['line_gross'] ?? 0);
+    }
+
+    return $totals;
+}
+
+function quote_electrician_due_amount(array $lines): float
+{
+    $totals = quote_category_totals($lines);
+
+    return round(
+        (float) ($totals['Regisztrált villanyszerelői tételek'] ?? 0)
+        + (float) ($totals['Villanyszerelői szakmunkás tételek'] ?? 0),
+        2
+    );
+}
+
+function quote_electrician_due_breakdown(array $lines): array
+{
+    $totals = quote_category_totals($lines);
+
+    return [
+        'registered' => (float) ($totals['Regisztrált villanyszerelői tételek'] ?? 0),
+        'specialist' => (float) ($totals['Villanyszerelői szakmunkás tételek'] ?? 0),
+        'total' => quote_electrician_due_amount($lines),
+    ];
+}
+
+function connection_request_electrician_due_breakdown(int $requestId): array
+{
+    $quote = accepted_quote_for_connection_request($requestId);
+
+    if ($quote === null) {
+        return [
+            'quote' => null,
+            'registered' => 0.0,
+            'specialist' => 0.0,
+            'total' => 0.0,
+        ];
+    }
+
+    return ['quote' => $quote] + quote_electrician_due_breakdown(quote_lines((int) $quote['id']));
 }
 
 function dependency_status(): array
@@ -167,6 +242,21 @@ function ensure_storage_dir(string $path): void
     if (!is_dir($path)) {
         mkdir($path, 0755, true);
     }
+}
+
+function normalize_quote_price_item(array $item): array
+{
+    $name = (string) ($item['name'] ?? '');
+
+    if ($name === 'Kiszállási díjak, ügyintézés, kezelési díjak') {
+        $item['category'] = 'Ügykezelési díjak';
+        $item['unit_price'] = 86000.0;
+    } elseif ($name === 'Egyszerű ügyintézési díj') {
+        $item['category'] = 'Ügykezelési díjak';
+        $item['unit_price'] = 50000.0;
+    }
+
+    return $item;
 }
 
 function document_allowed_extensions(): array
@@ -1132,7 +1222,7 @@ function active_price_items(): array
         [1]
     );
 
-    return $statement->fetchAll();
+    return array_map('normalize_quote_price_item', $statement->fetchAll());
 }
 
 function all_price_items(): array
@@ -1142,7 +1232,7 @@ function all_price_items(): array
          ORDER BY `sort_order` ASC, `category` ASC, `id` ASC'
     );
 
-    return $statement->fetchAll();
+    return array_map('normalize_quote_price_item', $statement->fetchAll());
 }
 
 function save_price_item(array $data, ?int $id = null): void
@@ -1218,7 +1308,7 @@ function collect_quote_lines(array $source): array
 
         $lines[] = quote_line_from_values(
             (int) $item['id'],
-            (string) $item['category'],
+            quote_effective_category((string) $item['category'], (string) $item['name']),
             (string) $item['name'],
             (string) $item['unit'],
             $quantity,
@@ -2297,6 +2387,23 @@ function send_connection_request_status_change_email(int $requestId, string $pre
             ],
         ],
     ];
+
+    if ($nextStage === 'under_construction') {
+        $dueBreakdown = connection_request_electrician_due_breakdown($requestId);
+
+        if ((float) ($dueBreakdown['total'] ?? 0) > 0) {
+            $sections[] = [
+                'title' => 'Kivitelezés napján fizetendő összeg',
+                'rows' => [
+                    ['label' => 'Regisztrált villanyszerelői tételek', 'value' => format_money((float) ($dueBreakdown['registered'] ?? 0))],
+                    ['label' => 'Villanyszerelői szakmunkás tételek', 'value' => format_money((float) ($dueBreakdown['specialist'] ?? 0))],
+                    ['label' => 'Összesen a szerelő részére', 'value' => format_money((float) ($dueBreakdown['total'] ?? 0))],
+                    ['label' => 'Fontos', 'value' => 'Ez az összeg nem tartalmazza az MVM-nek fizetendő díjakat és az ügykezelési díjat.'],
+                ],
+            ];
+        }
+    }
+
     $actions = [
         ['label' => 'Ügyfélportál megnyitása', 'url' => absolute_url('/customer/work-requests')],
     ];
@@ -2310,7 +2417,9 @@ function send_connection_request_status_change_email(int $requestId, string $pre
         $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
         $mail->Subject = $subject;
         $emailTitle = 'Státuszváltozás történt';
-        $emailLead = 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
+        $emailLead = $nextStage === 'under_construction'
+            ? 'A munka kivitelezési szakaszba lépett. Az alábbi összefoglalóban látod, mennyi pénzt készíts elő a kivitelezés napjára. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.'
+            : 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
         apply_branded_email(
             $mail,
             $emailTitle,
@@ -2846,7 +2955,7 @@ function quote_pdf_html(array $quote, array $lines): string
     $activePriceItemIds = [];
 
     foreach ($catalogItems as $item) {
-        $category = quote_normalize_category((string) $item['category']);
+        $category = quote_effective_category((string) $item['category'], (string) $item['name']);
         $catalogBySection[$category][] = $item;
         $activePriceItemIds[(int) $item['id']] = true;
     }
@@ -2862,7 +2971,7 @@ function quote_pdf_html(array $quote, array $lines): string
             continue;
         }
 
-        $category = quote_normalize_category((string) ($line['category'] ?? ''));
+        $category = quote_effective_category((string) ($line['category'] ?? ''), (string) ($line['name'] ?? ''));
         $customLinesBySection[$category][] = $line;
     }
 
@@ -2960,7 +3069,7 @@ function quote_pdf_html(array $quote, array $lines): string
                 <p class="notice">A fenti díjról a szolgáltató csekket küld!</p>
             <?php endif; ?>
 
-            <?php if ($category === 'MVM Partneri tevékenységek'): ?>
+            <?php if ($category === 'Regisztrált villanyszerelői tételek'): ?>
                 <div class="notice">
                     <p>A "Mért elmenő oldal felülvizsgálata, átalakítása" tétel abban az esetben fizetendő, amennyiben NEM a cégünk munkatársa építi ki a mért elmenőt.</p>
                     <p>Amennyiben NEM cégünk munkatársa végzi a Mért elmenő kiépítését, viszont az Ön villanyszerelője a helyszínen tartózkodik a mérőhelyi munkálatok során, abban az esetben a "Mért elmenő oldal felülvizsgálata, átalakítása" tétel nem kerül kiszámlázásra.</p>
@@ -2980,8 +3089,8 @@ function quote_pdf_html(array $quote, array $lines): string
         <div class="notice">
             <strong>Kivitelezés napján esedékes tételek:</strong>
             <ul>
-                <li>MVM Partneri tevékenységek után fizetendő tételek</li>
-                <li>Villanyszerelői munkák után fizetendő tételek</li>
+                <li>Regisztrált villanyszerelői tételek</li>
+                <li>Villanyszerelői szakmunkás tételek</li>
             </ul>
         </div>
 
@@ -3039,6 +3148,28 @@ function quote_fee_request_selected_lines(array $lines): array
 
         if ((float) ($line['quantity'] ?? 0) <= 0 || (float) ($line['line_gross'] ?? 0) <= 0) {
             continue;
+        }
+
+        if ($name === 'Kiszállási díjak, ügyintézés, kezelési díjak') {
+            $line = quote_line_from_values(
+                isset($line['price_item_id']) ? (int) $line['price_item_id'] : null,
+                'Ügykezelési díjak',
+                $name,
+                (string) ($line['unit'] ?? 'db'),
+                1,
+                86000.0,
+                (float) ($line['vat_rate'] ?? 27)
+            );
+        } elseif ($name === 'Egyszerű ügyintézési díj') {
+            $line = quote_line_from_values(
+                isset($line['price_item_id']) ? (int) $line['price_item_id'] : null,
+                'Ügykezelési díjak',
+                $name,
+                (string) ($line['unit'] ?? 'db'),
+                1,
+                50000.0,
+                (float) ($line['vat_rate'] ?? 27)
+            );
         }
 
         $selectedLines[] = $line;
@@ -3134,7 +3265,7 @@ function service_fee_request_line(string $feeType): ?array
 
     return [
         'price_item_id' => null,
-        'category' => 'MVM Partneri tevékenységek',
+        'category' => 'Ügykezelési díjak',
         'name' => (string) $option['name'],
         'unit' => 'db',
         'quantity' => 1,
@@ -4135,6 +4266,7 @@ function send_electrician_assignment_email(int $requestId, int $electricianUserI
     }
 
     $subject = APP_NAME . ' új szerelői munka - ' . $request['project_name'];
+    $dueBreakdown = connection_request_electrician_due_breakdown($requestId);
     $sections = [
         [
             'title' => 'Kiadott munka',
@@ -4147,6 +4279,18 @@ function send_electrician_assignment_email(int $requestId, int $electricianUserI
             ],
         ],
     ];
+
+    if ((float) ($dueBreakdown['total'] ?? 0) > 0) {
+        $sections[] = [
+            'title' => 'Kivitelezéskor beszedendő összeg',
+            'rows' => [
+                ['label' => 'Regisztrált villanyszerelői tételek', 'value' => format_money((float) ($dueBreakdown['registered'] ?? 0))],
+                ['label' => 'Villanyszerelői szakmunkás tételek', 'value' => format_money((float) ($dueBreakdown['specialist'] ?? 0))],
+                ['label' => 'Összesen', 'value' => format_money((float) ($dueBreakdown['total'] ?? 0))],
+            ],
+        ];
+    }
+
     $actions = [
         ['label' => 'Munka megnyitása', 'url' => absolute_url('/electrician/work-request?id=' . $requestId)],
     ];
@@ -10188,6 +10332,7 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
             ],
         ],
     ];
+
     $actions = [
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
