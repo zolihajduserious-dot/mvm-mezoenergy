@@ -9972,6 +9972,10 @@ function minicrm_import_schema_errors(): array
         $errors[] = 'Hiányzik a minicrm_work_item_files tábla.';
     }
 
+    if (!db_table_exists('minicrm_customer_profiles')) {
+        $errors[] = 'Hianyzik a minicrm_customer_profiles tabla.';
+    }
+
     return $errors;
 }
 
@@ -10680,6 +10684,203 @@ function minicrm_import_uploads(array $files): array
     ];
 }
 
+function minicrm_customer_profile_date_value(mixed $value): string
+{
+    if ($value instanceof DateTimeInterface) {
+        return $value->format('Y-m-d');
+    }
+
+    if (is_numeric($value) && (float) $value > 20000 && class_exists('\\PhpOffice\\PhpSpreadsheet\\Shared\\Date')) {
+        try {
+            return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+        } catch (Throwable) {
+            return minicrm_import_clean($value);
+        }
+    }
+
+    return minicrm_import_clean($value);
+}
+
+function minicrm_customer_profile_project_id(string $url): string
+{
+    preg_match('~/Project-\d+/(\d+)(?:/|$)~i', $url, $matches);
+
+    return (string) ($matches[1] ?? '');
+}
+
+function minicrm_customer_profile_row_data(array $headers, array $values): array
+{
+    $cardUrl = minicrm_import_value_by_labels($headers, $values, ['Adatlap Url']);
+
+    return [
+        'source_id' => substr(minicrm_import_value_by_labels($headers, $values, ['Azonosito']), 0, 80),
+        'project_id' => minicrm_customer_profile_project_id($cardUrl),
+        'card_name' => minicrm_import_value_by_labels($headers, $values, ['Nev']),
+        'responsible' => minicrm_import_value_by_labels($headers, $values, ['Felelos']),
+        'minicrm_status' => minicrm_import_value_by_labels($headers, $values, ['Statusz']),
+        'status_group' => minicrm_import_value_by_labels($headers, $values, ['Statuszcsoport']),
+        'status_updated_at' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Statusz utoljara modositva'])),
+        'visibility' => minicrm_import_value_by_labels($headers, $values, ['Lathatosag']),
+        'created_by_name' => minicrm_import_value_by_labels($headers, $values, ['Rogzito neve']),
+        'created_date' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Rogzites datuma'])),
+        'modified_by_name' => minicrm_import_value_by_labels($headers, $values, ['Modosito neve']),
+        'modified_date' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Modositas datuma'])),
+        'card_url' => $cardUrl,
+        'minicrm_imported_at' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Importalas datuma'])),
+        'raw_payload' => minicrm_import_json(minicrm_import_payload($headers, $values)),
+    ];
+}
+
+function minicrm_customer_profile_customer_id(array $data): ?int
+{
+    $sourceId = trim((string) ($data['source_id'] ?? ''));
+
+    if ($sourceId !== '' && db_table_exists('minicrm_connection_request_links')) {
+        $customerId = db_query(
+            'SELECT `customer_id` FROM `minicrm_connection_request_links` WHERE `source_id` = ? LIMIT 1',
+            [$sourceId]
+        )->fetchColumn();
+
+        if ($customerId !== false && (int) $customerId > 0) {
+            return (int) $customerId;
+        }
+
+        $linkedCustomerId = db_query(
+            'SELECT l.`customer_id`
+             FROM `minicrm_work_items` w
+             INNER JOIN `minicrm_connection_request_links` l ON l.`work_item_id` = w.`id`
+             WHERE w.`source_id` = ?
+             LIMIT 1',
+            [$sourceId]
+        )->fetchColumn();
+
+        if ($linkedCustomerId !== false && (int) $linkedCustomerId > 0) {
+            return (int) $linkedCustomerId;
+        }
+    }
+
+    $projectId = trim((string) ($data['project_id'] ?? ''));
+
+    if ($projectId !== '' && db_table_exists('minicrm_connection_request_links')) {
+        $projectMap = minicrm_project_work_map();
+        $work = $projectMap[$projectId] ?? null;
+
+        if (is_array($work)) {
+            $customerId = db_query(
+                'SELECT `customer_id` FROM `minicrm_connection_request_links` WHERE `work_item_id` = ? LIMIT 1',
+                [(int) $work['id']]
+            )->fetchColumn();
+
+            if ($customerId !== false && (int) $customerId > 0) {
+                return (int) $customerId;
+            }
+        }
+    }
+
+    $profileNameKey = minicrm_import_key((string) ($data['card_name'] ?? ''));
+
+    if ($profileNameKey === '') {
+        return null;
+    }
+
+    static $customers = null;
+
+    if ($customers === null) {
+        $customers = all_customers();
+    }
+
+    foreach ($customers as $customer) {
+        $customerKey = minicrm_import_key((string) ($customer['requester_name'] ?? ''));
+
+        if ($customerKey === '') {
+            continue;
+        }
+
+        if ($profileNameKey === $customerKey || (strlen($customerKey) >= 8 && str_starts_with($profileNameKey, $customerKey))) {
+            return (int) $customer['id'];
+        }
+    }
+
+    return null;
+}
+
+function minicrm_customer_profile_upload(array $file): array
+{
+    if (minicrm_import_schema_errors() !== []) {
+        return ['ok' => false, 'message' => 'Elobb hozd letre/frissitsd a MiniCRM import tablakat.'];
+    }
+
+    if (!class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
+        return ['ok' => false, 'message' => 'A PhpSpreadsheet nincs telepitve, ezert az Excel import nem futtathato.'];
+    }
+
+    if (!uploaded_file_is_present($file)) {
+        return ['ok' => false, 'message' => 'Valassz ki egy MiniCRM ugyfeladat Excel fajlt.'];
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'message' => 'A fajl feltoltese sikertelen.'];
+    }
+
+    $originalName = (string) ($file['name'] ?? 'minicrm-customer-profiles.xlsx');
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    if (!in_array($extension, ['xls', 'xlsx'], true)) {
+        return ['ok' => false, 'message' => 'Csak XLS vagy XLSX fajl importalhato.'];
+    }
+
+    return import_minicrm_customer_profile_workbook((string) $file['tmp_name'], $originalName);
+}
+
+function minicrm_customer_profile_uploads(array $files): array
+{
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(300);
+    }
+
+    $uploadedFiles = array_values(array_filter(
+        uploaded_files_for_key($files, 'minicrm_customer_profile_files'),
+        static fn (?array $file): bool => uploaded_file_is_present($file)
+    ));
+
+    if ($uploadedFiles === []) {
+        return ['ok' => false, 'message' => 'Valassz ki legalabb egy MiniCRM ugyfeladat Excel fajlt.'];
+    }
+
+    $totals = ['files' => 0, 'rows' => 0, 'imported' => 0, 'updated' => 0, 'matched' => 0, 'unmatched' => 0, 'skipped' => 0, 'errors' => 0];
+    $failed = [];
+
+    foreach ($uploadedFiles as $file) {
+        $result = minicrm_customer_profile_upload($file);
+        $originalName = (string) ($file['name'] ?? 'MiniCRM ugyfeladat Excel');
+
+        if (!($result['ok'] ?? false)) {
+            $failed[] = $originalName . ': ' . (string) ($result['message'] ?? 'sikertelen import');
+            continue;
+        }
+
+        foreach (array_keys($totals) as $key) {
+            $totals[$key] += (int) ($result[$key] ?? 0);
+        }
+
+        $totals['files']++;
+    }
+
+    if ($totals['files'] === 0) {
+        return ['ok' => false, 'message' => implode(' ', $failed)];
+    }
+
+    $message = 'MiniCRM ugyfeladat import kesz: ' . $totals['files'] . ' fajl, ' . $totals['rows'] . ' sor, '
+        . $totals['imported'] . ' uj, ' . $totals['updated'] . ' frissitett, '
+        . $totals['matched'] . ' ugyfelhez rendelve, ' . $totals['unmatched'] . ' parositatlan.';
+
+    if ($failed !== []) {
+        $message .= ' Nem importalt fajlok: ' . implode(' ', $failed);
+    }
+
+    return array_merge(['ok' => true, 'message' => $message, 'failed' => $failed], $totals);
+}
+
 function minicrm_import_schema_sql(): string
 {
     return <<<'SQL'
@@ -10783,6 +10984,35 @@ CREATE TABLE IF NOT EXISTS `minicrm_connection_request_links` (
     KEY `idx_minicrm_connection_links_source_id` (`source_id`),
     KEY `idx_minicrm_connection_links_customer` (`customer_id`),
     KEY `idx_minicrm_connection_links_request` (`connection_request_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `source_id` VARCHAR(80) NOT NULL,
+    `customer_id` INT UNSIGNED NULL,
+    `project_id` VARCHAR(40) DEFAULT NULL,
+    `card_name` VARCHAR(255) DEFAULT NULL,
+    `responsible` VARCHAR(160) DEFAULT NULL,
+    `minicrm_status` VARCHAR(120) DEFAULT NULL,
+    `status_group` VARCHAR(160) DEFAULT NULL,
+    `status_updated_at` VARCHAR(60) DEFAULT NULL,
+    `visibility` VARCHAR(60) DEFAULT NULL,
+    `created_by_name` VARCHAR(160) DEFAULT NULL,
+    `created_date` VARCHAR(60) DEFAULT NULL,
+    `modified_by_name` VARCHAR(160) DEFAULT NULL,
+    `modified_date` VARCHAR(60) DEFAULT NULL,
+    `card_url` VARCHAR(500) DEFAULT NULL,
+    `minicrm_imported_at` VARCHAR(60) DEFAULT NULL,
+    `raw_payload` LONGTEXT DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_customer_profiles_source_id` (`source_id`),
+    KEY `idx_minicrm_customer_profiles_customer` (`customer_id`),
+    KEY `idx_minicrm_customer_profiles_project` (`project_id`),
+    KEY `idx_minicrm_customer_profiles_status` (`minicrm_status`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
@@ -10969,6 +11199,139 @@ function import_minicrm_workbook(string $path, string $originalName): array
         $spreadsheet->disconnectWorksheets();
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM import sikertelen.'];
+    }
+}
+
+function import_minicrm_customer_profile_workbook(string $path, string $originalName): array
+{
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    $readerType = $extension === 'xls' ? 'Xls' : 'Xlsx';
+    $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader($readerType);
+    $reader->setReadDataOnly(true);
+    $spreadsheet = $reader->load($path);
+    $sheet = $spreadsheet->getActiveSheet();
+    $highestRow = $sheet->getHighestDataRow();
+    $highestColumn = $sheet->getHighestDataColumn();
+
+    if ($highestRow < 2) {
+        $spreadsheet->disconnectWorksheets();
+
+        return ['ok' => false, 'message' => 'Az Excel nem tartalmaz importalhato sort.'];
+    }
+
+    $headers = $sheet->rangeToArray('A1:' . $highestColumn . '1', null, true, true, false)[0];
+    $columns = [
+        'source_id',
+        'customer_id',
+        'project_id',
+        'card_name',
+        'responsible',
+        'minicrm_status',
+        'status_group',
+        'status_updated_at',
+        'visibility',
+        'created_by_name',
+        'created_date',
+        'modified_by_name',
+        'modified_date',
+        'card_url',
+        'minicrm_imported_at',
+        'raw_payload',
+    ];
+    $updates = array_values(array_filter($columns, static fn (string $column): bool => $column !== 'source_id'));
+    $sql = 'INSERT INTO `minicrm_customer_profiles` (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
+        . ' ON DUPLICATE KEY UPDATE '
+        . implode(', ', array_map(static fn (string $column): string => '`' . $column . '` = VALUES(`' . $column . '`)', $updates))
+        . ', `updated_at` = CURRENT_TIMESTAMP';
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    $rowCount = 0;
+    $importedCount = 0;
+    $updatedCount = 0;
+    $matchedCount = 0;
+    $unmatchedCount = 0;
+    $skippedCount = 0;
+    $errorCount = 0;
+
+    try {
+        for ($rowNumber = 2; $rowNumber <= $highestRow; $rowNumber++) {
+            $values = $sheet->rangeToArray('A' . $rowNumber . ':' . $highestColumn . $rowNumber, null, true, true, false)[0];
+
+            if (implode('', array_map(static fn (mixed $value): string => trim((string) $value), $values)) === '') {
+                continue;
+            }
+
+            $rowCount++;
+
+            try {
+                $data = minicrm_customer_profile_row_data($headers, $values);
+
+                if ($data['source_id'] === '') {
+                    $skippedCount++;
+                    continue;
+                }
+
+                $existingId = db_query(
+                    'SELECT `id` FROM `minicrm_customer_profiles` WHERE `source_id` = ? LIMIT 1',
+                    [$data['source_id']]
+                )->fetchColumn();
+                $customerId = minicrm_customer_profile_customer_id($data);
+                $data['customer_id'] = $customerId;
+
+                if ($customerId !== null) {
+                    $matchedCount++;
+                } else {
+                    $unmatchedCount++;
+                }
+
+                $params = [];
+
+                foreach ($columns as $column) {
+                    if ($column === 'customer_id') {
+                        $params[] = $data[$column] !== null ? (int) $data[$column] : null;
+                    } elseif (in_array($column, ['source_id', 'raw_payload'], true)) {
+                        $params[] = $data[$column];
+                    } else {
+                        $params[] = minicrm_import_nullable((string) ($data[$column] ?? ''));
+                    }
+                }
+
+                db_query($sql, $params);
+
+                if ($existingId !== false) {
+                    $updatedCount++;
+                } else {
+                    $importedCount++;
+                }
+            } catch (Throwable) {
+                $errorCount++;
+            }
+        }
+
+        $pdo->commit();
+        $spreadsheet->disconnectWorksheets();
+
+        return [
+            'ok' => true,
+            'message' => 'MiniCRM ugyfeladat import kesz: ' . $importedCount . ' uj, ' . $updatedCount . ' frissitett, '
+                . $matchedCount . ' ugyfelhez rendelve, ' . $unmatchedCount . ' parositatlan.',
+            'rows' => $rowCount,
+            'imported' => $importedCount,
+            'updated' => $updatedCount,
+            'matched' => $matchedCount,
+            'unmatched' => $unmatchedCount,
+            'skipped' => $skippedCount,
+            'errors' => $errorCount,
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        $spreadsheet->disconnectWorksheets();
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM ugyfeladat import sikertelen.'];
     }
 }
 
@@ -12385,6 +12748,48 @@ function minicrm_work_item_count(): int
     }
 
     return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn();
+}
+
+function minicrm_customer_profiles_for_customer(int $customerId): array
+{
+    if ($customerId <= 0 || !db_table_exists('minicrm_customer_profiles')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT *
+         FROM `minicrm_customer_profiles`
+         WHERE `customer_id` = ?
+         ORDER BY COALESCE(`modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC',
+        [$customerId]
+    )->fetchAll();
+}
+
+function minicrm_customer_profile_raw_fields(array $profile): array
+{
+    $decoded = json_decode((string) ($profile['raw_payload'] ?? '{}'), true);
+    $columns = is_array($decoded) && is_array($decoded['columns'] ?? null) ? $decoded['columns'] : [];
+    $fields = [];
+
+    foreach ($columns as $position => $column) {
+        if (!is_array($column)) {
+            continue;
+        }
+
+        $label = minicrm_import_header_label((string) ($column['header'] ?? ('Oszlop ' . ($position + 1))));
+        $value = minicrm_import_clean_field_value($column['value'] ?? '');
+
+        if ($label === '' || $value === '') {
+            continue;
+        }
+
+        $fields[] = [
+            'label' => $label,
+            'value' => $value,
+        ];
+    }
+
+    return $fields;
 }
 
 function minicrm_work_item_file_count(): int

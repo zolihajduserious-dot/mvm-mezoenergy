@@ -37,6 +37,20 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_document_zip') {
     redirect('/admin/minicrm-import');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_customer_profiles') {
+    require_valid_csrf_token();
+
+    $result = minicrm_customer_profile_uploads($_FILES);
+
+    if ($result['ok'] ?? false) {
+        set_flash('success', (string) $result['message']);
+    } else {
+        set_flash('error', (string) ($result['message'] ?? 'A MiniCRM ugyfeladat import sikertelen.'));
+    }
+
+    redirect('/admin/minicrm-import');
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
     require_valid_csrf_token();
 
@@ -338,6 +352,17 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                     <input type="hidden" name="action" value="assign_minicrm_electricians">
                     <button class="button button-secondary" type="submit" <?= ($schemaErrors !== [] || $electricianSchemaErrors !== [] || $totalItems === 0) ? 'disabled' : ''; ?>>Munk&#225;k sz&#233;toszt&#225;sa szerel&#337;knek</button>
                     <p class="muted-text">A MiniCRM szerel&#337;i mez&#337;j&#233;ben szerepl&#337; n&#233;v alapj&#225;n a rendszer megkeresi az akt&#237;v szerel&#337;i fi&#243;kot, &#233;s a munk&#225;t kiadja neki.</p>
+                </form>
+            </section>
+            <section class="auth-panel" data-minicrm-panel="import">
+                <h2>&#220;gyf&#233;l adatlap import</h2>
+                <p class="muted-text">Az adatlap-exportot MiniCRM azonos&#237;t&#243;, adatlap URL &#233;s n&#233;v alapj&#225;n hozz&#225;rendelj&#252;k a m&#225;r l&#233;tez&#337; &#252;gyfelekhez, majd k&#252;l&#246;n blokkban megjelen&#237;tj&#252;k az &#252;gyf&#233;lkartonon.</p>
+                <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import')); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="import_minicrm_customer_profiles">
+                    <label for="minicrm_customer_profile_files">MiniCRM &#252;gyf&#233;l adatlap XLSX/XLS</label>
+                    <input id="minicrm_customer_profile_files" name="minicrm_customer_profile_files[]" type="file" multiple accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : 'required'; ?>>
+                    <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : ''; ?>>&#220;gyf&#233;l adatok import&#225;l&#225;sa</button>
                 </form>
             </section>
             <section class="auth-panel" id="minicrm-documents" data-minicrm-panel="documents">

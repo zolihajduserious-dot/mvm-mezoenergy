@@ -101,3 +101,32 @@ CREATE TABLE IF NOT EXISTS `minicrm_connection_request_links` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `source_id` VARCHAR(80) NOT NULL,
+    `customer_id` INT UNSIGNED NULL,
+    `project_id` VARCHAR(40) DEFAULT NULL,
+    `card_name` VARCHAR(255) DEFAULT NULL,
+    `responsible` VARCHAR(160) DEFAULT NULL,
+    `minicrm_status` VARCHAR(120) DEFAULT NULL,
+    `status_group` VARCHAR(160) DEFAULT NULL,
+    `status_updated_at` VARCHAR(60) DEFAULT NULL,
+    `visibility` VARCHAR(60) DEFAULT NULL,
+    `created_by_name` VARCHAR(160) DEFAULT NULL,
+    `created_date` VARCHAR(60) DEFAULT NULL,
+    `modified_by_name` VARCHAR(160) DEFAULT NULL,
+    `modified_date` VARCHAR(60) DEFAULT NULL,
+    `card_url` VARCHAR(500) DEFAULT NULL,
+    `minicrm_imported_at` VARCHAR(60) DEFAULT NULL,
+    `raw_payload` LONGTEXT DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_minicrm_customer_profiles_source_id` (`source_id`),
+    KEY `idx_minicrm_customer_profiles_customer` (`customer_id`),
+    KEY `idx_minicrm_customer_profiles_project` (`project_id`),
+    KEY `idx_minicrm_customer_profiles_status` (`minicrm_status`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;

@@ -7,6 +7,7 @@ $flash = get_flash();
 $customers = [];
 $requestsByCustomer = [];
 $requestContexts = [];
+$minicrmProfilesByCustomer = [];
 $customerSaveErrors = [];
 $requestStatusLabels = connection_request_status_labels();
 $quoteStatusLabels = quote_status_labels();
@@ -79,6 +80,7 @@ try {
         $customerId = (int) $customer['id'];
         $customerRequests = connection_requests_for_customer($customerId);
         $requestsByCustomer[$customerId] = $customerRequests;
+        $minicrmProfilesByCustomer[$customerId] = minicrm_customer_profiles_for_customer($customerId);
 
         foreach ($customerRequests as $request) {
             $requestId = (int) $request['id'];
@@ -356,6 +358,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                             }
                                             $timelineEvents = customer_crm_timeline_events($customer, $customerRequests, $requestContexts);
                                             $customerForm = normalize_customer_data($customer);
+                                            $minicrmProfiles = $minicrmProfilesByCustomer[$customerId] ?? [];
                                             ?>
                                             <article class="request-admin-card minicrm-work-card customer-crm-card">
                                                 <div class="request-admin-card-head">
@@ -410,6 +413,56 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                     </li>
                                                                 <?php endforeach; ?>
                                                             </ol>
+                                                        </section>
+
+                                                        <section class="minicrm-document-preview-panel customer-crm-minicrm-profile">
+                                                            <div class="admin-request-section-title">
+                                                                <h3>MiniCRM &#252;gyf&#233;l adatlap</h3>
+                                                                <span><?= count($minicrmProfiles); ?> adatlap</span>
+                                                            </div>
+                                                            <?php if ($minicrmProfiles === []): ?>
+                                                                <p class="request-admin-empty">Ehhez az &#252;gyf&#233;lhez m&#233;g nincs import&#225;lt MiniCRM &#252;gyf&#233;l adatlap.</p>
+                                                            <?php else: ?>
+                                                                <div class="minicrm-readable-groups">
+                                                                    <?php foreach ($minicrmProfiles as $profile): ?>
+                                                                        <?php
+                                                                        $profileFields = minicrm_customer_profile_raw_fields($profile);
+                                                                        $profileTitle = trim((string) ($profile['card_name'] ?? '')) ?: 'MiniCRM adatlap';
+                                                                        ?>
+                                                                        <details class="minicrm-field-group" open>
+                                                                            <summary>
+                                                                                <strong><?= h($profileTitle); ?></strong>
+                                                                                <span><?= h((string) ($profile['source_id'] ?? '')); ?></span>
+                                                                            </summary>
+                                                                            <div class="minicrm-readable-grid">
+                                                                                <div class="minicrm-readable-row"><span>MiniCRM azonos&#237;t&#243;</span><strong><?= h((string) ($profile['source_id'] ?? '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Projekt ID</span><strong><?= h((string) ($profile['project_id'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Felel&#337;s</span><strong><?= h((string) ($profile['responsible'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz</span><strong><?= h((string) ($profile['minicrm_status'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tuszcsoport</span><strong><?= h((string) ($profile['status_group'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz m&#243;dos&#237;tva</span><strong><?= h((string) ($profile['status_updated_at'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>R&#246;gz&#237;t&#337;</span><strong><?= h((string) ($profile['created_by_name'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>R&#246;gz&#237;t&#233;s d&#225;tuma</span><strong><?= h((string) ($profile['created_date'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>M&#243;dos&#237;t&#243;</span><strong><?= h((string) ($profile['modified_by_name'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>M&#243;dos&#237;t&#225;s d&#225;tuma</span><strong><?= h((string) ($profile['modified_date'] ?: '-')); ?></strong></div>
+                                                                                <?php if (trim((string) ($profile['card_url'] ?? '')) !== ''): ?>
+                                                                                    <div class="minicrm-readable-row customer-crm-wide"><span>MiniCRM link</span><strong><a href="<?= h((string) $profile['card_url']); ?>" target="_blank" rel="noopener">Adatlap megnyit&#225;sa</a></strong></div>
+                                                                                <?php endif; ?>
+                                                                            </div>
+                                                                            <?php if ($profileFields !== []): ?>
+                                                                                <details class="minicrm-field-group">
+                                                                                    <summary><strong>Nyers import mez&#337;k</strong><span><?= count($profileFields); ?> mez&#337;</span></summary>
+                                                                                    <div class="minicrm-readable-grid">
+                                                                                        <?php foreach ($profileFields as $field): ?>
+                                                                                            <div class="minicrm-readable-row"><span><?= h((string) $field['label']); ?></span><strong><?= h((string) $field['value']); ?></strong></div>
+                                                                                        <?php endforeach; ?>
+                                                                                    </div>
+                                                                                </details>
+                                                                            <?php endif; ?>
+                                                                        </details>
+                                                                    <?php endforeach; ?>
+                                                                </div>
+                                                            <?php endif; ?>
                                                         </section>
 
                                                         <form class="minicrm-readable-groups minicrm-field-groups customer-crm-edit-form" method="post" action="<?= h(url_path('/admin/customers') . '?customer=' . $customerId . '#customer-' . $customerId); ?>">
