@@ -5576,11 +5576,11 @@ function mvm_fetch_imap_message_bodies($imap, int $uid): array
 {
     $plain = '';
     $html = '';
-    $structure = @imap_fetchstructure($imap, (string) $uid, FT_UID);
+    $structure = @imap_fetchstructure($imap, $uid, FT_UID);
 
     if (is_object($structure)) {
         foreach (mvm_imap_collect_body_parts($structure) as $part) {
-            $body = @imap_fetchbody($imap, (string) $uid, (string) $part['part'], FT_UID | FT_PEEK);
+            $body = @imap_fetchbody($imap, $uid, (string) $part['part'], FT_UID | FT_PEEK);
 
             if (!is_string($body) || $body === '') {
                 continue;
@@ -5597,7 +5597,7 @@ function mvm_fetch_imap_message_bodies($imap, int $uid): array
     }
 
     if ($plain === '' && $html === '') {
-        $body = @imap_body($imap, (string) $uid, FT_UID | FT_PEEK);
+        $body = @imap_body($imap, $uid, FT_UID | FT_PEEK);
         $plain = is_string($body) ? $body : '';
     }
 
@@ -5690,14 +5690,15 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
                 continue;
             }
 
-            $overview = @imap_fetch_overview($imap, (string) $uid, FT_UID);
+            $uid = (int) $uid;
+            $overview = @imap_fetch_overview($imap, $uid, FT_UID);
             $overviewItem = is_array($overview) && isset($overview[0]) ? $overview[0] : null;
             $subject = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->subject ?? '')) : '';
             $from = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->from ?? '')) : '';
             $to = is_object($overviewItem) ? mvm_decode_mime_header((string) ($overviewItem->to ?? '')) : '';
             $messageId = is_object($overviewItem) ? trim((string) ($overviewItem->message_id ?? '')) : '';
             $date = is_object($overviewItem) ? trim((string) ($overviewItem->date ?? '')) : '';
-            $headers = @imap_fetchheader($imap, (string) $uid, FT_UID | FT_PEEK);
+            $headers = @imap_fetchheader($imap, $uid, FT_UID | FT_PEEK);
             $headers = is_string($headers) ? $headers : '';
             $bodies = mvm_fetch_imap_message_bodies($imap, (int) $uid);
             $thread = mvm_find_email_thread_for_message($subject, $bodies['plain'] . "\n" . $bodies['html'], $headers);
