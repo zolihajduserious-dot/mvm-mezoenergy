@@ -41,6 +41,12 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_customer_profiles'
     require_valid_csrf_token();
 
     $result = minicrm_customer_profile_uploads($_FILES);
+    $redirectPath = '/admin/minicrm-import';
+    $redirectItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
+
+    if ($redirectItemId > 0) {
+        $redirectPath .= '?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId;
+    }
 
     if ($result['ok'] ?? false) {
         set_flash('success', (string) $result['message']);
@@ -48,7 +54,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'import_minicrm_customer_profiles'
         set_flash('error', (string) ($result['message'] ?? 'A MiniCRM ugyfeladat import sikertelen.'));
     }
 
-    redirect('/admin/minicrm-import');
+    redirect($redirectPath);
 }
 
 if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
@@ -305,6 +311,22 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
     }
 
     return array_slice($events, 0, 14);
+}
+
+function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaErrors, array $deps): void
+{
+    ?>
+    <form class="form minicrm-inline-import-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId); ?>">
+        <?= csrf_field(); ?>
+        <input type="hidden" name="action" value="import_minicrm_customer_profiles">
+        <label for="minicrm_customer_profile_inline_<?= $itemId; ?>">B&#337;v&#237;tett &#252;gyf&#233;l adatlap Excel felt&#246;lt&#233;se</label>
+        <div>
+            <input id="minicrm_customer_profile_inline_<?= $itemId; ?>" name="minicrm_customer_profile_files[]" type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : 'required'; ?>>
+            <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : ''; ?>>Kontaktadatok import&#225;l&#225;sa</button>
+        </div>
+        <p class="muted-text">Ezt a teljes b&#337;v&#237;tett &#252;gyf&#233;ladat exportot egyszer kell felt&#246;lteni, nem munk&#225;nk&#233;nt. Az import minden MiniCRM azonos&#237;t&#243;hoz p&#225;ros&#237;tja az emailt &#233;s telefonsz&#225;mot.</p>
+    </form>
+    <?php
 }
 ?>
 <section class="admin-section minicrm-import-page">
@@ -660,22 +682,14 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                 </div>
                                                 <?php if ($customerProfile === null): ?>
                                                     <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs import&#225;lt MiniCRM &#252;gyf&#233;l adatlap. T&#246;ltsd fel a b&#337;v&#237;tett &#252;gyf&#233;l adatlap exportot az Import&#225;l&#225;s f&#252;l&#246;n.</p>
+                                                    <?php minicrm_customer_profile_inline_import_form($itemId, $schemaErrors, $deps); ?>
                                                 <?php elseif (!$profileHasContact): ?>
                                                     <p class="request-admin-empty">Ehhez a MiniCRM azonos&#237;t&#243;hoz van &#252;gyf&#233;l adatlap, de nincs benne Szem&#233;ly1: Email vagy Szem&#233;ly1: Telefon. A 13 oszlopos Custom export nem tartalmaz kontaktadatot; a b&#337;v&#237;tett &#252;gyf&#233;l adatlap exportot kell felt&#246;lteni.</p>
                                                     <div class="minicrm-readable-grid">
                                                         <div class="minicrm-readable-row"><span>MiniCRM azonos&#237;t&#243;</span><strong><?= h((string) ($item['source_id'] ?? '-')); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>&#220;gyf&#233;l adatlap sor</span><strong><?= h((string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
                                                     </div>
-                                                    <form class="form minicrm-inline-import-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId); ?>">
-                                                        <?= csrf_field(); ?>
-                                                        <input type="hidden" name="action" value="import_minicrm_customer_profiles">
-                                                        <label for="minicrm_customer_profile_inline_<?= $itemId; ?>">B&#337;v&#237;tett &#252;gyf&#233;l adatlap Excel felt&#246;lt&#233;se</label>
-                                                        <div>
-                                                            <input id="minicrm_customer_profile_inline_<?= $itemId; ?>" name="minicrm_customer_profile_files[]" type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : 'required'; ?>>
-                                                            <button class="button" type="submit" <?= ($schemaErrors !== [] || !$deps['phpspreadsheet']) ? 'disabled' : ''; ?>>Kontaktadatok import&#225;l&#225;sa</button>
-                                                        </div>
-                                                        <p class="muted-text">A megfelel&#337; f&#225;jl neve: <strong>export-adatlapok-ugyfelekhez_2026-04-29_Custom b&#337;v&#237;tett.xlsx</strong>. Import ut&#225;n friss&#237;tsd meg ezt az adatlapot.</p>
-                                                    </form>
+                                                    <?php minicrm_customer_profile_inline_import_form($itemId, $schemaErrors, $deps); ?>
                                                 <?php else: ?>
                                                     <div class="minicrm-readable-grid">
                                                         <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
