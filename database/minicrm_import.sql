@@ -119,6 +119,20 @@ CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
     `modified_date` VARCHAR(60) DEFAULT NULL,
     `card_url` VARCHAR(500) DEFAULT NULL,
     `minicrm_imported_at` VARCHAR(60) DEFAULT NULL,
+    `person_type` VARCHAR(80) DEFAULT NULL,
+    `person_name` VARCHAR(190) DEFAULT NULL,
+    `person_first_name` VARCHAR(120) DEFAULT NULL,
+    `person_last_name` VARCHAR(120) DEFAULT NULL,
+    `person_email` VARCHAR(190) DEFAULT NULL,
+    `person_phone` VARCHAR(80) DEFAULT NULL,
+    `person_summary` TEXT DEFAULT NULL,
+    `person_created_by_name` VARCHAR(160) DEFAULT NULL,
+    `person_created_date` VARCHAR(60) DEFAULT NULL,
+    `person_modified_by_name` VARCHAR(160) DEFAULT NULL,
+    `person_modified_date` VARCHAR(60) DEFAULT NULL,
+    `person_position` VARCHAR(160) DEFAULT NULL,
+    `person_website` VARCHAR(255) DEFAULT NULL,
+    `person_consent` VARCHAR(120) DEFAULT NULL,
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -130,3 +144,19 @@ CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `minicrm_customer_profiles`
+    ADD COLUMN IF NOT EXISTS `person_type` VARCHAR(80) DEFAULT NULL AFTER `minicrm_imported_at`,
+    ADD COLUMN IF NOT EXISTS `person_name` VARCHAR(190) DEFAULT NULL AFTER `person_type`,
+    ADD COLUMN IF NOT EXISTS `person_first_name` VARCHAR(120) DEFAULT NULL AFTER `person_name`,
+    ADD COLUMN IF NOT EXISTS `person_last_name` VARCHAR(120) DEFAULT NULL AFTER `person_first_name`,
+    ADD COLUMN IF NOT EXISTS `person_email` VARCHAR(190) DEFAULT NULL AFTER `person_last_name`,
+    ADD COLUMN IF NOT EXISTS `person_phone` VARCHAR(80) DEFAULT NULL AFTER `person_email`,
+    ADD COLUMN IF NOT EXISTS `person_summary` TEXT DEFAULT NULL AFTER `person_phone`,
+    ADD COLUMN IF NOT EXISTS `person_created_by_name` VARCHAR(160) DEFAULT NULL AFTER `person_summary`,
+    ADD COLUMN IF NOT EXISTS `person_created_date` VARCHAR(60) DEFAULT NULL AFTER `person_created_by_name`,
+    ADD COLUMN IF NOT EXISTS `person_modified_by_name` VARCHAR(160) DEFAULT NULL AFTER `person_created_date`,
+    ADD COLUMN IF NOT EXISTS `person_modified_date` VARCHAR(60) DEFAULT NULL AFTER `person_modified_by_name`,
+    ADD COLUMN IF NOT EXISTS `person_position` VARCHAR(160) DEFAULT NULL AFTER `person_modified_date`,
+    ADD COLUMN IF NOT EXISTS `person_website` VARCHAR(255) DEFAULT NULL AFTER `person_position`,
+    ADD COLUMN IF NOT EXISTS `person_consent` VARCHAR(120) DEFAULT NULL AFTER `person_website`;

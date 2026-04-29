@@ -434,17 +434,42 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                 <strong><?= h($profileTitle); ?></strong>
                                                                                 <span><?= h((string) ($profile['source_id'] ?? '')); ?></span>
                                                                             </summary>
+                                                                            <div class="admin-request-section-title">
+                                                                                <h4>Szem&#233;ly / el&#233;rhet&#337;s&#233;g</h4>
+                                                                                <span><?= h((string) (($profile['person_type'] ?? '') ?: 'MiniCRM')); ?></span>
+                                                                            </div>
+                                                                            <div class="minicrm-readable-grid">
+                                                                                <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h((string) (($profile['person_name'] ?? '') ?: (($profile['card_name'] ?? '') ?: '-'))); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Vezet&#233;kn&#233;v</span><strong><?= h((string) (($profile['person_last_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Keresztn&#233;v</span><strong><?= h((string) (($profile['person_first_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Email</span><strong><?= h((string) (($profile['person_email'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h((string) (($profile['person_phone'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h((string) (($profile['person_position'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h((string) (($profile['person_website'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h((string) (($profile['person_consent'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <?php if (trim((string) ($profile['person_summary'] ?? '')) !== ''): ?>
+                                                                                    <div class="minicrm-readable-row customer-crm-wide"><span>&#214;sszefoglal&#243;</span><strong><?= h((string) ($profile['person_summary'] ?? '')); ?></strong></div>
+                                                                                <?php endif; ?>
+                                                                            </div>
+                                                                            <div class="admin-request-section-title">
+                                                                                <h4>MiniCRM adatlap</h4>
+                                                                                <span><?= h((string) (($profile['minicrm_status'] ?? '') ?: '-')); ?></span>
+                                                                            </div>
                                                                             <div class="minicrm-readable-grid">
                                                                                 <div class="minicrm-readable-row"><span>MiniCRM azonos&#237;t&#243;</span><strong><?= h((string) ($profile['source_id'] ?? '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>Projekt ID</span><strong><?= h((string) ($profile['project_id'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>Felel&#337;s</span><strong><?= h((string) ($profile['responsible'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz</span><strong><?= h((string) ($profile['minicrm_status'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>St&#225;tuszcsoport</span><strong><?= h((string) ($profile['status_group'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz m&#243;dos&#237;tva</span><strong><?= h((string) ($profile['status_updated_at'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>R&#246;gz&#237;t&#337;</span><strong><?= h((string) ($profile['created_by_name'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>R&#246;gz&#237;t&#233;s d&#225;tuma</span><strong><?= h((string) ($profile['created_date'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>M&#243;dos&#237;t&#243;</span><strong><?= h((string) ($profile['modified_by_name'] ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>M&#243;dos&#237;t&#225;s d&#225;tuma</span><strong><?= h((string) ($profile['modified_date'] ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Projekt ID</span><strong><?= h((string) (($profile['project_id'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Felel&#337;s</span><strong><?= h((string) (($profile['responsible'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz</span><strong><?= h((string) (($profile['minicrm_status'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tuszcsoport</span><strong><?= h((string) (($profile['status_group'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>St&#225;tusz m&#243;dos&#237;tva</span><strong><?= h((string) (($profile['status_updated_at'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Adatlap r&#246;gz&#237;t&#337;</span><strong><?= h((string) (($profile['created_by_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Adatlap r&#246;gz&#237;t&#233;s</span><strong><?= h((string) (($profile['created_date'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Adatlap m&#243;dos&#237;t&#243;</span><strong><?= h((string) (($profile['modified_by_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Adatlap m&#243;dos&#237;t&#225;s</span><strong><?= h((string) (($profile['modified_date'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Szem&#233;ly r&#246;gz&#237;t&#337;</span><strong><?= h((string) (($profile['person_created_by_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Szem&#233;ly r&#246;gz&#237;t&#233;s</span><strong><?= h((string) (($profile['person_created_date'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Szem&#233;ly m&#243;dos&#237;t&#243;</span><strong><?= h((string) (($profile['person_modified_by_name'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Szem&#233;ly m&#243;dos&#237;t&#225;s</span><strong><?= h((string) (($profile['person_modified_date'] ?? '') ?: '-')); ?></strong></div>
                                                                                 <?php if (trim((string) ($profile['card_url'] ?? '')) !== ''): ?>
                                                                                     <div class="minicrm-readable-row customer-crm-wide"><span>MiniCRM link</span><strong><a href="<?= h((string) $profile['card_url']); ?>" target="_blank" rel="noopener">Adatlap megnyit&#225;sa</a></strong></div>
                                                                                 <?php endif; ?>

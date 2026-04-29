@@ -9976,6 +9976,12 @@ function minicrm_import_schema_errors(): array
         $errors[] = 'Hianyzik a minicrm_customer_profiles tabla.';
     }
 
+    foreach (['person_name', 'person_email', 'person_phone', 'person_consent'] as $column) {
+        if (db_table_exists('minicrm_customer_profiles') && !db_column_exists('minicrm_customer_profiles', $column)) {
+            $errors[] = 'Hianyzik a minicrm_customer_profiles.' . $column . ' oszlop.';
+        }
+    }
+
     return $errors;
 }
 
@@ -10727,8 +10733,27 @@ function minicrm_customer_profile_row_data(array $headers, array $values): array
         'modified_date' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Modositas datuma'])),
         'card_url' => $cardUrl,
         'minicrm_imported_at' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Importalas datuma'])),
+        'person_type' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Tipus']),
+        'person_name' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Nev']),
+        'person_first_name' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Keresztnev']),
+        'person_last_name' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Vezeteknev']),
+        'person_email' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Email']),
+        'person_phone' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Telefon']),
+        'person_summary' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Osszefoglalo']),
+        'person_created_by_name' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Rogzito neve']),
+        'person_created_date' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Szemely1 Rogzites datuma'])),
+        'person_modified_by_name' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Modosito neve']),
+        'person_modified_date' => minicrm_customer_profile_date_value(minicrm_import_value_by_labels($headers, $values, ['Szemely1 Utolso modositas datuma'])),
+        'person_position' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Beosztas']),
+        'person_website' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Weboldal']),
+        'person_consent' => minicrm_import_value_by_labels($headers, $values, ['Szemely1 Adatkezelesi hozzajarulas']),
         'raw_payload' => minicrm_import_json(minicrm_import_payload($headers, $values)),
     ];
+}
+
+function minicrm_customer_profile_phone_key(string $phone): string
+{
+    return preg_replace('/\D+/', '', $phone) ?: '';
 }
 
 function minicrm_customer_profile_customer_id(array $data): ?int
@@ -10777,9 +10802,35 @@ function minicrm_customer_profile_customer_id(array $data): ?int
         }
     }
 
-    $profileNameKey = minicrm_import_key((string) ($data['card_name'] ?? ''));
+    $personEmail = trim((string) ($data['person_email'] ?? ''));
 
-    if ($profileNameKey === '') {
+    if ($personEmail !== '') {
+        $customerId = db_query(
+            'SELECT `id` FROM `customers` WHERE LOWER(`email`) = LOWER(?) LIMIT 1',
+            [$personEmail]
+        )->fetchColumn();
+
+        if ($customerId !== false && (int) $customerId > 0) {
+            return (int) $customerId;
+        }
+    }
+
+    $personPhoneKey = minicrm_customer_profile_phone_key((string) ($data['person_phone'] ?? ''));
+
+    if (strlen($personPhoneKey) >= 8) {
+        $customersByPhone = all_customers();
+
+        foreach ($customersByPhone as $customer) {
+            if ($personPhoneKey === minicrm_customer_profile_phone_key((string) ($customer['phone'] ?? ''))) {
+                return (int) $customer['id'];
+            }
+        }
+    }
+
+    $profileNameKey = minicrm_import_key((string) ($data['card_name'] ?? ''));
+    $personNameKey = minicrm_import_key((string) ($data['person_name'] ?? ''));
+
+    if ($profileNameKey === '' && $personNameKey === '') {
         return null;
     }
 
@@ -10796,7 +10847,12 @@ function minicrm_customer_profile_customer_id(array $data): ?int
             continue;
         }
 
-        if ($profileNameKey === $customerKey || (strlen($customerKey) >= 8 && str_starts_with($profileNameKey, $customerKey))) {
+        if (
+            $profileNameKey === $customerKey
+            || $personNameKey === $customerKey
+            || (strlen($customerKey) >= 8 && ($profileNameKey !== '' && str_starts_with($profileNameKey, $customerKey)))
+            || (strlen($customerKey) >= 8 && ($personNameKey !== '' && str_starts_with($personNameKey, $customerKey)))
+        ) {
             return (int) $customer['id'];
         }
     }
@@ -10879,6 +10935,48 @@ function minicrm_customer_profile_uploads(array $files): array
     }
 
     return array_merge(['ok' => true, 'message' => $message, 'failed' => $failed], $totals);
+}
+
+function sync_minicrm_customer_profile_to_customer(int $customerId, array $data): void
+{
+    if ($customerId <= 0) {
+        return;
+    }
+
+    $customer = find_customer($customerId);
+
+    if ($customer === null) {
+        return;
+    }
+
+    $updates = [];
+    $params = [];
+    $personName = trim((string) ($data['person_name'] ?? ''));
+    $cardName = trim((string) ($data['card_name'] ?? ''));
+    $personEmail = trim((string) ($data['person_email'] ?? ''));
+    $personPhone = trim((string) ($data['person_phone'] ?? ''));
+
+    if (trim((string) ($customer['requester_name'] ?? '')) === '' && ($personName !== '' || $cardName !== '')) {
+        $updates[] = '`requester_name` = ?';
+        $params[] = $personName !== '' ? $personName : $cardName;
+    }
+
+    if (trim((string) ($customer['email'] ?? '')) === '' && $personEmail !== '') {
+        $updates[] = '`email` = ?';
+        $params[] = $personEmail;
+    }
+
+    if (trim((string) ($customer['phone'] ?? '')) === '' && $personPhone !== '') {
+        $updates[] = '`phone` = ?';
+        $params[] = $personPhone;
+    }
+
+    if ($updates === []) {
+        return;
+    }
+
+    $params[] = $customerId;
+    db_query('UPDATE `customers` SET ' . implode(', ', $updates) . ' WHERE `id` = ?', $params);
 }
 
 function minicrm_import_schema_sql(): string
@@ -11005,6 +11103,20 @@ CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
     `modified_date` VARCHAR(60) DEFAULT NULL,
     `card_url` VARCHAR(500) DEFAULT NULL,
     `minicrm_imported_at` VARCHAR(60) DEFAULT NULL,
+    `person_type` VARCHAR(80) DEFAULT NULL,
+    `person_name` VARCHAR(190) DEFAULT NULL,
+    `person_first_name` VARCHAR(120) DEFAULT NULL,
+    `person_last_name` VARCHAR(120) DEFAULT NULL,
+    `person_email` VARCHAR(190) DEFAULT NULL,
+    `person_phone` VARCHAR(80) DEFAULT NULL,
+    `person_summary` TEXT DEFAULT NULL,
+    `person_created_by_name` VARCHAR(160) DEFAULT NULL,
+    `person_created_date` VARCHAR(60) DEFAULT NULL,
+    `person_modified_by_name` VARCHAR(160) DEFAULT NULL,
+    `person_modified_date` VARCHAR(60) DEFAULT NULL,
+    `person_position` VARCHAR(160) DEFAULT NULL,
+    `person_website` VARCHAR(255) DEFAULT NULL,
+    `person_consent` VARCHAR(120) DEFAULT NULL,
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -11016,6 +11128,22 @@ CREATE TABLE IF NOT EXISTS `minicrm_customer_profiles` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `minicrm_customer_profiles`
+    ADD COLUMN IF NOT EXISTS `person_type` VARCHAR(80) DEFAULT NULL AFTER `minicrm_imported_at`,
+    ADD COLUMN IF NOT EXISTS `person_name` VARCHAR(190) DEFAULT NULL AFTER `person_type`,
+    ADD COLUMN IF NOT EXISTS `person_first_name` VARCHAR(120) DEFAULT NULL AFTER `person_name`,
+    ADD COLUMN IF NOT EXISTS `person_last_name` VARCHAR(120) DEFAULT NULL AFTER `person_first_name`,
+    ADD COLUMN IF NOT EXISTS `person_email` VARCHAR(190) DEFAULT NULL AFTER `person_last_name`,
+    ADD COLUMN IF NOT EXISTS `person_phone` VARCHAR(80) DEFAULT NULL AFTER `person_email`,
+    ADD COLUMN IF NOT EXISTS `person_summary` TEXT DEFAULT NULL AFTER `person_phone`,
+    ADD COLUMN IF NOT EXISTS `person_created_by_name` VARCHAR(160) DEFAULT NULL AFTER `person_summary`,
+    ADD COLUMN IF NOT EXISTS `person_created_date` VARCHAR(60) DEFAULT NULL AFTER `person_created_by_name`,
+    ADD COLUMN IF NOT EXISTS `person_modified_by_name` VARCHAR(160) DEFAULT NULL AFTER `person_created_date`,
+    ADD COLUMN IF NOT EXISTS `person_modified_date` VARCHAR(60) DEFAULT NULL AFTER `person_modified_by_name`,
+    ADD COLUMN IF NOT EXISTS `person_position` VARCHAR(160) DEFAULT NULL AFTER `person_modified_date`,
+    ADD COLUMN IF NOT EXISTS `person_website` VARCHAR(255) DEFAULT NULL AFTER `person_position`,
+    ADD COLUMN IF NOT EXISTS `person_consent` VARCHAR(120) DEFAULT NULL AFTER `person_website`;
 SQL;
 }
 
@@ -11236,6 +11364,20 @@ function import_minicrm_customer_profile_workbook(string $path, string $original
         'modified_date',
         'card_url',
         'minicrm_imported_at',
+        'person_type',
+        'person_name',
+        'person_first_name',
+        'person_last_name',
+        'person_email',
+        'person_phone',
+        'person_summary',
+        'person_created_by_name',
+        'person_created_date',
+        'person_modified_by_name',
+        'person_modified_date',
+        'person_position',
+        'person_website',
+        'person_consent',
         'raw_payload',
     ];
     $updates = array_values(array_filter($columns, static fn (string $column): bool => $column !== 'source_id'));
@@ -11281,6 +11423,7 @@ function import_minicrm_customer_profile_workbook(string $path, string $original
 
                 if ($customerId !== null) {
                     $matchedCount++;
+                    sync_minicrm_customer_profile_to_customer($customerId, $data);
                 } else {
                     $unmatchedCount++;
                 }
