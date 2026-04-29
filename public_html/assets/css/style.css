@@ -3987,6 +3987,48 @@ a.metric-card {
     text-transform: uppercase;
 }
 
+.portal-assignment-panel {
+    margin-top: 12px;
+    border: 1px solid rgba(0, 140, 115, 0.16);
+    border-radius: 8px;
+    background: #f8fcfb;
+}
+
+.portal-assignment-panel .muted-text {
+    margin: 0 0 10px;
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.portal-assignment-form {
+    display: grid;
+    gap: 8px;
+}
+
+.portal-assignment-form label {
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 950;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.portal-assignment-form select {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 10px;
+    border: 1px solid rgba(0, 140, 115, 0.22);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+    font-weight: 800;
+}
+
+.portal-assignment-form .button {
+    width: 100%;
+}
+
 .minicrm-work-main {
     display: grid;
     gap: 14px;

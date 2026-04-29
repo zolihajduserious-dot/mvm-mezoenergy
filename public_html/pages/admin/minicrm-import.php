@@ -97,6 +97,35 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_file') {
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'assign_portal_work_electrician') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $electricianUserIdRaw = trim((string) ($_POST['electrician_user_id'] ?? ''));
+    $electricianUserId = $electricianUserIdRaw !== '' ? (int) $electricianUserIdRaw : null;
+    $requestToAssign = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($electricianSchemaErrors !== []) {
+        set_flash('error', 'A szerelői kiosztáshoz előbb futtasd le a database/electrician_workflow.sql fájlt.');
+    } elseif ($requestToAssign === null) {
+        set_flash('error', 'A munka nem található.');
+    } elseif ($electricianUserId !== null && find_electrician_by_user($electricianUserId) === null) {
+        set_flash('error', 'A kiválasztott szerelő nem található.');
+    } else {
+        assign_connection_request_to_electrician($requestId, $electricianUserId);
+        $message = $electricianUserId === null ? 'A munka visszakerült kiosztatlan állapotba.' : 'A munka ki lett adva a szerelőnek.';
+
+        if ($electricianUserId !== null) {
+            $notification = send_electrician_assignment_email($requestId, $electricianUserId);
+            $message .= ' ' . $notification['message'];
+        }
+
+        set_flash('success', $message);
+    }
+
+    redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     require_valid_csrf_token();
 
@@ -166,6 +195,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
 
 $items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
 $standaloneRequests = $schemaErrors === [] ? admin_standalone_connection_request_items(1000) : [];
+$electricians = $electricianSchemaErrors === [] ? electrician_users(true) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
 $statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
 $customerProfilesBySource = $schemaErrors === [] ? minicrm_customer_profiles_by_source_ids(array_column($items, 'source_id')) : [];
@@ -1045,6 +1075,33 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <div><dt>M&#233;r&#337;</dt><dd><?= h((string) ($request['meter_serial'] ?? '-')); ?></dd></div>
                                                                 <div><dt>R&#246;gz&#237;tve</dt><dd><?= h((string) ($request['created_at'] ?? '-')); ?></dd></div>
                                                             </dl>
+
+                                                            <section class="minicrm-compact-docs portal-assignment-panel">
+                                                                <h3>Szerel&#337;h&#246;z rendel&#233;s</h3>
+                                                                <p class="muted-text">Itt lehet egy&#233;rtelm&#369;en kiadni vagy visszavenni ezt a munk&#225;t a szerel&#337;i fel&#252;letr&#337;l.</p>
+                                                                <?php if ($electricianSchemaErrors !== []): ?>
+                                                                    <p class="request-admin-empty">A szerel&#337;i kioszt&#225;shoz futtasd le a database/electrician_workflow.sql f&#225;jlt.</p>
+                                                                <?php elseif ($electricians === []): ?>
+                                                                    <p class="request-admin-empty">Nincs akt&#237;v szerel&#337;i fi&#243;k. El&#337;bb hozz l&#233;tre szerel&#337;t a Szerel&#337;k men&#252;ben.</p>
+                                                                <?php else: ?>
+                                                                    <form class="portal-assignment-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                        <?= csrf_field(); ?>
+                                                                        <input type="hidden" name="action" value="assign_portal_work_electrician">
+                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                        <label for="portal_electrician_<?= $requestId; ?>">Szerel&#337;</label>
+                                                                        <select id="portal_electrician_<?= $requestId; ?>" name="electrician_user_id">
+                                                                            <option value="">Nincs szerel&#337;nek kiadva</option>
+                                                                            <?php foreach ($electricians as $electrician): ?>
+                                                                                <?php $electricianUserId = (int) ($electrician['user_id'] ?? 0); ?>
+                                                                                <option value="<?= $electricianUserId; ?>" <?= (int) ($request['assigned_electrician_user_id'] ?? 0) === $electricianUserId ? 'selected' : ''; ?>>
+                                                                                    <?= h((string) ($electrician['name'] ?? $electrician['user_name'] ?? $electrician['user_email'] ?? ('#' . $electricianUserId))); ?>
+                                                                                </option>
+                                                                            <?php endforeach; ?>
+                                                                        </select>
+                                                                        <button class="button" type="submit">Szerel&#337; ment&#233;se</button>
+                                                                    </form>
+                                                                <?php endif; ?>
+                                                            </section>
                                                         </aside>
 
                                                         <div class="minicrm-work-main">
