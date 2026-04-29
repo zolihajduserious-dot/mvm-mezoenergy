@@ -5138,7 +5138,11 @@ function mvm_config_value(string $key, string $default = ''): string
                 continue;
             }
 
-            $loadedLocalConfig = require $localConfigPath;
+            try {
+                $loadedLocalConfig = require $localConfigPath;
+            } catch (Throwable) {
+                continue;
+            }
 
             if (is_array($loadedLocalConfig)) {
                 $localConfig = array_replace($localConfig, $loadedLocalConfig);
