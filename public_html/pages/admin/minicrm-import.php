@@ -931,7 +931,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             <?php foreach ($standaloneRequestsByStatus as $requestGroupName => $requestItems): ?>
                                 <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $requestGroupName); ?> port&#225;los munk&#225;k">
                                     <div class="minicrm-work-table-head" role="row">
-                                        <span><?= h((string) $requestGroupName); ?></span>
+                                        <span>Ügyfél / cím / munka</span>
                                         <span>Szerel&#337;</span>
                                         <span>D&#225;tum</span>
                                         <span>Anyag</span>
@@ -967,15 +967,16 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             $electricianStatusLabels[$electricianStatus] ?? $electricianStatus,
                                         ]);
                                         ?>
-                                        <details class="admin-workflow-request minicrm-work-row" id="portal-work-<?= $requestId; ?>" data-minicrm-item data-minicrm-search-text="<?= h($requestSearchText); ?>" data-minicrm-loaded="<?= $isSelectedRequest ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($requestDetailUrl); ?>" <?= $isSelectedRequest ? 'open' : ''; ?>>
+                                        <details class="admin-workflow-request minicrm-work-row portal-work-row" id="portal-work-<?= $requestId; ?>" data-minicrm-item data-minicrm-search-text="<?= h($requestSearchText); ?>" data-minicrm-loaded="<?= $isSelectedRequest ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($requestDetailUrl); ?>" <?= $isSelectedRequest ? 'open' : ''; ?>>
                                             <summary class="admin-workflow-request-summary minicrm-work-row-summary">
                                                 <span class="admin-workflow-request-main">
-                                                    <strong><?= h($requestTitle); ?></strong>
-                                                    <small><?= h($requestSiteAddress !== '' ? $requestSiteAddress : $requestCustomerName); ?></small>
+                                                    <strong><?= h($requestCustomerName); ?></strong>
+                                                    <small><?= h($requestSiteAddress !== '' ? $requestSiteAddress : '-'); ?></small>
+                                                    <small class="portal-work-type"><?= h($requestTitle); ?></small>
                                                 </span>
                                                 <span class="admin-workflow-request-meta">
-                                                    <span><?= h((string) ($request['electrician_name'] ?? 'Nincs szerelő')); ?></span>
-                                                    <strong><?= h($requestContactLine !== '' ? $requestContactLine : $requestCustomerName); ?></strong>
+                                                    <strong><?= h((string) ($request['electrician_name'] ?? 'Nincs szerelő')); ?></strong>
+                                                    <span><?= h($requestContactLine !== '' ? $requestContactLine : '-'); ?></span>
                                                 </span>
                                                 <span class="minicrm-work-date"><?= h((string) ($request['created_at'] ?? '-')); ?></span>
                                                 <span class="admin-workflow-request-badges">
