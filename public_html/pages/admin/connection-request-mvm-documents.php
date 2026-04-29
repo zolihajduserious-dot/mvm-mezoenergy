@@ -179,6 +179,8 @@ if (is_post()) {
             $errors = array_merge($errors, $mvmMailSchemaErrors);
         } elseif ($document === null || (int) $document['connection_request_id'] !== (int) $request['id']) {
             $errors[] = 'A küldendő MVM dokumentum nem található.';
+        } elseif (!mvm_document_is_mvm_sendable_package((string) ($document['document_type'] ?? ''))) {
+            $errors[] = 'MVM-nek csak az osszefuzott PDF csomag kuldheto.';
         } else {
             $result = send_connection_request_document_to_mvm((int) $document['id'], $recipientEmail, $note);
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
@@ -796,13 +798,18 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                         </thead>
                         <tbody>
                             <?php foreach ($documents as $document): ?>
-                                <?php $defaultRecipient = default_mvm_document_recipient((string) $document['document_type']); ?>
+                                <?php
+                                $documentType = (string) $document['document_type'];
+                                $defaultRecipient = default_mvm_document_recipient($documentType);
+                                $isMvmSendablePackage = mvm_document_is_mvm_sendable_package($documentType);
+                                ?>
                                 <tr>
-                                    <td><?= h($types[$document['document_type']] ?? $document['document_type']); ?></td>
+                                    <td><?= h($types[$documentType] ?? $documentType); ?></td>
                                     <td><strong><?= h($document['title']); ?></strong></td>
                                     <td><?= h($document['created_at']); ?></td>
                                     <td><a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h($document['original_name']); ?></a></td>
                                     <td>
+                                        <?php if ($isMvmSendablePackage): ?>
                                         <form class="mvm-send-form" method="post" action="<?= h($mvmPageUrl . '#mvm-mailbox'); ?>">
                                             <?= csrf_field(); ?>
                                             <input type="hidden" name="document_id" value="<?= (int) $document['id']; ?>">
@@ -810,6 +817,9 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                                             <textarea name="mvm_note" rows="2" placeholder="Rövid megjegyzés az MVM-nek (opcionális)"></textarea>
                                             <button class="button button-secondary" name="action" value="send_mvm_document" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>Küldés MVM-nek</button>
                                         </form>
+                                        <?php else: ?>
+                                            <span class="muted-text">MVM-nek csak PDF csomagot kuldunk.</span>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

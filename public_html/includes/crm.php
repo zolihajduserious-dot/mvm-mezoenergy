@@ -5050,6 +5050,11 @@ function mvm_document_type_keys(): array
     ];
 }
 
+function mvm_document_is_mvm_sendable_package(string $documentType): bool
+{
+    return in_array($documentType, ['complete_package', 'execution_plan_package', 'technical_handover_package'], true);
+}
+
 function mvm_document_type_enum_sql(): string
 {
     return "ENUM('" . implode("', '", mvm_document_type_keys()) . "')";
