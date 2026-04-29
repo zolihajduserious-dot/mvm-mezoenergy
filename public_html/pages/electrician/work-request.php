@@ -63,6 +63,12 @@ if (is_post() && $schemaErrors === []) {
         }
     }
 
+    if ($request !== null && $action === 'close_workflow_stage') {
+        $result = close_connection_request_workflow_stage((int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafolyamat lezárása sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
     if ($request !== null && in_array($action, ['complete_before', 'complete_after'], true)) {
         $stage = $action === 'complete_before' ? 'before' : 'after';
         $errors = validate_electrician_work_uploads((int) $request['id'], $stage, $_FILES);
@@ -95,9 +101,13 @@ $latestQuote = $request !== null ? latest_quote_for_connection_request((int) $re
 $workQuote = $acceptedQuote ?? $latestQuote;
 $workQuoteLines = $workQuote !== null ? quote_lines((int) $workQuote['id']) : [];
 $quoteStatusLabels = quote_status_labels();
+$requestDocuments = $request !== null ? connection_request_documents((int) $request['id']) : [];
 $beforeFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'before') : [];
 $afterFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'after') : [];
 $customerFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
+$workflowStage = $request !== null ? connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $requestDocuments) : 'case_starting';
+$workflowDefinition = admin_workflow_stage_definitions()[$workflowStage] ?? null;
+$nextWorkflowStage = next_admin_workflow_stage($workflowStage);
 $siteAddress = $request !== null ? trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? '')) : '';
 $workQuoteStatus = $workQuote !== null ? (string) ($workQuote['status'] ?? 'draft') : '';
 $quoteState = quote_state_summary($latestQuote, $acceptedQuote, $request !== null ? connection_request_quote_missing_reason($request) : '');
@@ -199,11 +209,14 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
             <article class="request-admin-card">
                 <div class="request-admin-card-head">
                     <div>
-                        <span class="portal-kicker">#<?= (int) $request['id']; ?> · <?= h(electrician_work_status_label((string) ($request['electrician_status'] ?? 'assigned'))); ?></span>
+                        <span class="portal-kicker">#<?= (int) $request['id']; ?> · <?= h($workflowDefinition !== null ? (string) $workflowDefinition['title'] : electrician_work_status_label((string) ($request['electrician_status'] ?? 'assigned'))); ?></span>
                         <h2><?= h((string) $request['project_name']); ?></h2>
                         <p><?= h(connection_request_type_label($request['request_type'] ?? null)); ?> · <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></p>
                     </div>
                     <div class="request-admin-status">
+                        <?php if ($workflowDefinition !== null): ?>
+                            <span class="status-badge status-badge-<?= h((string) ($workflowDefinition['variant'] ?? 'draft')); ?>"><?= h((string) $workflowDefinition['title']); ?></span>
+                        <?php endif; ?>
                         <span class="status-badge status-badge-<?= h((string) ($request['electrician_status'] ?? 'assigned')); ?>"><?= h(electrician_work_status_label((string) ($request['electrician_status'] ?? 'assigned'))); ?></span>
                         <?php if ($acceptedQuote !== null): ?>
                             <span class="status-badge status-badge-accepted">Ajánlat elfogadva</span>
@@ -221,6 +234,26 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                     </div>
                     <strong><?= h((string) $quoteState['amount']); ?></strong>
                 </div>
+
+                <?php if ($workflowDefinition !== null): ?>
+                    <section class="admin-request-panel workflow-stage-panel electrician-workflow-panel">
+                        <div class="admin-request-section-title">
+                            <h3>Munkafolyamat</h3>
+                            <span><?= (int) $workflowDefinition['number']; ?>. <?= h((string) $workflowDefinition['title']); ?></span>
+                        </div>
+                        <p class="muted-text"><?= h((string) $workflowDefinition['description']); ?></p>
+                        <form class="portal-assignment-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>" onsubmit="return confirm('Biztosan lezárod ezt a munkafolyamat-lépést?') && confirm('Második megerősítés: tényleg tovább lépteted a munka státuszát?');">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="close_workflow_stage">
+                            <?php if ($nextWorkflowStage !== null): ?>
+                                <button class="button" type="submit">Lezárom ezt a folyamatot</button>
+                                <small>Következő státusz: <?= h(admin_workflow_stage_label($nextWorkflowStage)); ?></small>
+                            <?php else: ?>
+                                <button class="button" type="submit" disabled>Utolsó státuszban van</button>
+                            <?php endif; ?>
+                        </form>
+                    </section>
+                <?php endif; ?>
 
                 <div class="admin-request-panel-grid">
                     <section class="admin-request-panel">

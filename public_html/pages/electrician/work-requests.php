@@ -17,6 +17,7 @@ $minicrmProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by_
 $flash = get_flash();
 $statusLabels = electrician_work_status_labels();
 $quoteStatusLabels = quote_status_labels();
+$workflowStages = admin_workflow_stage_definitions();
 $assignedCount = 0;
 $inProgressCount = 0;
 $completedCount = 0;
@@ -189,10 +190,14 @@ function electrician_work_status_class(string $status): string
                                             $customerFiles = connection_request_files($requestId);
                                             $beforeFiles = connection_request_work_files($requestId, 'before');
                                             $afterFiles = connection_request_work_files($requestId, 'after');
+                                            $requestDocuments = connection_request_documents($requestId);
                                             $allVisibleFilesCount = count($customerFiles) + count($beforeFiles) + count($afterFiles);
                                             $quotes = quotes_for_connection_request($requestId);
                                             $acceptedQuote = accepted_quote_for_connection_request($requestId);
                                             $latestQuote = $quotes[0] ?? null;
+                                            $workflowStage = connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $requestDocuments);
+                                            $workflowDefinition = $workflowStages[$workflowStage] ?? null;
+                                            $workflowLabel = $workflowDefinition !== null ? (string) $workflowDefinition['title'] : admin_workflow_stage_label($workflowStage);
                                             $quoteState = quote_state_summary($latestQuote, $acceptedQuote, connection_request_quote_missing_reason($request));
                                             $siteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
                                             $detailUrl = url_path('/electrician/work-request') . '?id=' . $requestId;
@@ -211,6 +216,7 @@ function electrician_work_status_class(string $status): string
                                                 $customerPhone,
                                                 $siteAddress,
                                                 $statusLabel,
+                                                $workflowLabel,
                                                 connection_request_type_label($request['request_type'] ?? null),
                                                 (string) ($request['meter_serial'] ?? ''),
                                             ]);
@@ -223,7 +229,7 @@ function electrician_work_status_class(string $status): string
                                                         <small class="portal-work-type"><?= h((string) $request['project_name']); ?></small>
                                                     </span>
                                                     <span class="admin-workflow-request-meta">
-                                                        <strong><?= h($statusLabel); ?></strong>
+                                                        <strong><?= h($workflowLabel); ?></strong>
                                                         <span><?= h((string) $quoteState['status']); ?> - <?= h((string) $quoteState['amount']); ?></span>
                                                     </span>
                                                     <span class="minicrm-work-date">
@@ -238,11 +244,12 @@ function electrician_work_status_class(string $status): string
                                                 <article class="request-admin-card minicrm-work-card">
                                                     <div class="request-admin-card-head">
                                                         <div>
-                                                            <span class="portal-kicker">#<?= $requestId; ?> - <?= h($statusLabel); ?></span>
+                                                            <span class="portal-kicker">#<?= $requestId; ?> - <?= h($workflowLabel); ?></span>
                                                             <h2><?= h((string) $request['project_name']); ?></h2>
                                                             <p><?= h($customerName !== '' ? $customerName : '-'); ?> - <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></p>
                                                         </div>
                                                         <div class="request-admin-status">
+                                                            <span class="status-badge status-badge-<?= h((string) ($workflowDefinition['variant'] ?? 'draft')); ?>"><?= h($workflowLabel); ?></span>
                                                             <span class="status-badge status-badge-<?= h($status); ?>"><?= h($statusLabel); ?></span>
                                                             <?php if ($acceptedQuote !== null): ?>
                                                                 <span class="status-badge status-badge-accepted">Aj&#225;nlat elfogadva</span>
@@ -348,9 +355,14 @@ function electrician_work_status_class(string $status): string
                                                             <section class="minicrm-document-preview-panel">
                                                                 <div class="admin-request-section-title">
                                                                     <h3>Munkafolyamat</h3>
-                                                                    <span><?= h($statusLabel); ?></span>
+                                                                    <span><?= h($workflowLabel); ?></span>
                                                                 </div>
                                                                 <div class="minicrm-readable-grid">
+                                                                    <article class="minicrm-readable-row">
+                                                                        <span>Aktuális státusz</span>
+                                                                        <strong><?= h($workflowLabel); ?></strong>
+                                                                        <small><?= $workflowDefinition !== null ? h((string) $workflowDefinition['description']) : ''; ?></small>
+                                                                    </article>
                                                                     <article class="minicrm-readable-row">
                                                                         <span>Indul&#243; fot&#243;k</span>
                                                                         <strong><?= count($beforeFiles); ?> felt&#246;lt&#246;tt f&#225;jl</strong>

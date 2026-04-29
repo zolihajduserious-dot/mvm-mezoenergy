@@ -2157,65 +2157,53 @@ function clear_connection_request_quote_missing_reason(int $requestId): void
 function admin_workflow_stage_definitions(): array
 {
     return [
-        'new_request' => [
+        'case_starting' => [
             'number' => 1,
-            'title' => 'Új igény érkezett',
-            'description' => 'Friss vagy még piszkozatban lévő igény, amely első admin ellenőrzésre vár.',
+            'title' => 'Ügyindítás alatt',
+            'description' => 'A felmérés megtörtént, vagy az ügyfél/szerelő rögzítette a munkát.',
             'variant' => 'primary',
         ],
-        'quote_needed' => [
+        'ready_to_submit' => [
             'number' => 2,
-            'title' => 'Árajánlat készítésre vár',
-            'description' => 'Véglegesített igény, amelyhez még nincs kapcsolt árajánlat.',
+            'title' => 'Ügyindításra kész',
+            'description' => 'Minden ügyindításhoz szükséges dokumentum és fotó rendelkezésre áll.',
             'variant' => 'accent',
         ],
-        'quote_waiting_acceptance' => [
+        'in_progress' => [
             'number' => 3,
-            'title' => 'Árajánlat elfogadásra vár',
-            'description' => 'Az ajánlat elkészült vagy ki lett küldve, de az ügyfél még nem fogadta el.',
+            'title' => 'Folyamatban',
+            'description' => 'Az MVM dokumentumok elkészültek, az ügyintézés folyamatban van.',
             'variant' => 'system',
         ],
-        'quote_accepted_document_needed' => [
+        'waiting_plan' => [
             'number' => 4,
-            'title' => 'Árajánlat elfogadva - dokumentum generálásra vár',
-            'description' => 'Az ügyfél elfogadta az ajánlatot, indulhat az MVM dokumentumcsomag.',
+            'title' => 'Tervkészítésre vár',
+            'description' => 'Az MVM jóváhagyta az igényt, indulhat a tervkészítés.',
             'variant' => 'primary',
         ],
-        'document_sent_to_mvm' => [
+        'waiting_intervention_sheet' => [
             'number' => 5,
-            'title' => 'Dokumentum legenerálva - MVM-nek beküldve',
-            'description' => 'A komplett dokumentum elkészült és MVM ügyintézés alatt van.',
+            'title' => 'Beavatkozólapra vár',
+            'description' => 'A kiviteli terv elkészült és be lett küldve az MVM-nek.',
             'variant' => 'accent',
         ],
-        'mvm_accepted_plan_needed' => [
+        'under_construction' => [
             'number' => 6,
-            'title' => 'MVM elfogadta - tervkészítésre vár',
-            'description' => 'Az MVM elfogadta az igényt, a következő lépés a tervkészítés.',
+            'title' => 'Kivitelezés alatt',
+            'description' => 'A beavatkozólap megérkezett, a kivitelezés folyamatban van.',
             'variant' => 'system',
         ],
-        'plan_accepted_work_order_needed' => [
+        'completed' => [
             'number' => 7,
-            'title' => 'Terv elfogadva - munkarendelésre vár',
-            'description' => 'A terv elfogadva, a munkarendelés beérkezésére vár.',
+            'title' => 'Befejezve',
+            'description' => 'A szerelő elvégezte a kivitelezést, és minden kötelező fotó fent van.',
             'variant' => 'primary',
         ],
-        'work_order_arrived_assignable' => [
+        'demand_reporter' => [
             'number' => 8,
-            'title' => 'Munkarendelés megérkezett - szerelőnek kiadható',
-            'description' => 'A munka kiadható szerelőnek, ha még nincs szerelő nevén.',
+            'title' => 'Igénybejelentő',
+            'description' => 'Az MVM kapcsolja be az ügyfelet, a munka lezáró ügyintézésben van.',
             'variant' => 'accent',
-        ],
-        'assigned_waiting_execution' => [
-            'number' => 9,
-            'title' => 'Szerelőnek kiadva - kivitelezésre vár',
-            'description' => 'A szerelőnek kiadott munka, amelyet legfeljebb 60 napon belül el kell végezni.',
-            'variant' => 'system',
-        ],
-        'completed_waiting_settlement' => [
-            'number' => 10,
-            'title' => 'Kivitelezve - elszámolásra vár',
-            'description' => 'A szerelő készre jelentette, a munka elszámolásra vár.',
-            'variant' => 'primary',
         ],
     ];
 }
@@ -2237,6 +2225,22 @@ function admin_workflow_stage_number(string $stage): int
 function normalize_admin_workflow_stage(?string $stage): ?string
 {
     $stage = trim((string) $stage);
+    $legacyStages = [
+        'new_request' => 'case_starting',
+        'quote_needed' => 'case_starting',
+        'quote_waiting_acceptance' => 'case_starting',
+        'quote_accepted_document_needed' => 'ready_to_submit',
+        'document_sent_to_mvm' => 'in_progress',
+        'mvm_accepted_plan_needed' => 'waiting_plan',
+        'plan_accepted_work_order_needed' => 'waiting_intervention_sheet',
+        'work_order_arrived_assignable' => 'under_construction',
+        'assigned_waiting_execution' => 'under_construction',
+        'completed_waiting_settlement' => 'completed',
+    ];
+
+    if (isset($legacyStages[$stage])) {
+        $stage = $legacyStages[$stage];
+    }
 
     return array_key_exists($stage, admin_workflow_stage_definitions()) ? $stage : null;
 }
@@ -2264,32 +2268,40 @@ function connection_request_document_type_exists(array $documents, string $docum
     return false;
 }
 
+function connection_request_document_type_any_exists(array $documents, array $documentTypes): bool
+{
+    foreach ($documentTypes as $documentType) {
+        if (connection_request_document_type_exists($documents, (string) $documentType)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function connection_request_admin_workflow_stage(array $request, ?array $latestQuote = null, ?array $acceptedQuote = null, array $documents = []): string
 {
-    $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
-
-    if ($electricianStatus === 'completed' || !empty($request['after_photos_completed_at'])) {
-        return 'completed_waiting_settlement';
-    }
-
-    if (!empty($request['assigned_electrician_user_id']) || in_array($electricianStatus, ['assigned', 'in_progress'], true)) {
-        return 'assigned_waiting_execution';
-    }
-
     $manualStage = normalize_admin_workflow_stage((string) ($request['admin_workflow_stage'] ?? ''));
+    $requestId = (int) ($request['id'] ?? 0);
 
-    if ($acceptedQuote !== null) {
-        if (connection_request_document_type_exists($documents, 'complete_package')) {
-            $automaticStage = 'document_sent_to_mvm';
-        } else {
-            $automaticStage = 'quote_accepted_document_needed';
-        }
-    } elseif ($latestQuote !== null) {
-        $automaticStage = 'quote_waiting_acceptance';
-    } elseif ((string) ($request['request_status'] ?? 'draft') === 'finalized') {
-        $automaticStage = 'quote_needed';
+    if ((string) ($request['electrician_status'] ?? '') === 'completed' || !empty($request['after_photos_completed_at'])) {
+        $automaticStage = 'completed';
+    } elseif (connection_request_document_type_any_exists($documents, ['intervention_sheet', 'completed_intervention_sheet'])) {
+        $automaticStage = 'under_construction';
+    } elseif (connection_request_document_type_any_exists($documents, ['execution_plan_package'])) {
+        $automaticStage = 'waiting_intervention_sheet';
+    } elseif (connection_request_document_type_any_exists($documents, ['execution_plan'])) {
+        $automaticStage = 'waiting_intervention_sheet';
+    } elseif (connection_request_document_type_any_exists($documents, ['accepted_request'])) {
+        $automaticStage = 'waiting_plan';
+    } elseif (connection_request_document_type_any_exists($documents, ['complete_package'])) {
+        $automaticStage = 'in_progress';
+    } elseif (connection_request_document_type_any_exists($documents, ['submitted_request'])) {
+        $automaticStage = 'in_progress';
+    } elseif ($requestId > 0 && connection_request_complete_package_missing_items($requestId) === []) {
+        $automaticStage = 'ready_to_submit';
     } else {
-        $automaticStage = 'new_request';
+        $automaticStage = 'case_starting';
     }
 
     if ($manualStage !== null && admin_workflow_stage_number($manualStage) >= admin_workflow_stage_number($automaticStage)) {
@@ -2297,6 +2309,50 @@ function connection_request_admin_workflow_stage(array $request, ?array $latestQ
     }
 
     return $automaticStage;
+}
+
+function next_admin_workflow_stage(string $stage): ?string
+{
+    $currentNumber = admin_workflow_stage_number($stage);
+
+    foreach (admin_workflow_stage_definitions() as $key => $definition) {
+        if ((int) $definition['number'] === $currentNumber + 1) {
+            return (string) $key;
+        }
+    }
+
+    return null;
+}
+
+function close_connection_request_workflow_stage(int $requestId): array
+{
+    if (!db_column_exists('connection_requests', 'admin_workflow_stage')) {
+        return ['ok' => false, 'message' => 'Hiányzik a connection_requests.admin_workflow_stage oszlop. Futtasd le az adatbázis frissítést.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'A munka nem található.'];
+    }
+
+    $documents = connection_request_documents($requestId);
+    $latestQuote = latest_quote_for_connection_request($requestId);
+    $acceptedQuote = accepted_quote_for_connection_request($requestId);
+    $currentStage = connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents);
+    $nextStage = next_admin_workflow_stage($currentStage);
+
+    if ($nextStage === null) {
+        return ['ok' => false, 'message' => 'Ez a munkafolyamat már az utolsó státuszban van.'];
+    }
+
+    update_connection_request_admin_workflow_stage($requestId, $nextStage);
+
+    return [
+        'ok' => true,
+        'message' => 'A munkafolyamat lezárva. Új státusz: ' . admin_workflow_stage_label($nextStage) . '.',
+        'stage' => $nextStage,
+    ];
 }
 
 function admin_workflow_assignment_due_text(array $request): string

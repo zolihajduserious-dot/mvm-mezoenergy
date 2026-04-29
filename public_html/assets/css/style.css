@@ -4029,6 +4029,22 @@ a.metric-card {
     width: 100%;
 }
 
+.workflow-stage-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.workflow-stage-panel .portal-assignment-form small,
+.electrician-workflow-panel .portal-assignment-form small {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.electrician-workflow-panel {
+    margin: 14px 0;
+}
+
 .minicrm-work-main {
     display: grid;
     gap: 14px;
