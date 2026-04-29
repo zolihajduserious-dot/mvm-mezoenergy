@@ -550,6 +550,7 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $profileWebsite = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_website', ['Szemely1 Weboldal', 'Személy1: Weboldal']) : '';
                             $profileSummary = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_summary', ['Szemely1 Osszefoglalo', 'Személy1: Összefoglaló']) : '';
                             $profileContactLine = trim(implode(' · ', array_filter([$profileEmail, $profilePhone], static fn (string $value): bool => $value !== '')));
+                            $profileHasContact = $profileEmail !== '' || $profilePhone !== '';
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
@@ -606,8 +607,8 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                         <aside class="minicrm-work-facts">
                                             <dl>
                                                 <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
-                                                <div><dt>Email</dt><dd><?= h($profileEmail !== '' ? $profileEmail : '-'); ?></dd></div>
-                                                <div><dt>Telefon</dt><dd><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></dd></div>
+                                                <div><dt>Email</dt><dd><?= h($profileEmail !== '' ? $profileEmail : 'Nincs importalt email'); ?></dd></div>
+                                                <div><dt>Telefon</dt><dd><?= h($profilePhone !== '' ? $profilePhone : 'Nincs importalt telefon'); ?></dd></div>
                                                 <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
                                                 <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                 <div><dt>HRSZ</dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
@@ -655,10 +656,16 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                             <section class="minicrm-document-preview-panel">
                                                 <div class="admin-request-section-title">
                                                     <h3>&#220;gyf&#233;l el&#233;rhet&#337;s&#233;ge</h3>
-                                                    <span><?= $customerProfile !== null ? 'MiniCRM adatlap' : 'Nincs adat'; ?></span>
+                                                    <span><?= $customerProfile !== null ? ($profileHasContact ? 'MiniCRM adatlap' : 'Kontaktadat hi&#225;nyzik') : 'Nincs adat'; ?></span>
                                                 </div>
                                                 <?php if ($customerProfile === null): ?>
                                                     <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs import&#225;lt MiniCRM &#252;gyf&#233;l adatlap. T&#246;ltsd fel a b&#337;v&#237;tett &#252;gyf&#233;l adatlap exportot az Import&#225;l&#225;s f&#252;l&#246;n.</p>
+                                                <?php elseif (!$profileHasContact): ?>
+                                                    <p class="request-admin-empty">Ehhez a MiniCRM azonos&#237;t&#243;hoz van &#252;gyf&#233;l adatlap, de nincs benne Szem&#233;ly1: Email vagy Szem&#233;ly1: Telefon. A 13 oszlopos Custom export nem tartalmaz kontaktadatot; a b&#337;v&#237;tett &#252;gyf&#233;l adatlap exportot kell felt&#246;lteni.</p>
+                                                    <div class="minicrm-readable-grid">
+                                                        <div class="minicrm-readable-row"><span>MiniCRM azonos&#237;t&#243;</span><strong><?= h((string) ($item['source_id'] ?? '-')); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>&#220;gyf&#233;l adatlap sor</span><strong><?= h((string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
+                                                    </div>
                                                 <?php else: ?>
                                                     <div class="minicrm-readable-grid">
                                                         <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
