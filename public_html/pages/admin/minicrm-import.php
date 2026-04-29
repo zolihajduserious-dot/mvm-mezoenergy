@@ -1067,19 +1067,85 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <h3>Dokumentumok &#233;s fot&#243;k</h3>
                                                                     <span><?= count($requestFiles) + count($requestWorkFiles) + count($requestDocuments); ?> f&#225;jl</span>
                                                                 </div>
-                                                                <div class="inline-link-list">
-                                                                    <?php foreach (array_slice($requestFiles, 0, 8) as $file): ?>
-                                                                        <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) ($file['label'] ?? $file['original_name'] ?? 'Fájl')); ?></a>
-                                                                    <?php endforeach; ?>
-                                                                    <?php foreach (array_slice($requestWorkFiles, 0, 8) as $file): ?>
-                                                                        <a href="<?= h(url_path('/admin/connection-requests/work-file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) ($file['label'] ?? $file['original_name'] ?? 'Munka fájl')); ?></a>
-                                                                    <?php endforeach; ?>
-                                                                    <?php foreach (array_slice($requestDocuments, 0, 8) as $document): ?>
-                                                                        <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?></a>
-                                                                    <?php endforeach; ?>
-                                                                </div>
                                                                 <?php if ($requestFiles === [] && $requestWorkFiles === [] && $requestDocuments === []): ?>
                                                                     <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs felt&#246;lt&#246;tt f&#225;jl vagy gener&#225;lt MVM dokumentum.</p>
+                                                                <?php else: ?>
+                                                                    <div class="admin-request-doc-grid">
+                                                                        <?php foreach ($requestFiles as $file): ?>
+                                                                            <?php
+                                                                            $fileUrl = url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id'];
+                                                                            $previewKind = portal_file_preview_kind($file);
+                                                                            ?>
+                                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                <div class="admin-request-doc-thumb">
+                                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                                        <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? 'Fájl')); ?> megnyitása">
+                                                                                            <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? 'Fájl')); ?>" width="92" height="92" loading="lazy">
+                                                                                        </a>
+                                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                        <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? 'Fájl')); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                    <?php else: ?>
+                                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                                <div class="admin-request-doc-meta">
+                                                                                    <strong><?= h((string) ($file['label'] ?? 'Fájl')); ?></strong>
+                                                                                    <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+
+                                                                        <?php foreach ($requestWorkFiles as $file): ?>
+                                                                            <?php
+                                                                            $fileUrl = url_path('/admin/connection-requests/work-file') . '?id=' . (int) $file['id'];
+                                                                            $previewKind = portal_file_preview_kind($file);
+                                                                            ?>
+                                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                <div class="admin-request-doc-thumb">
+                                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                                        <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? 'Munka fájl')); ?> megnyitása">
+                                                                                            <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? 'Munka fájl')); ?>" width="92" height="92" loading="lazy">
+                                                                                        </a>
+                                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                        <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? 'Munka fájl')); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                    <?php else: ?>
+                                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                                <div class="admin-request-doc-meta">
+                                                                                    <strong><?= h((string) ($file['label'] ?? 'Munka fájl')); ?></strong>
+                                                                                    <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+
+                                                                        <?php foreach ($requestDocuments as $document): ?>
+                                                                            <?php
+                                                                            $documentUrl = url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $document['id'];
+                                                                            $previewKind = portal_file_preview_kind($document);
+                                                                            ?>
+                                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                <div class="admin-request-doc-thumb">
+                                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                                        <a href="<?= h($documentUrl); ?>" target="_blank" aria-label="<?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?> megnyitása">
+                                                                                            <img src="<?= h($documentUrl); ?>" alt="<?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?>" width="92" height="92" loading="lazy">
+                                                                                        </a>
+                                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                        <iframe src="<?= h($documentUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                    <?php else: ?>
+                                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($document)); ?></span></div>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                                <div class="admin-request-doc-meta">
+                                                                                    <strong><?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?></strong>
+                                                                                    <span><?= h((string) ($document['original_name'] ?? '-')); ?></span>
+                                                                                    <a href="<?= h($documentUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
                                                                 <?php endif; ?>
                                                             </section>
                                                         </div>
