@@ -3230,7 +3230,11 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     szamlazz_append_text($document, $header, 'helyesbitoszamla', 'false');
     szamlazz_append_text($document, $header, 'helyesbitettSzamlaszam', '');
     szamlazz_append_text($document, $header, 'dijbekero', 'true');
-    szamlazz_append_text($document, $header, 'szamlaszamElotag', szamlazz_config_value('SZAMLAZZ_INVOICE_PREFIX'));
+    $invoicePrefix = trim(szamlazz_config_value('SZAMLAZZ_INVOICE_PREFIX'));
+
+    if ($invoicePrefix !== '') {
+        szamlazz_append_text($document, $header, 'szamlaszamElotag', $invoicePrefix);
+    }
 
     $seller = $document->createElement('elado');
     $root->appendChild($seller);
