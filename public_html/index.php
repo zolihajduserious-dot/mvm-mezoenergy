@@ -7,7 +7,20 @@ if (is_file($errorMonitorPath)) {
     require_once $errorMonitorPath;
 }
 
-require_once __DIR__ . '/includes/config.php';
+$configPath = __DIR__ . '/includes/config.php';
+
+try {
+    require_once $configPath;
+} catch (Throwable $exception) {
+    $secretConfigPath = dirname(__DIR__) . '/storage/config/local.secret.php';
+
+    if (is_file($secretConfigPath)) {
+        @rename($secretConfigPath, $secretConfigPath . '.broken-' . date('Ymd-His'));
+        require $configPath;
+    } else {
+        throw $exception;
+    }
+}
 
 $vendorAutoload = APP_ROOT . '/vendor/autoload.php';
 
