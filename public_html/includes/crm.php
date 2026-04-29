@@ -227,6 +227,183 @@ function connection_request_electrician_due_breakdown(int $requestId): array
     return ['quote' => $quote] + quote_electrician_due_breakdown(quote_lines((int) $quote['id']));
 }
 
+function connection_request_schedule_schema_errors(): array
+{
+    try {
+        if (!db_table_exists('connection_request_schedule_slots')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `connection_request_schedule_slots` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `connection_request_id` INT UNSIGNED NOT NULL,
+                    `work_date` DATE NOT NULL,
+                    `status` ENUM('open', 'booked', 'closed') NOT NULL DEFAULT 'open',
+                    `source` ENUM('electrician', 'customer', 'admin', 'system') NOT NULL DEFAULT 'system',
+                    `note` TEXT DEFAULT NULL,
+                    `created_by_user_id` INT UNSIGNED NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `ux_connection_request_schedule_day` (`connection_request_id`, `work_date`),
+                    KEY `idx_connection_request_schedule_request` (`connection_request_id`, `status`, `work_date`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'A kivitelezési naptár tábla létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'A kivitelezési naptár adatbázis-tábla létrehozása szükséges.',
+        ];
+    }
+
+    return [];
+}
+
+function connection_request_schedule_is_ready(): bool
+{
+    return connection_request_schedule_schema_errors() === [];
+}
+
+function connection_request_schedule_token(array $request): string
+{
+    $secret = defined('DB_PASS') ? (string) DB_PASS : (defined('DB_NAME') ? (string) DB_NAME : APP_NAME);
+    $payload = (int) ($request['id'] ?? 0) . '|' . (string) ($request['email'] ?? '') . '|' . (string) ($request['created_at'] ?? '') . '|' . $secret;
+
+    return substr(hash('sha256', $payload), 0, 32);
+}
+
+function connection_request_schedule_url(array $request): string
+{
+    return absolute_url('/schedule?request_id=' . (int) $request['id'] . '&token=' . rawurlencode(connection_request_schedule_token($request)));
+}
+
+function connection_request_schedule_valid_date(string $date): bool
+{
+    $date = trim($date);
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return false;
+    }
+
+    try {
+        $day = new DateTimeImmutable($date);
+    } catch (Throwable) {
+        return false;
+    }
+
+    return $day->format('Y-m-d') === $date && (int) $day->format('N') <= 5;
+}
+
+function connection_request_schedule_slots(int $requestId): array
+{
+    if (!connection_request_schedule_is_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `connection_request_schedule_slots`
+         WHERE `connection_request_id` = ?
+         ORDER BY `work_date` ASC',
+        [$requestId]
+    )->fetchAll();
+}
+
+function connection_request_booked_schedule_slot(int $requestId): ?array
+{
+    if (!connection_request_schedule_is_ready()) {
+        return null;
+    }
+
+    $slot = db_query(
+        'SELECT * FROM `connection_request_schedule_slots`
+         WHERE `connection_request_id` = ? AND `status` = ?
+         ORDER BY `work_date` ASC
+         LIMIT 1',
+        [$requestId, 'booked']
+    )->fetch();
+
+    return is_array($slot) ? $slot : null;
+}
+
+function connection_request_schedule_upsert_slot(int $requestId, string $date, string $status, string $source, ?int $userId = null, string $note = ''): array
+{
+    $schemaErrors = connection_request_schedule_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    if (!connection_request_schedule_valid_date($date)) {
+        return ['ok' => false, 'message' => 'Csak hétköznapi kivitelezési nap választható.'];
+    }
+
+    if (!in_array($status, ['open', 'booked', 'closed'], true)) {
+        return ['ok' => false, 'message' => 'Érvénytelen naptárstátusz.'];
+    }
+
+    if (!in_array($source, ['electrician', 'customer', 'admin', 'system'], true)) {
+        $source = 'system';
+    }
+
+    if ($status === 'booked') {
+        db_query(
+            'UPDATE `connection_request_schedule_slots`
+             SET `status` = ?, `source` = ?, `updated_at` = CURRENT_TIMESTAMP
+             WHERE `connection_request_id` = ? AND `status` = ?',
+            ['open', 'system', $requestId, 'booked']
+        );
+    }
+
+    db_query(
+        'INSERT INTO `connection_request_schedule_slots`
+            (`connection_request_id`, `work_date`, `status`, `source`, `note`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            `status` = VALUES(`status`),
+            `source` = VALUES(`source`),
+            `note` = VALUES(`note`),
+            `created_by_user_id` = COALESCE(VALUES(`created_by_user_id`), `created_by_user_id`)',
+        [$requestId, $date, $status, $source, trim($note) !== '' ? trim($note) : null, $userId]
+    );
+
+    return ['ok' => true, 'message' => 'A kivitelezési naptár frissült.'];
+}
+
+function connection_request_schedule_day_label(string $date): string
+{
+    try {
+        $day = new DateTimeImmutable($date);
+    } catch (Throwable) {
+        return $date;
+    }
+
+    $labels = [
+        1 => 'hétfő',
+        2 => 'kedd',
+        3 => 'szerda',
+        4 => 'csütörtök',
+        5 => 'péntek',
+    ];
+
+    return $day->format('Y.m.d.') . ' ' . ($labels[(int) $day->format('N')] ?? '');
+}
+
+function connection_request_schedule_weekdays(int $days = 30): array
+{
+    $dates = [];
+    $day = new DateTimeImmutable('today');
+
+    while (count($dates) < $days) {
+        if ((int) $day->format('N') <= 5) {
+            $dates[] = $day->format('Y-m-d');
+        }
+
+        $day = $day->modify('+1 day');
+    }
+
+    return $dates;
+}
+
 function dependency_status(): array
 {
     return [
@@ -2390,6 +2567,7 @@ function send_connection_request_status_change_email(int $requestId, string $pre
 
     if ($nextStage === 'under_construction') {
         $dueBreakdown = connection_request_electrician_due_breakdown($requestId);
+        $scheduleUrl = connection_request_schedule_url($request);
 
         if ((float) ($dueBreakdown['total'] ?? 0) > 0) {
             $sections[] = [
@@ -2402,11 +2580,23 @@ function send_connection_request_status_change_email(int $requestId, string $pre
                 ],
             ];
         }
+
+        $sections[] = [
+            'title' => 'Kivitelezési időpont',
+            'rows' => [
+                ['label' => 'Időpontválasztás', 'value' => 'A kivitelezés egy munkanapot vesz igénybe, és csak hétköznapra foglalható.'],
+                ['label' => 'Naptár link', 'value' => $scheduleUrl],
+            ],
+        ];
     }
 
     $actions = [
         ['label' => 'Ügyfélportál megnyitása', 'url' => absolute_url('/customer/work-requests')],
     ];
+
+    if ($nextStage === 'under_construction') {
+        $actions[] = ['label' => 'Kivitelezési nap kiválasztása', 'url' => connection_request_schedule_url($request)];
+    }
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
     try {

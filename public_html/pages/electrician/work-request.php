@@ -42,6 +42,18 @@ if (is_post() && $schemaErrors === []) {
 
     $action = (string) ($_POST['action'] ?? '');
 
+    if ($request !== null && in_array($action, ['schedule_open_day', 'schedule_book_day', 'schedule_close_day'], true)) {
+        $date = trim((string) ($_POST['work_date'] ?? ''));
+        $status = match ($action) {
+            'schedule_book_day' => 'booked',
+            'schedule_close_day' => 'closed',
+            default => 'open',
+        };
+        $result = connection_request_schedule_upsert_slot((int) $request['id'], $date, $status, 'electrician', (int) $user['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A naptár frissítése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
     if ($action === 'create_survey') {
         $customerForm = normalize_customer_data($_POST);
         $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Szerelői felmérés';
@@ -123,6 +135,15 @@ $displayCustomerEmail = $request !== null ? (trim((string) ($request['email'] ??
 $displayCustomerPhone = $request !== null ? (trim((string) ($request['phone'] ?? '')) ?: $minicrmPhone) : '';
 $mvmEmailThreads = $request !== null ? mvm_email_threads_with_messages((int) $request['id']) : [];
 $mvmThreadStatusLabels = mvm_email_thread_status_labels();
+$scheduleSchemaErrors = connection_request_schedule_schema_errors();
+$scheduleSlots = $request !== null && $scheduleSchemaErrors === [] ? connection_request_schedule_slots((int) $request['id']) : [];
+$scheduleSlotsByDate = [];
+
+foreach ($scheduleSlots as $slot) {
+    $scheduleSlotsByDate[(string) $slot['work_date']] = $slot;
+}
+
+$scheduleWeekdays = connection_request_schedule_weekdays(30);
 ?>
 <section class="admin-section">
     <div class="container admin-requests-container">
@@ -268,6 +289,43 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                             <?php endif; ?>
                         </form>
                     </section>
+                <?php endif; ?>
+
+                <?php if ($scheduleSchemaErrors === []): ?>
+                    <section class="admin-request-panel admin-request-documents">
+                        <div class="admin-request-section-title">
+                            <h3>Kivitelezési naptár</h3>
+                            <span>Csak hétköznap</span>
+                        </div>
+                        <p class="muted-text">Nyisd meg azokat a napokat, amikor vállalható a munka. A kiválasztott nap egyetlen munkanapként foglalódik.</p>
+                        <div class="quote-mini-list">
+                            <?php foreach ($scheduleWeekdays as $workDate): ?>
+                                <?php
+                                $slot = $scheduleSlotsByDate[$workDate] ?? null;
+                                $slotStatus = (string) ($slot['status'] ?? '');
+                                $slotLabel = match ($slotStatus) {
+                                    'booked' => 'Foglalva',
+                                    'closed' => 'Lezárva',
+                                    'open' => 'Szabad',
+                                    default => 'Nincs megnyitva',
+                                };
+                                ?>
+                                <article class="quote-mini-card">
+                                    <strong><?= h(connection_request_schedule_day_label($workDate)); ?></strong>
+                                    <span><?= h($slotLabel); ?></span>
+                                    <form class="inline-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                                        <?= csrf_field(); ?>
+                                        <input type="hidden" name="work_date" value="<?= h($workDate); ?>">
+                                        <button class="button button-secondary" name="action" value="schedule_open_day" type="submit">Nyitás</button>
+                                        <button class="button" name="action" value="schedule_book_day" type="submit">Erre a napra teszem</button>
+                                        <button class="button button-secondary" name="action" value="schedule_close_day" type="submit">Lezárás</button>
+                                    </form>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                <?php else: ?>
+                    <div class="alert alert-error"><?php foreach ($scheduleSchemaErrors as $scheduleError): ?><p><?= h($scheduleError); ?></p><?php endforeach; ?></div>
                 <?php endif; ?>
 
                 <div class="admin-request-panel-grid">

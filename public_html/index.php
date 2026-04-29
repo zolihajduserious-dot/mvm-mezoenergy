@@ -179,6 +179,10 @@ $routes = [
         'title' => 'Mérőhelyi igény',
         'file' => PAGE_PATH . '/customer/work-request.php',
     ],
+    'schedule' => [
+        'title' => 'Kivitelezési időpont',
+        'file' => PAGE_PATH . '/schedule.php',
+    ],
     'customer/quotes/view' => [
         'title' => 'Árajánlat megtekintése',
         'file' => PAGE_PATH . '/customer/quote-view.php',
