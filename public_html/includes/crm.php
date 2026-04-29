@@ -2258,6 +2258,76 @@ function update_connection_request_admin_workflow_stage(int $requestId, ?string 
     );
 }
 
+function send_connection_request_status_change_email(int $requestId, string $previousStage, string $nextStage): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az ügyfélértesítés nem ment ki, mert a munka nem található.'];
+    }
+
+    $recipientEmail = trim((string) ($request['email'] ?? ''));
+    $recipientName = email_recipient_name($request['requester_name'] ?? '');
+
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'Az ügyfélértesítés nem ment ki, mert hiányzik az ügyfél email címe.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'Az ügyfélértesítés nem ment ki, mert a PHPMailer nincs telepítve.'];
+    }
+
+    $previousDefinition = admin_workflow_stage_definitions()[$previousStage] ?? null;
+    $nextDefinition = admin_workflow_stage_definitions()[$nextStage] ?? null;
+    $previousLabel = $previousDefinition !== null ? (string) $previousDefinition['title'] : admin_workflow_stage_label($previousStage);
+    $nextLabel = $nextDefinition !== null ? (string) $nextDefinition['title'] : admin_workflow_stage_label($nextStage);
+    $subject = APP_NAME . ' státuszváltozás - ' . (string) ($request['project_name'] ?? ('Munka #' . $requestId));
+    $sections = [
+        [
+            'title' => 'Munka állapota',
+            'rows' => [
+                ['label' => 'Munka', 'value' => $request['project_name'] ?? '-'],
+                ['label' => 'Korábbi státusz', 'value' => $previousLabel],
+                ['label' => 'Új státusz', 'value' => $nextLabel],
+                ['label' => 'Mit jelent ez?', 'value' => (string) ($nextDefinition['description'] ?? '')],
+                ['label' => 'Kivitelezés címe', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+            ],
+        ],
+    ];
+    $actions = [
+        ['label' => 'Ügyfélportál megnyitása', 'url' => absolute_url('/customer/work-requests')],
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress($recipientEmail, $recipientName);
+        $mail->Subject = $subject;
+        apply_branded_email(
+            $mail,
+            'Státuszváltozás történt',
+            'Frissült a mérőhelyi ügyintézés állapota. Az aktuális státuszt és a következő lépést az alábbi összefoglalóban látod.',
+            $sections,
+            $actions,
+            $recipientName
+        );
+        $mail->send();
+
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+
+        return ['ok' => true, 'message' => 'Az ügyfél email értesítést kapott a státuszváltozásról.'];
+    } catch (Throwable $exception) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
+        );
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az ügyfél státuszértesítő email küldése sikertelen.'];
+    }
+}
+
 function connection_request_document_type_exists(array $documents, string $documentType): bool
 {
     foreach ($documents as $document) {
@@ -2348,11 +2418,18 @@ function close_connection_request_workflow_stage(int $requestId): array
     }
 
     update_connection_request_admin_workflow_stage($requestId, $nextStage);
+    $notification = send_connection_request_status_change_email($requestId, $currentStage, $nextStage);
+    $message = 'A munkafolyamat lezárva. Új státusz: ' . admin_workflow_stage_label($nextStage) . '.';
+
+    if (!empty($notification['message'])) {
+        $message .= ' ' . (string) $notification['message'];
+    }
 
     return [
         'ok' => true,
-        'message' => 'A munkafolyamat lezárva. Új státusz: ' . admin_workflow_stage_label($nextStage) . '.',
+        'message' => $message,
         'stage' => $nextStage,
+        'notification' => $notification,
     ];
 }
 
