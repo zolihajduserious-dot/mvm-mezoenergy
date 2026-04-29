@@ -13,6 +13,7 @@ if (!is_array($user) || ($schemaErrors === [] && $electrician === null)) {
 }
 
 $requests = $schemaErrors === [] ? connection_requests_for_electrician((int) $user['id']) : [];
+$minicrmProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by_connection_request_ids(array_column($requests, 'id')) : [];
 $flash = get_flash();
 $statusLabels = electrician_work_status_labels();
 $quoteStatusLabels = quote_status_labels();
@@ -194,11 +195,18 @@ function electrician_work_status_class(string $status): string
                                             $siteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
                                             $detailUrl = url_path('/electrician/work-request') . '?id=' . $requestId;
                                             $createdAt = trim((string) ($request['created_at'] ?? ''));
+                                            $minicrmProfile = $minicrmProfilesByRequest[$requestId] ?? null;
+                                            $minicrmName = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név']) : '';
+                                            $minicrmEmail = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
+                                            $minicrmPhone = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
+                                            $customerName = trim((string) ($request['requester_name'] ?? '')) ?: $minicrmName;
+                                            $customerEmail = trim((string) ($request['email'] ?? '')) ?: $minicrmEmail;
+                                            $customerPhone = trim((string) ($request['phone'] ?? '')) ?: $minicrmPhone;
                                             $searchText = implode(' ', [
                                                 (string) ($request['project_name'] ?? ''),
-                                                (string) ($request['requester_name'] ?? ''),
-                                                (string) ($request['email'] ?? ''),
-                                                (string) ($request['phone'] ?? ''),
+                                                $customerName,
+                                                $customerEmail,
+                                                $customerPhone,
                                                 $siteAddress,
                                                 $statusLabel,
                                                 connection_request_type_label($request['request_type'] ?? null),
@@ -212,8 +220,8 @@ function electrician_work_status_class(string $status): string
                                                         <small><?= h($siteAddress !== '' ? $siteAddress : ('#' . $requestId)); ?></small>
                                                     </span>
                                                     <span class="admin-workflow-request-meta">
-                                                        <span><?= h((string) ($request['requester_name'] ?: '-')); ?></span>
-                                                        <strong><?= h(connection_request_type_label($request['request_type'] ?? null)); ?></strong>
+                                                        <span><?= h($customerName !== '' ? $customerName : '-'); ?></span>
+                                                        <strong><?= h(trim($customerPhone . ' ' . $customerEmail) !== '' ? trim($customerPhone . ' · ' . $customerEmail, ' ·') : connection_request_type_label($request['request_type'] ?? null)); ?></strong>
                                                     </span>
                                                     <span class="minicrm-work-date">
                                                         <?= h($createdAt !== '' ? $createdAt : '-'); ?>
@@ -229,7 +237,7 @@ function electrician_work_status_class(string $status): string
                                                         <div>
                                                             <span class="portal-kicker">#<?= $requestId; ?> - <?= h($statusLabel); ?></span>
                                                             <h2><?= h((string) $request['project_name']); ?></h2>
-                                                            <p><?= h((string) ($request['requester_name'] ?: '-')); ?> - <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></p>
+                                                            <p><?= h($customerName !== '' ? $customerName : '-'); ?> - <?= h($siteAddress !== '' ? $siteAddress : '-'); ?></p>
                                                         </div>
                                                         <div class="request-admin-status">
                                                             <span class="status-badge status-badge-<?= h($status); ?>"><?= h($statusLabel); ?></span>
@@ -245,9 +253,9 @@ function electrician_work_status_class(string $status): string
                                                     <div class="minicrm-work-detail-layout">
                                                         <aside class="minicrm-work-facts">
                                                             <dl>
-                                                                <div><dt>&#220;gyf&#233;l</dt><dd><?= h((string) ($request['requester_name'] ?: '-')); ?></dd></div>
-                                                                <div><dt>Telefon</dt><dd><?= h((string) ($request['phone'] ?: '-')); ?></dd></div>
-                                                                <div><dt>Email</dt><dd><?= h((string) ($request['email'] ?: '-')); ?></dd></div>
+                                                                <div><dt>&#220;gyf&#233;l</dt><dd><?= h($customerName !== '' ? $customerName : '-'); ?></dd></div>
+                                                                <div><dt>Telefon</dt><dd><?= h($customerPhone !== '' ? $customerPhone : '-'); ?></dd></div>
+                                                                <div><dt>Email</dt><dd><?= h($customerEmail !== '' ? $customerEmail : '-'); ?></dd></div>
                                                                 <div><dt>C&#237;m</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                                 <div><dt>M&#233;r&#337;</dt><dd><?= h((string) ($request['meter_serial'] ?: '-')); ?></dd></div>
                                                                 <div><dt>El&#337;tte / ut&#225;na</dt><dd><?= count($beforeFiles); ?> / <?= count($afterFiles); ?> f&#225;jl</dd></div>

@@ -103,6 +103,13 @@ $workQuoteStatus = $workQuote !== null ? (string) ($workQuote['status'] ?? 'draf
 $quoteState = quote_state_summary($latestQuote, $acceptedQuote, $request !== null ? connection_request_quote_missing_reason($request) : '');
 $quoteSummaryLabel = (string) $quoteState['status'];
 $quoteSummaryAmount = (string) $quoteState['amount'];
+$minicrmProfile = $request !== null ? minicrm_customer_profile_for_connection_request($request) : null;
+$minicrmName = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név']) : '';
+$minicrmEmail = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
+$minicrmPhone = is_array($minicrmProfile) ? minicrm_customer_profile_display_value($minicrmProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
+$displayCustomerName = $request !== null ? (trim((string) ($request['requester_name'] ?? '')) ?: $minicrmName) : '';
+$displayCustomerEmail = $request !== null ? (trim((string) ($request['email'] ?? '')) ?: $minicrmEmail) : '';
+$displayCustomerPhone = $request !== null ? (trim((string) ($request['phone'] ?? '')) ?: $minicrmPhone) : '';
 $mvmEmailThreads = $request !== null ? mvm_email_threads_with_messages((int) $request['id']) : [];
 $mvmThreadStatusLabels = mvm_email_thread_status_labels();
 ?>
@@ -112,7 +119,7 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
             <div>
                 <p class="eyebrow">Szerelői portál</p>
                 <h1><?= $request === null ? 'Új ügyfél felmérése' : 'Kivitelezési munka'; ?></h1>
-                <p><?= $request === null ? 'Új ügyfelet és mérőhelyi igényt rögzíthetsz, ami a te neved alatt marad.' : h((string) $request['requester_name'] . ' · ' . (string) $request['project_name']); ?></p>
+                <p><?= $request === null ? 'Új ügyfelet és mérőhelyi igényt rögzíthetsz, ami a te neved alatt marad.' : h((string) $displayCustomerName . ' · ' . (string) $request['project_name']); ?></p>
             </div>
             <div class="admin-actions">
                 <?php if ($request !== null): ?><a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
@@ -219,9 +226,9 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                     <section class="admin-request-panel">
                         <h3>Ügyfél</h3>
                         <dl class="admin-request-data-list">
-                            <div><dt>Név</dt><dd><?= h((string) $request['requester_name']); ?></dd></div>
-                            <div><dt>Email</dt><dd><?= h((string) $request['email']); ?></dd></div>
-                            <div><dt>Telefon</dt><dd><?= h((string) $request['phone']); ?></dd></div>
+                            <div><dt>Név</dt><dd><?= h($displayCustomerName !== '' ? $displayCustomerName : '-'); ?></dd></div>
+                            <div><dt>Email</dt><dd><?= h($displayCustomerEmail !== '' ? $displayCustomerEmail : '-'); ?></dd></div>
+                            <div><dt>Telefon</dt><dd><?= h($displayCustomerPhone !== '' ? $displayCustomerPhone : '-'); ?></dd></div>
                         </dl>
                     </section>
 

@@ -12948,6 +12948,87 @@ function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
     return $profiles;
 }
 
+function minicrm_customer_profiles_by_connection_request_ids(array $requestIds): array
+{
+    if (
+        !db_table_exists('minicrm_customer_profiles')
+        || !db_table_exists('minicrm_connection_request_links')
+        || !db_table_exists('connection_requests')
+    ) {
+        return [];
+    }
+
+    $requestIds = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+
+    if ($requestIds === []) {
+        return [];
+    }
+
+    $profiles = [];
+    $rows = db_query(
+        'SELECT l.`connection_request_id` AS linked_request_id, p.*
+         FROM `minicrm_connection_request_links` l
+         INNER JOIN `minicrm_customer_profiles` p ON p.`source_id` = l.`source_id`
+         WHERE l.`connection_request_id` IN (' . db_in_placeholders($requestIds) . ')
+         ORDER BY COALESCE(p.`modified_date`, p.`person_modified_date`, p.`status_updated_at`, p.`created_date`) DESC, p.`id` DESC',
+        $requestIds
+    )->fetchAll();
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $requestId = (int) ($row['linked_request_id'] ?? 0);
+
+        if ($requestId > 0 && !isset($profiles[$requestId])) {
+            $profiles[$requestId] = $row;
+        }
+    }
+
+    $missingRequestIds = array_values(array_diff($requestIds, array_keys($profiles)));
+
+    if ($missingRequestIds === []) {
+        return $profiles;
+    }
+
+    $fallbackRows = db_query(
+        'SELECT cr.`id` AS linked_request_id, p.*
+         FROM `connection_requests` cr
+         INNER JOIN `minicrm_customer_profiles` p ON p.`customer_id` = cr.`customer_id`
+         WHERE cr.`id` IN (' . db_in_placeholders($missingRequestIds) . ')
+         ORDER BY COALESCE(p.`modified_date`, p.`person_modified_date`, p.`status_updated_at`, p.`created_date`) DESC, p.`id` DESC',
+        $missingRequestIds
+    )->fetchAll();
+
+    foreach ($fallbackRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $requestId = (int) ($row['linked_request_id'] ?? 0);
+
+        if ($requestId > 0 && !isset($profiles[$requestId])) {
+            $profiles[$requestId] = $row;
+        }
+    }
+
+    return $profiles;
+}
+
+function minicrm_customer_profile_for_connection_request(array $request): ?array
+{
+    $requestId = (int) ($request['id'] ?? 0);
+
+    if ($requestId <= 0) {
+        return null;
+    }
+
+    $profiles = minicrm_customer_profiles_by_connection_request_ids([$requestId]);
+
+    return $profiles[$requestId] ?? null;
+}
+
 function minicrm_customer_profile_raw_fields(array $profile): array
 {
     $decoded = json_decode((string) ($profile['raw_payload'] ?? '{}'), true);
