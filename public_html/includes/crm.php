@@ -5149,6 +5149,44 @@ function mvm_config_value(string $key, string $default = ''): string
     return array_key_exists($key, $localConfig) ? (string) $localConfig[$key] : $default;
 }
 
+function mvm_save_secret_config_value(string $key, string $value): array
+{
+    if (!defined('STORAGE_PATH')) {
+        return ['ok' => false, 'message' => 'A storage útvonal nincs beállítva.'];
+    }
+
+    if (!in_array($key, ['MVM_IMAP_PASS'], true)) {
+        return ['ok' => false, 'message' => 'Ez a beállítás itt nem módosítható.'];
+    }
+
+    $configDir = STORAGE_PATH . '/config';
+    $configPath = $configDir . '/local.secret.php';
+    $config = [];
+
+    if (is_file($configPath)) {
+        $loadedConfig = require $configPath;
+
+        if (is_array($loadedConfig)) {
+            $config = $loadedConfig;
+        }
+    }
+
+    $config[$key] = $value;
+    ensure_storage_dir($configDir);
+
+    $content = "<?php\n"
+        . "declare(strict_types=1);\n\n"
+        . "return " . var_export($config, true) . ";\n";
+
+    $written = @file_put_contents($configPath, $content, LOCK_EX);
+
+    if ($written === false) {
+        return ['ok' => false, 'message' => 'Nem sikerült menteni a titkos MVM IMAP beállítást.'];
+    }
+
+    return ['ok' => true, 'message' => 'Az MVM IMAP jelszó elmentve.'];
+}
+
 function mvm_mail_reply_address(): string
 {
     $configured = trim(mvm_config_value('MVM_REPLY_EMAIL', mvm_config_value('MVM_MAILBOX_USER', 'csatlakozo@mvm-mezoenergy.hu')));
@@ -5495,6 +5533,22 @@ function mvm_imap_mailbox_string(): string
 
 function mvm_decode_mime_header(string $value): string
 {
+    if (function_exists('mb_decode_mimeheader')) {
+        $decoded = @mb_decode_mimeheader($value);
+
+        if (is_string($decoded) && $decoded !== '') {
+            return trim($decoded);
+        }
+    }
+
+    if (function_exists('iconv_mime_decode')) {
+        $decoded = @iconv_mime_decode($value, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
+
+        if (is_string($decoded) && $decoded !== '') {
+            return trim($decoded);
+        }
+    }
+
     if (!function_exists('imap_mime_header_decode')) {
         return trim($value);
     }
@@ -5604,6 +5658,220 @@ function mvm_fetch_imap_message_bodies($imap, int $uid): array
     return ['plain' => trim($plain), 'html' => trim($html)];
 }
 
+function mvm_imap_socket_config(): array
+{
+    $host = trim(mvm_config_value('MVM_IMAP_HOST', 'mail.nethely.hu'));
+    $port = (int) mvm_config_value('MVM_IMAP_PORT', '993');
+    $folder = trim(mvm_config_value('MVM_IMAP_FOLDER', 'INBOX'));
+    $encryption = strtolower(trim(mvm_config_value('MVM_IMAP_ENCRYPTION', 'ssl')));
+
+    return [
+        'host' => $host !== '' ? $host : 'mail.nethely.hu',
+        'port' => $port > 0 ? $port : 993,
+        'folder' => $folder !== '' ? $folder : 'INBOX',
+        'encryption' => $encryption !== '' ? $encryption : 'ssl',
+    ];
+}
+
+function mvm_imap_socket_quote(string $value): string
+{
+    return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
+}
+
+function mvm_imap_socket_read_response($socket, string $tag): string
+{
+    $response = '';
+
+    while (!feof($socket)) {
+        $line = fgets($socket);
+
+        if (!is_string($line)) {
+            break;
+        }
+
+        $response .= $line;
+
+        if (preg_match('/\{(\d+)\}\r?\n$/', $line, $matches)) {
+            $bytesToRead = (int) $matches[1];
+            $literal = '';
+
+            while ($bytesToRead > 0 && !feof($socket)) {
+                $chunk = fread($socket, $bytesToRead);
+
+                if (!is_string($chunk) || $chunk === '') {
+                    break;
+                }
+
+                $literal .= $chunk;
+                $bytesToRead -= strlen($chunk);
+            }
+
+            $response .= $literal;
+            continue;
+        }
+
+        if (str_starts_with($line, $tag . ' ')) {
+            break;
+        }
+    }
+
+    return $response;
+}
+
+function mvm_imap_socket_command($socket, int &$counter, string $command): array
+{
+    $tag = 'A' . str_pad((string) $counter, 4, '0', STR_PAD_LEFT);
+    $counter++;
+
+    fwrite($socket, $tag . ' ' . $command . "\r\n");
+    $response = mvm_imap_socket_read_response($socket, $tag);
+    $ok = preg_match('/^' . preg_quote($tag, '/') . '\s+OK\b/mi', $response) === 1;
+
+    return ['ok' => $ok, 'response' => $response, 'tag' => $tag];
+}
+
+function mvm_imap_socket_connect(string $user, string $password): array
+{
+    $config = mvm_imap_socket_config();
+    $transport = $config['encryption'] === 'ssl' ? 'ssl' : 'tcp';
+    $target = $transport . '://' . $config['host'] . ':' . $config['port'];
+    $context = stream_context_create([
+        'ssl' => [
+            'verify_peer' => !filter_var(mvm_config_value('MVM_IMAP_NOVALIDATE_CERT', '0'), FILTER_VALIDATE_BOOLEAN),
+            'verify_peer_name' => !filter_var(mvm_config_value('MVM_IMAP_NOVALIDATE_CERT', '0'), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ]);
+    $errno = 0;
+    $errstr = '';
+    $socket = @stream_socket_client($target, $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context);
+
+    if (!is_resource($socket)) {
+        return ['ok' => false, 'message' => 'Nem sikerült csatlakozni az IMAP szerverhez: ' . trim($errstr), 'socket' => null];
+    }
+
+    stream_set_timeout($socket, 12);
+    $greeting = fgets($socket);
+
+    if (!is_string($greeting) || stripos($greeting, '* OK') !== 0) {
+        fclose($socket);
+        return ['ok' => false, 'message' => 'Az IMAP szerver nem adott sikeres nyitó választ.', 'socket' => null];
+    }
+
+    $counter = 1;
+
+    if ($config['encryption'] === 'tls') {
+        $startTls = mvm_imap_socket_command($socket, $counter, 'STARTTLS');
+
+        if (!$startTls['ok'] || !stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            fclose($socket);
+            return ['ok' => false, 'message' => 'Az IMAP STARTTLS kapcsolat nem sikerült.', 'socket' => null];
+        }
+    }
+
+    $login = mvm_imap_socket_command($socket, $counter, 'LOGIN ' . mvm_imap_socket_quote($user) . ' ' . mvm_imap_socket_quote($password));
+
+    if (!$login['ok']) {
+        fclose($socket);
+        return ['ok' => false, 'message' => 'Az IMAP bejelentkezés sikertelen.', 'socket' => null];
+    }
+
+    $select = mvm_imap_socket_command($socket, $counter, 'SELECT ' . mvm_imap_socket_quote($config['folder']));
+
+    if (!$select['ok']) {
+        fclose($socket);
+        return ['ok' => false, 'message' => 'Az IMAP mappa nem nyitható meg: ' . $config['folder'], 'socket' => null];
+    }
+
+    return ['ok' => true, 'message' => '', 'socket' => $socket, 'counter' => $counter];
+}
+
+function mvm_extract_imap_literal_section(string $response, string $section): string
+{
+    $position = stripos($response, $section);
+
+    if ($position === false) {
+        return '';
+    }
+
+    if (!preg_match('/\{(\d+)\}\r?\n/', $response, $matches, PREG_OFFSET_CAPTURE, $position)) {
+        return '';
+    }
+
+    $length = (int) $matches[1][0];
+    $start = $matches[0][1] + strlen($matches[0][0]);
+
+    return substr($response, $start, $length);
+}
+
+function mvm_parse_email_headers(string $headers): array
+{
+    $parsed = [];
+    $current = '';
+
+    foreach (preg_split('/\r\n|\r|\n/', $headers) ?: [] as $line) {
+        if ($line === '') {
+            continue;
+        }
+
+        if (($line[0] === ' ' || $line[0] === "\t") && $current !== '') {
+            $parsed[$current] .= ' ' . trim($line);
+            continue;
+        }
+
+        $separator = strpos($line, ':');
+
+        if ($separator === false) {
+            continue;
+        }
+
+        $current = strtolower(substr($line, 0, $separator));
+        $parsed[$current] = trim(substr($line, $separator + 1));
+    }
+
+    return $parsed;
+}
+
+function mvm_store_inbound_mvm_message(
+    array $thread,
+    string $mailboxUid,
+    string $messageId,
+    string $from,
+    string $to,
+    string $subject,
+    string $plainBody,
+    string $htmlBody,
+    string $headers,
+    ?string $receivedAt
+): void {
+    db_query(
+        'INSERT INTO `mvm_email_messages`
+            (`thread_id`, `connection_request_id`, `direction`, `mailbox_uid`, `message_id`, `in_reply_to`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `body_html`, `raw_headers`, `received_at`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            (int) $thread['id'],
+            (int) $thread['connection_request_id'],
+            'inbound',
+            $mailboxUid,
+            $messageId !== '' ? $messageId : null,
+            $headers,
+            mvm_extract_email_address($from),
+            $from,
+            mvm_extract_email_address($to),
+            $subject,
+            $plainBody,
+            $htmlBody,
+            $headers,
+            $receivedAt,
+        ]
+    );
+    db_query(
+        'UPDATE `mvm_email_threads`
+         SET `status` = ?, `last_message_at` = COALESCE(?, NOW())
+         WHERE `id` = ?',
+        ['replied', $receivedAt, (int) $thread['id']]
+    );
+}
+
 function mvm_extract_email_address(string $value): string
 {
     if (preg_match('/<([^>]+)>/', $value, $matches)) {
@@ -5644,6 +5912,82 @@ function mvm_find_email_thread_for_message(string $subject, string $body, string
     return null;
 }
 
+function sync_mvm_mailbox_replies_via_socket(int $limit, string $user, string $password): array
+{
+    $connection = mvm_imap_socket_connect($user, $password);
+
+    if (!$connection['ok']) {
+        return ['ok' => false, 'message' => $connection['message'], 'matched' => 0, 'ignored' => 0];
+    }
+
+    $socket = $connection['socket'];
+    $counter = (int) $connection['counter'];
+    $since = date('d-M-Y', strtotime('-90 days'));
+    $search = mvm_imap_socket_command($socket, $counter, 'UID SEARCH SINCE ' . mvm_imap_socket_quote($since));
+    $matched = 0;
+    $ignored = 0;
+
+    if ($search['ok'] && preg_match('/^\* SEARCH\s+(.*)$/mi', $search['response'], $searchMatches)) {
+        $uids = array_filter(array_map('intval', preg_split('/\s+/', trim($searchMatches[1])) ?: []));
+        rsort($uids, SORT_NUMERIC);
+        $uids = array_slice($uids, 0, max(1, $limit));
+
+        foreach ($uids as $uid) {
+            $mailboxUid = sha1($user . '|' . (string) $uid);
+            $exists = db_query('SELECT 1 FROM `mvm_email_messages` WHERE `mailbox_uid` = ? LIMIT 1', [$mailboxUid])->fetchColumn();
+
+            if ($exists) {
+                continue;
+            }
+
+            $fetch = mvm_imap_socket_command($socket, $counter, 'UID FETCH ' . $uid . ' (BODY.PEEK[HEADER] BODY.PEEK[TEXT])');
+
+            if (!$fetch['ok']) {
+                $ignored++;
+                continue;
+            }
+
+            $headers = mvm_extract_imap_literal_section($fetch['response'], 'BODY[HEADER]');
+            $plainBody = trim(mvm_extract_imap_literal_section($fetch['response'], 'BODY[TEXT]'));
+            $parsedHeaders = mvm_parse_email_headers($headers);
+            $subject = mvm_decode_mime_header((string) ($parsedHeaders['subject'] ?? ''));
+            $from = mvm_decode_mime_header((string) ($parsedHeaders['from'] ?? ''));
+            $to = mvm_decode_mime_header((string) ($parsedHeaders['to'] ?? ''));
+            $messageId = trim((string) ($parsedHeaders['message-id'] ?? ''));
+            $date = trim((string) ($parsedHeaders['date'] ?? ''));
+            $thread = mvm_find_email_thread_for_message($subject, $plainBody, $headers);
+
+            if ($thread === null) {
+                $ignored++;
+                continue;
+            }
+
+            $receivedAt = null;
+
+            if ($date !== '') {
+                try {
+                    $receivedAt = (new DateTimeImmutable($date))->format('Y-m-d H:i:s');
+                } catch (Throwable) {
+                    $receivedAt = null;
+                }
+            }
+
+            mvm_store_inbound_mvm_message($thread, $mailboxUid, $messageId, $from, $to, $subject, $plainBody, '', $headers, $receivedAt);
+            $matched++;
+        }
+    }
+
+    mvm_imap_socket_command($socket, $counter, 'LOGOUT');
+    fclose($socket);
+
+    return [
+        'ok' => true,
+        'message' => 'MVM válaszok szinkronizálva. Találat: ' . $matched . ', nem kapcsolható levél: ' . $ignored . '.',
+        'matched' => $matched,
+        'ignored' => $ignored,
+    ];
+}
+
 function sync_mvm_mailbox_replies(int $limit = 80): array
 {
     $schemaErrors = mvm_mail_schema_errors();
@@ -5652,15 +5996,15 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
         return ['ok' => false, 'message' => implode(' ', $schemaErrors), 'matched' => 0, 'ignored' => 0];
     }
 
-    if (!function_exists('imap_open')) {
-        return ['ok' => false, 'message' => 'A PHP IMAP bővítmény nincs bekapcsolva a tárhelyen.', 'matched' => 0, 'ignored' => 0];
-    }
-
     $user = trim(mvm_config_value('MVM_IMAP_USER', mvm_mail_reply_address()));
     $password = (string) mvm_config_value('MVM_IMAP_PASS', '');
 
     if ($user === '' || $password === '') {
         return ['ok' => false, 'message' => 'Nincs beállítva az MVM_IMAP_USER és MVM_IMAP_PASS a storage/config/local.php vagy storage/config/local.secret.php fájlban.', 'matched' => 0, 'ignored' => 0];
+    }
+
+    if (!function_exists('imap_open')) {
+        return sync_mvm_mailbox_replies_via_socket($limit, $user, $password);
     }
 
     $imap = @imap_open(mvm_imap_mailbox_string(), $user, $password);
@@ -5713,33 +6057,7 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
                 }
             }
 
-            db_query(
-                'INSERT INTO `mvm_email_messages`
-                    (`thread_id`, `connection_request_id`, `direction`, `mailbox_uid`, `message_id`, `in_reply_to`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `body_html`, `raw_headers`, `received_at`)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                    (int) $thread['id'],
-                    (int) $thread['connection_request_id'],
-                    'inbound',
-                    $mailboxUid,
-                    $messageId !== '' ? $messageId : null,
-                    $headers,
-                    mvm_extract_email_address($from),
-                    $from,
-                    mvm_extract_email_address($to),
-                    $subject,
-                    $bodies['plain'],
-                    $bodies['html'],
-                    $headers,
-                    $receivedAt,
-                ]
-            );
-            db_query(
-                'UPDATE `mvm_email_threads`
-                 SET `status` = ?, `last_message_at` = COALESCE(?, NOW())
-                 WHERE `id` = ?',
-                ['replied', $receivedAt, (int) $thread['id']]
-            );
+            mvm_store_inbound_mvm_message($thread, $mailboxUid, $messageId, $from, $to, $subject, $bodies['plain'], $bodies['html'], $headers, $receivedAt);
             $matched++;
         }
     }
