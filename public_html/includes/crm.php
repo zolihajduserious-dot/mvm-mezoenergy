@@ -5138,11 +5138,7 @@ function mvm_config_value(string $key, string $default = ''): string
                 continue;
             }
 
-            try {
-                $loadedLocalConfig = require $localConfigPath;
-            } catch (Throwable) {
-                continue;
-            }
+            $loadedLocalConfig = require $localConfigPath;
 
             if (is_array($loadedLocalConfig)) {
                 $localConfig = array_replace($localConfig, $loadedLocalConfig);
@@ -5168,11 +5164,7 @@ function mvm_save_secret_config_value(string $key, string $value): array
     $config = [];
 
     if (is_file($configPath)) {
-        try {
-            $loadedConfig = require $configPath;
-        } catch (Throwable) {
-            $loadedConfig = [];
-        }
+        $loadedConfig = require $configPath;
 
         if (is_array($loadedConfig)) {
             $config = $loadedConfig;
