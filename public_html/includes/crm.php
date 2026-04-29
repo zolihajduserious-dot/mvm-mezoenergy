@@ -5718,7 +5718,7 @@ function mvm_imap_socket_read_response($socket, string $tag): string
             continue;
         }
 
-        if (str_starts_with($line, $tag . ' ')) {
+        if (strncmp($line, $tag . ' ', strlen($tag) + 1) === 0) {
             break;
         }
     }
@@ -6012,7 +6012,11 @@ function sync_mvm_mailbox_replies(int $limit = 80): array
     }
 
     if (!function_exists('imap_open')) {
-        return sync_mvm_mailbox_replies_via_socket($limit, $user, $password);
+        if (filter_var(mvm_config_value('MVM_IMAP_SOCKET_FALLBACK', '0'), FILTER_VALIDATE_BOOLEAN)) {
+            return sync_mvm_mailbox_replies_via_socket($limit, $user, $password);
+        }
+
+        return ['ok' => false, 'message' => 'A PHP IMAP bővítmény nincs bekapcsolva a tárhelyen. A tárhelyen engedélyezni kell az imap PHP extensiont, vagy külön be kell kapcsolni az MVM_IMAP_SOCKET_FALLBACK opciót.', 'matched' => 0, 'ignored' => 0];
     }
 
     $imap = @imap_open(mvm_imap_mailbox_string(), $user, $password);
