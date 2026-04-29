@@ -325,8 +325,29 @@ if ($page === null) {
 }
 
 ob_start();
-require $page['file'];
-$pageContent = ob_get_clean();
+
+try {
+    require $page['file'];
+    $pageContent = ob_get_clean();
+} catch (Throwable $exception) {
+    ob_end_clean();
+
+    $logDir = APP_ROOT . '/private_logs';
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    @file_put_contents(
+        $logDir . '/page-error.log',
+        '[' . date('Y-m-d H:i:s') . '] ' . $route . ' - ' . get_class($exception) . ': ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine() . PHP_EOL,
+        FILE_APPEND | LOCK_EX
+    );
+
+    http_response_code(500);
+    $page['title'] = 'Oldal betöltési hiba';
+    $pageContent = '<section class="container auth-panel"><h1>Oldal betöltési hiba</h1><p>' . h($exception->getMessage()) . '</p><p class="muted-text">Útvonal: ' . h($route) . '</p></section>';
+}
 ?>
 <!doctype html>
 <html lang="hu">
