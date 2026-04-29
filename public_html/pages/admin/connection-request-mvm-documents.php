@@ -124,6 +124,19 @@ if (is_post()) {
 
             $errors[] = (string) $result['message'];
         }
+    } elseif ($action === 'build_execution_plan_package') {
+        if ($schemaErrors !== []) {
+            $errors = array_merge($errors, $schemaErrors);
+        } else {
+            $result = generate_connection_request_execution_plan_package((int) $request['id']);
+
+            if ($result['ok']) {
+                set_flash('success', $result['message']);
+                redirect($mvmRedirectPath);
+            }
+
+            $errors[] = (string) $result['message'];
+        }
     } elseif ($action === 'build_handover_package') {
         if ($schemaErrors !== []) {
             $errors = array_merge($errors, $schemaErrors);
@@ -208,9 +221,12 @@ if (is_post()) {
 
 $documents = connection_request_documents((int) $request['id']);
 $completePackages = connection_request_complete_packages((int) $request['id']);
+$executionPlanPackages = connection_request_execution_plan_packages((int) $request['id']);
 $technicalHandoverPackages = connection_request_technical_handover_packages((int) $request['id']);
 $packageParts = connection_request_complete_package_parts((int) $request['id']);
 $missingItems = connection_request_complete_package_missing_items((int) $request['id']);
+$executionPlanPackageParts = connection_request_execution_plan_package_parts((int) $request['id']);
+$executionPlanMissingItems = connection_request_execution_plan_package_missing_items((int) $request['id']);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
 $mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
@@ -493,7 +509,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
 
                     <label for="mvm_documents">Dokumentumok</label>
                     <input id="mvm_documents" name="mvm_documents[]" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" required>
-                    <p class="muted-text">Több dokumentum is feltölthető egyszerre. A komplett PDF csomagba csak PDF és kép fájl fűzhető be, ezért az MVM dokumentumot PDF-ként érdemes feltölteni. Ha a generálás egy PDF technikai hibája miatt nem sikerül, itt 5 MB alatti kész komplett PDF is feltölthető.</p>
+                    <p class="muted-text">Több dokumentum is feltölthető egyszerre. Az összefűzött PDF csomagokba csak PDF és kép fájl fűzhető be, ezért az MVM dokumentumot és a kiviteli tervet PDF-ként érdemes feltölteni.</p>
 
                     <button class="button" name="action" value="upload" type="submit">MVM dokumentum feltöltése</button>
                 </form>
@@ -511,13 +527,13 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
         <section class="auth-panel form-block">
             <div class="admin-header">
                 <div>
-                    <p class="eyebrow">Komplett dokumentum</p>
-                    <h2>Összefűzött PDF csomag</h2>
-                    <p>A generált PDF sorrendje: MVM dokumentum, kiviteli terv, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat, fotók. A kész fájl csak 5 MB alatt menthető. Az összefűzésbe csak PDF és kép fájl kerülhet, ezért a Word dokumentumokból előbb PDF-et kell generálni.</p>
+                    <p class="eyebrow">1. csomag</p>
+                    <h2>MVM jóváhagyási PDF csomag</h2>
+                    <p>Sorrend: MVM dokumentum, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button" name="action" value="build_package" type="submit" <?= ($missingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Komplett PDF generálása</button>
+                    <button class="button" name="action" value="build_package" type="submit" <?= ($missingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>MVM jóváhagyási csomag generálása</button>
                 </form>
             </div>
 
@@ -560,7 +576,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
 
             <?php if ($completePackages !== []): ?>
                 <div class="portal-card-files existing-file-panel">
-                    <h3>Elkészült komplett dokumentumok</h3>
+                    <h3>Elkészült MVM jóváhagyási csomagok</h3>
                     <div class="inline-link-list">
                         <?php foreach ($completePackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
@@ -569,6 +585,68 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                                 <input type="hidden" name="document_id" value="<?= (int) $package['id']; ?>">
                                 <button class="button button-secondary" name="action" value="send_package" type="submit">Email küldése ügyfélnek</button>
                             </form>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <section class="auth-panel form-block">
+            <div class="admin-header">
+                <div>
+                    <p class="eyebrow">2. csomag</p>
+                    <h2>Kiviteli terv PDF csomag</h2>
+                    <p>Az MVM jóváhagyás után ezt a külön csomagot kell generálni. Sorrend: kiviteli terv, majd fotók.</p>
+                </div>
+                <form method="post" action="<?= h($mvmPageUrl); ?>">
+                    <?= csrf_field(); ?>
+                    <button class="button" name="action" value="build_execution_plan_package" type="submit" <?= ($executionPlanMissingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Kiviteli terv csomag generálása</button>
+                </form>
+            </div>
+
+            <?php if (!$pdfMergeAvailable): ?>
+                <div class="alert alert-info">
+                    <p>Az automatikus PDF-összefűzéshez hiányzik az FPDI csomag az éles tárhely vendor mappájából.</p>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($executionPlanMissingItems !== []): ?>
+                <div class="alert alert-info">
+                    <p>A generáláshoz még hiányzik: <?= h(implode(', ', $executionPlanMissingItems)); ?>.</p>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($executionPlanPackageParts !== []): ?>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Sorrend</th>
+                                <th>Dokumentum</th>
+                                <th>Fájl</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($executionPlanPackageParts as $index => $part): ?>
+                                <tr>
+                                    <td><?= $index + 1; ?>. <?= h($part['group']); ?></td>
+                                    <td><strong><?= h($part['label']); ?></strong></td>
+                                    <td><?= h($part['original_name']); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <p class="muted-text">Még nincs összefűzhető kiviteli terv csomag.</p>
+            <?php endif; ?>
+
+            <?php if ($executionPlanPackages !== []): ?>
+                <div class="portal-card-files existing-file-panel">
+                    <h3>Elkészült kiviteli terv csomagok</h3>
+                    <div class="inline-link-list">
+                        <?php foreach ($executionPlanPackages as $package): ?>
+                            <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
                         <?php endforeach; ?>
                     </div>
                 </div>

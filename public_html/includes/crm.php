@@ -3635,6 +3635,21 @@ function connection_request_has_file_type(?int $requestId, string $fileType): bo
     )->fetchColumn();
 }
 
+function connection_request_has_photo_file(?int $requestId): bool
+{
+    if ($requestId === null || $requestId <= 0) {
+        return false;
+    }
+
+    foreach (connection_request_upload_definitions() as $fileType => $definition) {
+        if (($definition['kind'] ?? '') === 'image' && connection_request_has_file_type($requestId, (string) $fileType)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function handle_connection_request_uploads(int $requestId, array $files, bool $notifyAdmin = true): array
 {
     $messages = [];
@@ -4754,7 +4769,8 @@ function mvm_document_types(bool $includeSystemTypes = true): array
     ];
 
     if ($includeSystemTypes) {
-        $types['complete_package'] = 'Komplett összefűzött dokumentum';
+        $types['complete_package'] = 'MVM jóváhagyási csomag';
+        $types['execution_plan_package'] = 'Kiviteli terv csomag';
         $types['technical_handover_package'] = 'Műszaki átadás csomag';
     }
 
@@ -4773,6 +4789,7 @@ function mvm_document_type_keys(): array
         'technical_handover',
         'technical_declaration',
         'complete_package',
+        'execution_plan_package',
         'technical_handover_package',
     ];
 }
@@ -8761,6 +8778,20 @@ function connection_request_complete_packages(int $requestId): array
     )->fetchAll();
 }
 
+function connection_request_execution_plan_packages(int $requestId): array
+{
+    if (!db_table_exists('connection_request_documents')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `connection_request_documents`
+         WHERE `connection_request_id` = ? AND `document_type` = ?
+         ORDER BY `created_at` DESC, `id` DESC',
+        [$requestId, 'execution_plan_package']
+    )->fetchAll();
+}
+
 function connection_request_technical_handover_packages(int $requestId): array
 {
     if (!db_table_exists('connection_request_documents')) {
@@ -8882,12 +8913,6 @@ function connection_request_complete_package_parts(int $requestId): array
         $parts[] = connection_request_document_package_part($mvmDocument, 'MVM dokumentum', 'MVM dokumentum');
     }
 
-    $executionPlan = latest_connection_request_execution_plan_document($requestId);
-
-    if ($executionPlan !== null) {
-        $parts[] = connection_request_document_package_part($executionPlan, 'Kiviteli terv', 'Kiviteli terv dokumentáció');
-    }
-
     $definitions = connection_request_upload_definitions();
     $filesByType = [];
 
@@ -8935,6 +8960,43 @@ function connection_request_complete_package_parts(int $requestId): array
     return $parts;
 }
 
+function connection_request_execution_plan_package_parts(int $requestId): array
+{
+    $parts = [];
+    $executionPlan = latest_connection_request_execution_plan_document($requestId);
+
+    if ($executionPlan !== null) {
+        $parts[] = connection_request_document_package_part($executionPlan, 'Kiviteli terv', 'Kiviteli terv dokumentáció');
+    }
+
+    $definitions = connection_request_upload_definitions();
+    $filesByType = [];
+
+    foreach (connection_request_files($requestId) as $file) {
+        $filesByType[(string) $file['file_type']][] = $file;
+    }
+
+    foreach ($definitions as $fileType => $definition) {
+        if (($definition['kind'] ?? '') !== 'image') {
+            continue;
+        }
+
+        foreach ($filesByType[$fileType] ?? [] as $file) {
+            $parts[] = [
+                'group' => 'Fotók',
+                'label' => (string) $definition['label'],
+                'original_name' => (string) $file['original_name'],
+                'path' => (string) $file['storage_path'],
+                'mime_type' => (string) $file['mime_type'],
+                'source' => 'request_file',
+                'file_type' => $fileType,
+            ];
+        }
+    }
+
+    return $parts;
+}
+
 function connection_request_complete_package_missing_items(int $requestId): array
 {
     $missing = [];
@@ -8945,6 +9007,33 @@ function connection_request_complete_package_missing_items(int $requestId): arra
 
     if (!connection_request_has_file_type($requestId, 'authorization')) {
         $missing[] = 'Meghatalmazás';
+    }
+
+    if (!connection_request_has_file_type($requestId, 'title_deed')) {
+        $missing[] = 'Tulajdoni lap';
+    }
+
+    if (!connection_request_has_file_type($requestId, 'map_copy')) {
+        $missing[] = 'Térképmásolat';
+    }
+
+    if (!connection_request_has_photo_file($requestId)) {
+        $missing[] = 'Fotók';
+    }
+
+    return $missing;
+}
+
+function connection_request_execution_plan_package_missing_items(int $requestId): array
+{
+    $missing = [];
+
+    if (latest_connection_request_execution_plan_document($requestId) === null) {
+        $missing[] = 'Kiviteli terv PDF vagy kép formátumban';
+    }
+
+    if (!connection_request_has_photo_file($requestId)) {
+        $missing[] = 'Fotók';
     }
 
     return $missing;
@@ -9346,7 +9435,7 @@ function generate_connection_request_complete_package(int $requestId): array
     $missingItems = connection_request_complete_package_missing_items($requestId);
 
     if ($missingItems !== []) {
-        return ['ok' => false, 'message' => 'A komplett dokumentumhoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
+        return ['ok' => false, 'message' => 'Az MVM jóváhagyási csomaghoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
     }
 
     $parts = connection_request_complete_package_parts($requestId);
@@ -9358,7 +9447,7 @@ function generate_connection_request_complete_package(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/complete-package';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'komplett-dokumentumcsomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = 'mvm-jovahagyasi-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
     $finalPath = $targetDir . '/' . $storedName;
     $maxBytes = 5 * 1024 * 1024;
     $lastSize = 0;
@@ -9383,7 +9472,7 @@ function generate_connection_request_complete_package(int $requestId): array
         if (!is_file($finalPath)) {
             return [
                 'ok' => false,
-                'message' => 'Az összefűzött dokumentum ' . format_bytes($lastSize) . ', ezért nem mentettük. A kész dokumentumnak 5 MB alatt kell lennie; tölts fel tömörített MVM/dokumentum PDF-et vagy kisebb fotókat.',
+                'message' => 'Az MVM jóváhagyási csomag ' . format_bytes($lastSize) . ', ezért nem mentettük. A kész dokumentumnak 5 MB alatt kell lennie; tölts fel tömörített MVM/dokumentum PDF-et vagy kisebb fotókat.',
                 'document_id' => null,
             ];
         }
@@ -9397,7 +9486,7 @@ function generate_connection_request_complete_package(int $requestId): array
                 $requestId,
                 (int) $request['customer_id'],
                 'complete_package',
-                'Komplett összefűzött dokumentum',
+                'MVM jóváhagyási csomag',
                 $storedName,
                 $storedName,
                 $finalPath,
@@ -9409,7 +9498,7 @@ function generate_connection_request_complete_package(int $requestId): array
 
         return [
             'ok' => true,
-            'message' => 'A komplett dokumentum elkészült: ' . format_bytes((int) filesize($finalPath)) . '.',
+            'message' => 'Az MVM jóváhagyási csomag elkészült: ' . format_bytes((int) filesize($finalPath)) . '.',
             'document_id' => (int) db()->lastInsertId(),
         ];
     } catch (Throwable $exception) {
@@ -9419,7 +9508,77 @@ function generate_connection_request_complete_package(int $requestId): array
 
         return [
             'ok' => false,
-            'message' => 'A komplett dokumentum generálása sikertelen: ' . $exception->getMessage(),
+            'message' => 'Az MVM jóváhagyási csomag generálása sikertelen: ' . $exception->getMessage(),
+            'document_id' => null,
+        ];
+    }
+}
+
+function generate_connection_request_execution_plan_package(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $missingItems = connection_request_execution_plan_package_missing_items($requestId);
+
+    if ($missingItems !== []) {
+        return ['ok' => false, 'message' => 'A kiviteli terv csomaghoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
+    }
+
+    $parts = connection_request_execution_plan_package_parts($requestId);
+
+    if ($parts === []) {
+        return ['ok' => false, 'message' => 'Nincs összefűzhető dokumentum.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/execution-plan-package';
+    ensure_storage_dir($targetDir);
+
+    $storedName = 'kiviteli-terv-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $finalPath = $targetDir . '/' . $storedName;
+
+    try {
+        $result = render_connection_request_complete_package_pdf($parts, $finalPath, 72);
+
+        if (!is_file($finalPath) || (int) $result['size'] <= 0) {
+            return ['ok' => false, 'message' => 'A kiviteli terv csomag PDF nem készült el.', 'document_id' => null];
+        }
+
+        db_query(
+            'INSERT INTO `connection_request_documents`
+                (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+                 `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $requestId,
+                (int) $request['customer_id'],
+                'execution_plan_package',
+                'Kiviteli terv csomag',
+                $storedName,
+                $storedName,
+                $finalPath,
+                'application/pdf',
+                (int) filesize($finalPath),
+                is_array(current_user()) ? (int) current_user()['id'] : null,
+            ]
+        );
+
+        return [
+            'ok' => true,
+            'message' => 'A kiviteli terv csomag elkészült: ' . format_bytes((int) filesize($finalPath)) . '.',
+            'document_id' => (int) db()->lastInsertId(),
+        ];
+    } catch (Throwable $exception) {
+        if (is_file($finalPath)) {
+            unlink($finalPath);
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'A kiviteli terv csomag generálása sikertelen: ' . $exception->getMessage(),
             'document_id' => null,
         ];
     }
