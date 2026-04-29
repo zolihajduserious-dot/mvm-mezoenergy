@@ -515,9 +515,13 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $assignedElectricianName = minicrm_work_item_electrician_assignment_name($item);
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
                             $customerProfile = $customerProfilesBySource[(string) ($item['source_id'] ?? '')] ?? null;
-                            $profileName = is_array($customerProfile) ? trim((string) ($customerProfile['person_name'] ?? '')) : '';
-                            $profileEmail = is_array($customerProfile) ? trim((string) ($customerProfile['person_email'] ?? '')) : '';
-                            $profilePhone = is_array($customerProfile) ? trim((string) ($customerProfile['person_phone'] ?? '')) : '';
+                            $profileName = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név']) : '';
+                            $profileEmail = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
+                            $profilePhone = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
+                            $profileConsent = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_consent', ['Szemely1 Adatkezelesi hozzajarulas', 'Személy1: Adatkezelési hozzájárulás']) : '';
+                            $profilePosition = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_position', ['Szemely1 Beosztas', 'Személy1: Beosztás']) : '';
+                            $profileWebsite = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_website', ['Szemely1 Weboldal', 'Személy1: Weboldal']) : '';
+                            $profileSummary = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_summary', ['Szemely1 Osszefoglalo', 'Személy1: Összefoglaló']) : '';
                             $profileContactLine = trim(implode(' · ', array_filter([$profileEmail, $profilePhone], static fn (string $value): bool => $value !== '')));
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
@@ -633,11 +637,11 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                                                         <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Email</span><strong><?= h($profileEmail !== '' ? $profileEmail : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></strong></div>
-                                                        <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h((string) (($customerProfile['person_consent'] ?? '') ?: '-')); ?></strong></div>
-                                                        <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h((string) (($customerProfile['person_position'] ?? '') ?: '-')); ?></strong></div>
-                                                        <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h((string) (($customerProfile['person_website'] ?? '') ?: '-')); ?></strong></div>
-                                                        <?php if (trim((string) ($customerProfile['person_summary'] ?? '')) !== ''): ?>
-                                                            <div class="minicrm-readable-row customer-crm-wide"><span>&#214;sszefoglal&#243;</span><strong><?= h((string) ($customerProfile['person_summary'] ?? '')); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h($profileConsent !== '' ? $profileConsent : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h($profilePosition !== '' ? $profilePosition : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h($profileWebsite !== '' ? $profileWebsite : '-'); ?></strong></div>
+                                                        <?php if ($profileSummary !== ''): ?>
+                                                            <div class="minicrm-readable-row customer-crm-wide"><span>&#214;sszefoglal&#243;</span><strong><?= h($profileSummary); ?></strong></div>
                                                         <?php endif; ?>
                                                     </div>
                                                 <?php endif; ?>

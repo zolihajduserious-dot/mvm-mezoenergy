@@ -12975,6 +12975,36 @@ function minicrm_customer_profile_raw_fields(array $profile): array
     return $fields;
 }
 
+function minicrm_customer_profile_raw_value_by_labels(array $profile, array $labels): string
+{
+    $wanted = [];
+
+    foreach ($labels as $label) {
+        $wanted[minicrm_import_key((string) $label)] = true;
+    }
+
+    foreach (minicrm_customer_profile_raw_fields($profile) as $field) {
+        $key = minicrm_import_key((string) ($field['label'] ?? ''));
+
+        if (isset($wanted[$key])) {
+            return trim((string) ($field['value'] ?? ''));
+        }
+    }
+
+    return '';
+}
+
+function minicrm_customer_profile_display_value(array $profile, string $column, array $labels): string
+{
+    $value = trim((string) ($profile[$column] ?? ''));
+
+    if ($value !== '') {
+        return $value;
+    }
+
+    return minicrm_customer_profile_raw_value_by_labels($profile, $labels);
+}
+
 function minicrm_work_item_file_count(): int
 {
     if (!db_table_exists('minicrm_work_item_files')) {
