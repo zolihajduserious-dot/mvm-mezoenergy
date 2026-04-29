@@ -13,10 +13,16 @@ $loginPath = match ($currentLoginRoute) {
     'electrician/login' => '/electrician/login',
     default => '/login',
 };
-$loginTitle = $currentLoginRoute === 'electrician/login' ? 'Szerelői belépés' : 'Belépés';
-$loginLead = $currentLoginRoute === 'electrician/login'
-    ? 'Szerelőként itt tudsz belépni a kiadott munkáidhoz. A munka előtt és után innen töltheted fel a kötelező fotókat és az elkészült beavatkozási lapot.'
-    : 'Jelentkezz be az ügyfélportálhoz, az admin felülethez vagy a szerelői munkákhoz. Belépés után a rendszer automatikusan a saját felületedre visz.';
+$loginTitle = match ($currentLoginRoute) {
+    'admin/login' => 'Admin belépés',
+    'electrician/login' => 'Szerelői belépés',
+    default => 'Belépés',
+};
+$loginLead = match ($currentLoginRoute) {
+    'admin/login' => 'Adminisztrátorként itt tudsz belépni az ügyfelek, munkák, árajánlatok és MVM dokumentumok kezeléséhez.',
+    'electrician/login' => 'Szerelőként itt tudsz belépni a kiadott munkáidhoz. A munka előtt és után innen töltheted fel a kötelező fotókat és az elkészült beavatkozási lapot.',
+    default => 'Jelentkezz be az ügyfélportálhoz, az admin felülethez vagy a szerelői munkákhoz. Belépés után a rendszer automatikusan a saját felületedre visz.',
+};
 $usersTableReady = false;
 $adminExists = false;
 $flash = get_flash();
@@ -108,6 +114,12 @@ if (is_post() && $usersTableReady) {
                 <div class="auth-panel-links">
                     <?php if ($currentLoginRoute === 'electrician/login'): ?>
                         <a href="<?= h(url_path('/electrician/register')); ?>">Még nincs szerelői fiókod?</a>
+                    <?php endif; ?>
+                    <?php if ($currentLoginRoute !== 'admin/login'): ?>
+                        <a href="<?= h(url_path('/admin/login')); ?>">Admin belépés</a>
+                    <?php endif; ?>
+                    <?php if ($currentLoginRoute !== 'electrician/login'): ?>
+                        <a href="<?= h(url_path('/electrician/login')); ?>">Szerelői belépés</a>
                     <?php endif; ?>
                     <a href="<?= h(url_path('/forgot-password')); ?>">Elfelejtetted a jelszavad?</a>
                 </div>

@@ -401,6 +401,7 @@ try {
                     <a href="<?= h(url_path('/index.php?route=contractor/register')); ?>">Generálkivitelező regisztráció</a>
                     <a href="<?= h(url_path('/electrician/register')); ?>">Szerelői regisztráció</a>
                     <a href="<?= h(url_path('/electrician/login')); ?>">Szerelői belépés</a>
+                    <a href="<?= h(url_path('/admin/login')); ?>">Admin belépés</a>
                     <a href="<?= h(url_path('/login')); ?>">Belépés</a>
                 <?php endif; ?>
             </div>
