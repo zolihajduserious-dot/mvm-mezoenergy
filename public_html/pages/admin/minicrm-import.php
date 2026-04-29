@@ -538,10 +538,13 @@ function minicrm_import_timeline_events(array $item, array $rawFields, array $lo
                             $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
                             $assignedElectricianName = minicrm_work_item_electrician_assignment_name($item);
                             $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
-                            $customerProfile = $customerProfilesBySource[(string) ($item['source_id'] ?? '')] ?? null;
-                            $profileName = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név']) : '';
-                            $profileEmail = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
-                            $profilePhone = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
+                            $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
+                            if ($customerProfile === null && $isSelectedItem) {
+                                $customerProfile = minicrm_customer_profile_for_work_item($item);
+                            }
+                            $profileName = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név', 'Nev', 'Név']) : '';
+                            $profileEmail = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email', 'Ceg Email', 'Cég: Email', 'Email']) : '';
+                            $profilePhone = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon', 'Ceg Telefon', 'Cég: Telefon', 'Telefon']) : '';
                             $profileConsent = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_consent', ['Szemely1 Adatkezelesi hozzajarulas', 'Személy1: Adatkezelési hozzájárulás']) : '';
                             $profilePosition = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_position', ['Szemely1 Beosztas', 'Személy1: Beosztás']) : '';
                             $profileWebsite = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_website', ['Szemely1 Weboldal', 'Személy1: Weboldal']) : '';

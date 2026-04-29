@@ -10082,6 +10082,11 @@ function minicrm_import_value(array $values, int $column): string
     return minicrm_import_clean($values[$column - 1] ?? '');
 }
 
+function minicrm_source_id_key(string $sourceId): string
+{
+    return strtolower(trim($sourceId));
+}
+
 function minicrm_import_key(string $value): string
 {
     $value = minicrm_import_lower(trim($value));
@@ -10800,7 +10805,7 @@ function minicrm_customer_profile_customer_id(array $data): ?int
 
     if ($sourceId !== '' && db_table_exists('minicrm_connection_request_links')) {
         $customerId = db_query(
-            'SELECT `customer_id` FROM `minicrm_connection_request_links` WHERE `source_id` = ? LIMIT 1',
+            'SELECT `customer_id` FROM `minicrm_connection_request_links` WHERE LOWER(`source_id`) = LOWER(?) LIMIT 1',
             [$sourceId]
         )->fetchColumn();
 
@@ -10812,7 +10817,7 @@ function minicrm_customer_profile_customer_id(array $data): ?int
             'SELECT l.`customer_id`
              FROM `minicrm_work_items` w
              INNER JOIN `minicrm_connection_request_links` l ON l.`work_item_id` = w.`id`
-             WHERE w.`source_id` = ?
+             WHERE LOWER(w.`source_id`) = LOWER(?)
              LIMIT 1',
             [$sourceId]
         )->fetchColumn();
@@ -10989,10 +10994,10 @@ function sync_minicrm_customer_profile_to_customer(int $customerId, array $data)
 
     $updates = [];
     $params = [];
-    $personName = trim((string) ($data['person_name'] ?? ''));
+    $personName = minicrm_customer_profile_display_value($data, 'person_name', ['Szemely1 Nev', 'Személy1: Név', 'Nev', 'Név']);
     $cardName = trim((string) ($data['card_name'] ?? ''));
-    $personEmail = trim((string) ($data['person_email'] ?? ''));
-    $personPhone = trim((string) ($data['person_phone'] ?? ''));
+    $personEmail = minicrm_customer_profile_display_value($data, 'person_email', ['Szemely1 Email', 'Személy1: Email', 'Ceg Email', 'Cég: Email', 'Email']);
+    $personPhone = minicrm_customer_profile_display_value($data, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon', 'Ceg Telefon', 'Cég: Telefon', 'Telefon']);
 
     if (trim((string) ($customer['requester_name'] ?? '')) === '' && ($personName !== '' || $cardName !== '')) {
         $updates[] = '`requester_name` = ?';
@@ -12532,6 +12537,7 @@ function minicrm_work_item_legal_entity(array $item): int
 
 function minicrm_work_item_customer_data(array $item): array
 {
+    $customerProfile = minicrm_customer_profile_for_work_item($item);
     $siteAddress = trim((string) ($item['site_address'] ?? ''));
     $mailingAddress = trim((string) ($item['mailing_address'] ?? ''));
     $postalAddress = $mailingAddress !== '' ? $mailingAddress : $siteAddress;
@@ -12542,14 +12548,18 @@ function minicrm_work_item_customer_data(array $item): array
         $city = trim((string) strtok($siteAddress, ','));
     }
 
+    $profileName = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név', 'Nev', 'Név']) : '';
+    $profileEmail = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email', 'Ceg Email', 'Cég: Email', 'Email']) : '';
+    $profilePhone = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon', 'Ceg Telefon', 'Cég: Telefon', 'Telefon']) : '';
+
     return [
         'is_legal_entity' => minicrm_work_item_legal_entity($item),
-        'requester_name' => trim((string) ($item['customer_name'] ?: $item['card_name'] ?: 'MiniCRM ugyfel')),
+        'requester_name' => trim((string) ($profileName ?: $item['customer_name'] ?: $item['card_name'] ?: 'MiniCRM ugyfel')),
         'birth_name' => trim((string) ($item['birth_name'] ?? '')),
         'company_name' => '',
         'tax_number' => minicrm_work_item_raw_value_by_patterns($item, ['/adoszam/']),
-        'phone' => minicrm_work_item_raw_value_by_patterns($item, ['/telefon/', '/mobilszam/', '/phone/']),
-        'email' => minicrm_work_item_raw_email($item),
+        'phone' => $profilePhone !== '' ? $profilePhone : minicrm_work_item_raw_value_by_patterns($item, ['/telefon/', '/mobilszam/', '/phone/']),
+        'email' => $profileEmail !== '' ? $profileEmail : minicrm_work_item_raw_email($item),
         'postal_address' => $postalAddress !== '' ? $postalAddress : (string) ($item['card_name'] ?? 'MiniCRM import'),
         'postal_code' => $postalCode,
         'city' => $city,
@@ -12841,6 +12851,12 @@ function ensure_minicrm_work_item_connection_request(int $workItemId): array
         $existingCustomer = $customerId > 0 ? find_customer($customerId) : null;
 
         if ($existingCustomer !== null) {
+            foreach (['phone', 'email', 'postal_address', 'postal_code', 'city', 'mailing_address'] as $customerField) {
+                if (trim((string) ($customerData[$customerField] ?? '')) === '' && trim((string) ($existingCustomer[$customerField] ?? '')) !== '') {
+                    $customerData[$customerField] = (string) $existingCustomer[$customerField];
+                }
+            }
+
             update_customer($customerId, $customerData);
         } else {
             $customerId = create_customer($customerData, null, $createdBy);
@@ -12878,6 +12894,16 @@ function ensure_minicrm_work_item_connection_request(int $workItemId): array
                 $requestId,
             ]
         );
+
+        $customerProfile = minicrm_customer_profile_for_work_item($item);
+
+        if (is_array($customerProfile)) {
+            db_query(
+                'UPDATE `minicrm_customer_profiles` SET `customer_id` = ? WHERE `id` = ?',
+                [$customerId, (int) $customerProfile['id']]
+            );
+            sync_minicrm_customer_profile_to_customer($customerId, $customerProfile);
+        }
 
         $pdo->commit();
     } catch (Throwable $exception) {
@@ -12953,7 +12979,7 @@ function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
     }
 
     $sourceIds = array_values(array_unique(array_filter(
-        array_map(static fn (mixed $sourceId): string => trim((string) $sourceId), $sourceIds),
+        array_map(static fn (mixed $sourceId): string => minicrm_source_id_key((string) $sourceId), $sourceIds),
         static fn (string $sourceId): bool => $sourceId !== ''
     )));
 
@@ -12965,7 +12991,7 @@ function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
     $rows = db_query(
         'SELECT *
          FROM `minicrm_customer_profiles`
-         WHERE `source_id` IN (' . $placeholders . ')
+         WHERE LOWER(`source_id`) IN (' . $placeholders . ')
          ORDER BY COALESCE(`modified_date`, `person_modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC',
         $sourceIds
     )->fetchAll();
@@ -12976,7 +13002,7 @@ function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
             continue;
         }
 
-        $sourceId = (string) ($row['source_id'] ?? '');
+        $sourceId = minicrm_source_id_key((string) ($row['source_id'] ?? ''));
 
         if ($sourceId !== '' && !isset($profiles[$sourceId])) {
             $profiles[$sourceId] = $row;
@@ -12984,6 +13010,91 @@ function minicrm_customer_profiles_by_source_ids(array $sourceIds): array
     }
 
     return $profiles;
+}
+
+function minicrm_customer_profile_for_work_item(array $item): ?array
+{
+    if (!db_table_exists('minicrm_customer_profiles')) {
+        return null;
+    }
+
+    $sourceId = trim((string) ($item['source_id'] ?? ''));
+
+    if ($sourceId !== '') {
+        $profile = db_query(
+            'SELECT *
+             FROM `minicrm_customer_profiles`
+             WHERE LOWER(`source_id`) = LOWER(?)
+             ORDER BY COALESCE(`modified_date`, `person_modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC
+             LIMIT 1',
+            [$sourceId]
+        )->fetch();
+
+        if (is_array($profile)) {
+            return $profile;
+        }
+    }
+
+    if (db_table_exists('minicrm_connection_request_links')) {
+        $workItemId = (int) ($item['id'] ?? 0);
+
+        if ($workItemId > 0) {
+            $profile = db_query(
+                'SELECT p.*
+                 FROM `minicrm_connection_request_links` l
+                 INNER JOIN `minicrm_customer_profiles` p ON p.`customer_id` = l.`customer_id`
+                 WHERE l.`work_item_id` = ?
+                 ORDER BY COALESCE(p.`modified_date`, p.`person_modified_date`, p.`status_updated_at`, p.`created_date`) DESC, p.`id` DESC
+                 LIMIT 1',
+                [$workItemId]
+            )->fetch();
+
+            if (is_array($profile)) {
+                return $profile;
+            }
+        }
+    }
+
+    $wantedKeys = array_values(array_unique(array_filter([
+        minicrm_import_key((string) ($item['customer_name'] ?? '')),
+        minicrm_import_key((string) ($item['card_name'] ?? '')),
+    ])));
+
+    if ($wantedKeys === []) {
+        return null;
+    }
+
+    $rows = db_query(
+        'SELECT *
+         FROM `minicrm_customer_profiles`
+         ORDER BY COALESCE(`modified_date`, `person_modified_date`, `status_updated_at`, `created_date`) DESC, `id` DESC
+         LIMIT 2000'
+    )->fetchAll();
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $profileKeys = array_values(array_unique(array_filter([
+            minicrm_import_key((string) ($row['card_name'] ?? '')),
+            minicrm_import_key(minicrm_customer_profile_display_value($row, 'person_name', ['Szemely1 Nev', 'Személy1: Név', 'Nev', 'Név'])),
+        ])));
+
+        foreach ($wantedKeys as $wantedKey) {
+            foreach ($profileKeys as $profileKey) {
+                if (
+                    $wantedKey === $profileKey
+                    || (strlen($wantedKey) >= 8 && str_starts_with($profileKey, $wantedKey))
+                    || (strlen($profileKey) >= 8 && str_starts_with($wantedKey, $profileKey))
+                ) {
+                    return $row;
+                }
+            }
+        }
+    }
+
+    return null;
 }
 
 function minicrm_customer_profiles_by_connection_request_ids(array $requestIds): array
@@ -13006,7 +13117,7 @@ function minicrm_customer_profiles_by_connection_request_ids(array $requestIds):
     $rows = db_query(
         'SELECT l.`connection_request_id` AS linked_request_id, p.*
          FROM `minicrm_connection_request_links` l
-         INNER JOIN `minicrm_customer_profiles` p ON p.`source_id` = l.`source_id`
+         INNER JOIN `minicrm_customer_profiles` p ON LOWER(p.`source_id`) = LOWER(l.`source_id`)
          WHERE l.`connection_request_id` IN (' . db_in_placeholders($requestIds) . ')
          ORDER BY COALESCE(p.`modified_date`, p.`person_modified_date`, p.`status_updated_at`, p.`created_date`) DESC, p.`id` DESC',
         $requestIds
