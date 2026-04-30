@@ -115,6 +115,10 @@ $routes = [
         'title' => 'Meghatalmazás elektronikus aláírása',
         'file' => PAGE_PATH . '/authorization-sign.php',
     ],
+    'authorization-upload' => [
+        'title' => 'Aláírt meghatalmazás feltöltése',
+        'file' => PAGE_PATH . '/authorization-upload.php',
+    ],
     'quote' => [
         'title' => 'Árajánlat megtekintése',
         'file' => PAGE_PATH . '/quote-public.php',

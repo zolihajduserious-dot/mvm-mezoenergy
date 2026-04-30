@@ -73,6 +73,12 @@ if (is_post() && $schemaErrors === []) {
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'send_authorization_form') {
+        $result = send_prefilled_authorization_form_email((int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A meghatalmazás email küldése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
     if ($action === 'create_survey') {
         $customerForm = normalize_customer_data($_POST);
         $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Szerelői felmérés';
@@ -445,6 +451,13 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
             </div>
             <div class="admin-actions">
                 <?php if ($request !== null): ?><a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
+                <?php if ($request !== null): ?>
+                    <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                        <?= csrf_field(); ?>
+                        <input type="hidden" name="action" value="send_authorization_form">
+                        <button class="button button-secondary" type="submit">Nyomtatható meghatalmazás küldése</button>
+                    </form>
+                <?php endif; ?>
                 <a class="button button-secondary" href="<?= h(url_path('/electrician/work-requests')); ?>">Munkáim</a>
             </div>
         </div>
@@ -632,10 +645,12 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
                                     'open' => 'Szabad',
                                     default => 'Nincs megnyitva',
                                 };
+                                $slotActorLabel = is_array($slot) ? connection_request_schedule_slot_actor_label($slot, $request) : '';
                                 ?>
                                 <article class="quote-mini-card">
                                     <strong><?= h(connection_request_schedule_day_label($workDate)); ?></strong>
                                     <span><?= h($slotLabel); ?></span>
+                                    <?php if ($slotActorLabel !== ''): ?><span><?= h($slotActorLabel); ?></span><?php endif; ?>
                                     <form class="inline-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
                                         <?= csrf_field(); ?>
                                         <input type="hidden" name="work_date" value="<?= h($workDate); ?>">

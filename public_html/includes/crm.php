@@ -325,6 +325,45 @@ function connection_request_booked_schedule_slot(int $requestId): ?array
     return is_array($slot) ? $slot : null;
 }
 
+function connection_request_schedule_slot_actor_label(array $slot, array $request): string
+{
+    if ((string) ($slot['status'] ?? '') !== 'booked') {
+        return '';
+    }
+
+    $source = (string) ($slot['source'] ?? '');
+
+    if ($source === 'customer') {
+        $customerName = trim((string) ($request['requester_name'] ?? ''));
+        $customerEmail = trim((string) ($request['email'] ?? ''));
+        $customerPhone = trim((string) ($request['phone'] ?? ''));
+        $parts = array_values(array_filter([$customerName, $customerPhone, $customerEmail], static fn (string $part): bool => $part !== ''));
+
+        return 'Ügyfél foglalta: ' . ($parts !== [] ? implode(' · ', $parts) : 'az ügyfél');
+    }
+
+    if ($source === 'electrician') {
+        $createdByUserId = (int) ($slot['created_by_user_id'] ?? 0);
+        $currentUser = current_user();
+
+        if (is_array($currentUser) && $createdByUserId > 0 && (int) ($currentUser['id'] ?? 0) === $createdByUserId) {
+            return 'Szerelő tette be: te';
+        }
+
+        $electrician = $createdByUserId > 0 ? find_electrician_by_user($createdByUserId) : null;
+        $user = $createdByUserId > 0 ? find_user_by_id($createdByUserId) : null;
+        $actorName = trim((string) ($electrician['name'] ?? $user['name'] ?? $user['email'] ?? ''));
+
+        return 'Szerelő tette be' . ($actorName !== '' ? ': ' . $actorName : '.');
+    }
+
+    if ($source === 'admin') {
+        return 'Admin tette be.';
+    }
+
+    return 'Rendszer által foglalt időpont.';
+}
+
 function connection_request_schedule_upsert_slot(int $requestId, string $date, string $status, string $source, ?int $userId = null, string $note = ''): array
 {
     $schemaErrors = connection_request_schedule_schema_errors();
@@ -4710,6 +4749,14 @@ function authorization_signature_url(array $request): string
     );
 }
 
+function authorization_upload_url(array $request): string
+{
+    return absolute_url(
+        '/authorization-upload?id=' . (int) $request['id'] .
+        '&token=' . rawurlencode(authorization_signature_token($request))
+    );
+}
+
 function authorization_signature_token_is_valid(array $request, string $token): bool
 {
     $token = trim($token);
@@ -4915,7 +4962,7 @@ function authorization_pdf_birth_place_and_date(array $request): string
     return trim((string) ($request['birth_place'] ?? '') . ', ' . format_mvm_docx_date((string) ($request['birth_date'] ?? '')), " \t\n\r\0\x0B,");
 }
 
-function generate_signed_authorization_pdf_from_template(int $requestId, array $request, array $data, array $signatures, string $targetPath): void
+function generate_signed_authorization_pdf_from_template(int $requestId, array $request, array $data, array $signatures, string $targetPath, bool $includeSignatures = true): void
 {
     if (!class_exists('\\setasign\\Fpdi\\Fpdi')) {
         throw new RuntimeException('Az MVM meghatalmazás PDF kitöltéséhez hiányzik az FPDI csomag.');
@@ -4990,6 +5037,10 @@ function generate_signed_authorization_pdf_from_template(int $requestId, array $
                 authorization_pdf_add_checkbox($pdf, [70.92, 430.08, 81.96, 437.40]);
                 authorization_pdf_add_checkbox($pdf, [70.92, 389.64, 81.96, 396.96]);
                 authorization_pdf_add_text($pdf, date('Y.m.d.'), [96.44, 320.12, 215.34, 340.28], $temporaryFiles, 8);
+
+                if (!$includeSignatures) {
+                    continue;
+                }
 
                 $customerSignature = authorization_pdf_signature_file($signatures['customer_signature'], authorization_pdf_pt_to_mm(145.00), authorization_pdf_pt_to_mm(36.00), $temporaryFiles);
                 $witness1Signature = authorization_pdf_signature_file($signatures['witness_1_signature'], authorization_pdf_pt_to_mm(209.10), authorization_pdf_pt_to_mm(34.00), $temporaryFiles);
@@ -5074,6 +5125,135 @@ function save_signed_authorization_document(int $requestId, array $source): arra
         'message' => 'Az elektronikusan aláírt meghatalmazás elmentve.',
         'file_id' => (int) db()->lastInsertId(),
     ];
+}
+
+function generate_prefilled_authorization_form_pdf(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.'];
+    }
+
+    try {
+        $targetDir = CONNECTION_UPLOAD_PATH . '/' . $requestId;
+        ensure_storage_dir($targetDir);
+        $storedName = 'authorization-prefilled-' . $requestId . '.pdf';
+        $targetPath = $targetDir . '/' . $storedName;
+
+        generate_signed_authorization_pdf_from_template(
+            $requestId,
+            $request,
+            [],
+            [],
+            $targetPath,
+            false
+        );
+
+        return [
+            'ok' => true,
+            'message' => 'A kitöltött meghatalmazás PDF elkészült.',
+            'path' => $targetPath,
+            'filename' => 'a-szab-155-ny03-meghatalmazas-kitoltve.pdf',
+            'file_size' => is_file($targetPath) ? (int) filesize($targetPath) : 0,
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => APP_DEBUG ? $exception->getMessage() : 'A meghatalmazás PDF elkészítése sikertelen.',
+        ];
+    }
+}
+
+function send_prefilled_authorization_form_email(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $recipientEmail = trim((string) ($request['email'] ?? ''));
+    $recipientName = email_recipient_name($request['requester_name'] ?? '');
+
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'A meghatalmazás email nem küldhető, mert hiányzik az ügyfél email címe.'];
+    }
+
+    $pdfResult = generate_prefilled_authorization_form_pdf($requestId);
+
+    if (!($pdfResult['ok'] ?? false)) {
+        return $pdfResult;
+    }
+
+    $uploadUrl = authorization_upload_url($request);
+    $token = customer_email_thread_token($requestId, 'authorization-upload');
+    $subject = customer_email_thread_subject(APP_NAME . ' meghatalmazás nyomtatvány - ' . ($request['project_name'] ?? 'mérőhelyi igény'), $token);
+    $replyAddress = mvm_mail_reply_address();
+    $emailTitle = 'Meghatalmazás nyomtatvány kitöltve';
+    $emailLead = 'Csatoltuk az adataiddal előre kitöltött meghatalmazás nyomtatványt. Kérjük, nyomtasd ki, írd alá a tanúkkal együtt, majd a gombbal töltsd fel befotózva vagy beszkennelve.';
+    $sections = [
+        [
+            'title' => 'Igény adatai',
+            'rows' => [
+                ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                ['label' => 'Ügyfél', 'value' => $request['requester_name'] ?? '-'],
+                ['label' => 'Felhasználási hely', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                ['label' => 'Válaszazonosító', 'value' => $token],
+            ],
+        ],
+        [
+            'title' => 'Teendő',
+            'items' => [
+                'Nyomtasd ki a csatolt meghatalmazást.',
+                'Írd alá, és kérj két tanú aláírást is.',
+                'A gombra kattintva töltsd fel fotóként vagy PDF-ként.',
+            ],
+        ],
+    ];
+    $actions = [
+        ['label' => 'Aláírt meghatalmazás feltöltése', 'url' => $uploadUrl],
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress($recipientEmail, $recipientName);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
+        $mail->Subject = $subject;
+        apply_branded_email($mail, $emailTitle, $emailLead, $sections, $actions, $recipientName);
+        $mail->addAttachment((string) $pdfResult['path'], (string) $pdfResult['filename']);
+        $mail->send();
+
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+        record_customer_email_thread(
+            $requestId,
+            $token,
+            $recipientEmail,
+            $subject,
+            'Meghatalmazás nyomtatvány',
+            branded_email_text($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            branded_email_html($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            $messageId !== '' ? $messageId : null
+        );
+
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+
+        return ['ok' => true, 'message' => 'A kitöltött meghatalmazást elküldtük az ügyfélnek.'];
+    } catch (Throwable $exception) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
+        );
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A meghatalmazás email küldése sikertelen.'];
+    }
 }
 
 function electrician_work_stage_labels(): array

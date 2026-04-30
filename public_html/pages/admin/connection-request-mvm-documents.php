@@ -158,6 +158,10 @@ if (is_post()) {
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
             redirect($mvmRedirectPath);
         }
+    } elseif ($action === 'send_authorization_form') {
+        $result = send_prefilled_authorization_form_email((int) $request['id']);
+        set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+        redirect($mvmRedirectPath);
     } elseif ($action === 'send_package') {
         $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
         $document = $documentId ? find_connection_request_document($documentId) : null;
@@ -255,6 +259,11 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
             </div>
             <div class="admin-actions">
                 <a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a>
+                <form method="post" action="<?= h($mvmPageUrl); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="send_authorization_form">
+                    <button class="button button-secondary" type="submit">Nyomtatható meghatalmazás küldése</button>
+                </form>
                 <a class="button button-secondary" href="<?= h($mvmBackUrl); ?>"><?= h($mvmBackLabel); ?></a>
             </div>
         </div>
