@@ -19,6 +19,26 @@ if (is_post()) {
 
     try {
         save_signed_authorization_document((int) $request['id'], $_POST);
+        send_admin_activity_notification(
+            'Elektronikusan aláírt meghatalmazás érkezett',
+            'Az ügyfél a nyilvános meghatalmazás linken elektronikusan aláírta a meghatalmazást.',
+            [
+                [
+                    'title' => 'Igény adatai',
+                    'rows' => [
+                        ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                        ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                        ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                    ],
+                ],
+            ],
+            [
+                ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+            ],
+            ['email' => $request['email'] ?? '', 'name' => $request['requester_name'] ?? ''],
+            null,
+            'Nyilvános meghatalmazás aláírás'
+        );
         set_flash('success', 'Az aláírt meghatalmazást elmentettük az igényhez.');
         redirect('/authorization-sign?id=' . (int) $request['id'] . '&token=' . rawurlencode($token));
     } catch (Throwable $exception) {

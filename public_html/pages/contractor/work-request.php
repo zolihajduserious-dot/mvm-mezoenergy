@@ -64,6 +64,7 @@ if (is_post()) {
 
     if ($errors === []) {
         try {
+            $wasNewRequest = !$isEdit;
             if ($isEdit) {
                 update_customer((int) $request['customer_id'], $customerForm);
                 $savedRequestId = save_connection_request((int) $request['customer_id'], $workForm, (int) $request['id'], (int) $user['id']);
@@ -82,6 +83,29 @@ if (is_post()) {
                     set_flash($result['ok'] ? 'success' : 'error', $result['message']);
                     redirect('/contractor/work-requests');
                 } else {
+                    send_admin_activity_notification(
+                        $wasNewRequest ? 'Generálkivitelező új igényt mentett' : 'Generálkivitelező igényt módosított',
+                        $wasNewRequest
+                            ? 'Egy generálkivitelező új ügyfélhez tartozó mérőhelyi igényt mentett piszkozatként.'
+                            : 'Egy generálkivitelező módosított egy mérőhelyi igény piszkozatot.',
+                        [
+                            [
+                                'title' => 'Igény adatai',
+                                'rows' => [
+                                    ['label' => 'Igény', 'value' => $workForm['project_name'] ?? '-'],
+                                    ['label' => 'Igénytípus', 'value' => connection_request_type_label($workForm['request_type'] ?? null)],
+                                    ['label' => 'Végügyfél', 'value' => ($customerForm['requester_name'] ?? '-') . "\n" . ($customerForm['email'] ?? '-') . "\n" . ($customerForm['phone'] ?? '-')],
+                                    ['label' => 'Cím', 'value' => trim((string) ($workForm['site_postal_code'] ?? '') . ' ' . (string) ($workForm['site_address'] ?? ''))],
+                                ],
+                            ],
+                        ],
+                        [
+                            ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $savedRequestId . '#portal-work-' . $savedRequestId)],
+                        ],
+                        ['email' => $contractor['email'] ?? '', 'name' => $contractor['contact_name'] ?? $contractor['contractor_name'] ?? ''],
+                        null,
+                        'Generálkivitelező igény mentés'
+                    );
                     set_flash('success', 'Az igényt piszkozatként mentettük. Később folytatható, amíg le nem zárod.');
                     redirect('/contractor/work-request?id=' . $savedRequestId);
                 }

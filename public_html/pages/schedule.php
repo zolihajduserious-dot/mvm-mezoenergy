@@ -34,6 +34,29 @@ if (is_post() && $errors === []) {
             set_flash('error', 'Ezt a napot a szerelő még nem nyitotta meg, vagy már nem szabad.');
         } else {
             $result = connection_request_schedule_upsert_slot((int) $request['id'], $date, 'booked', 'customer', null, 'Ügyfél által választott nap');
+            if (($result['ok'] ?? false)) {
+                send_admin_activity_notification(
+                    'Ügyfél kivitelezési időpontot foglalt',
+                    'Az ügyfél a nyilvános időpontválasztó linken lefoglalt egy kivitelezési napot.',
+                    [
+                        [
+                            'title' => 'Foglalás adatai',
+                            'rows' => [
+                                ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                                ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                                ['label' => 'Kivitelezési nap', 'value' => connection_request_schedule_day_label($date)],
+                                ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                            ],
+                        ],
+                    ],
+                    [
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                    ],
+                    ['email' => $request['email'] ?? '', 'name' => $request['requester_name'] ?? ''],
+                    null,
+                    'Nyilvános időpontfoglalás'
+                );
+            }
             set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az időpont mentése sikertelen.'));
         }
 

@@ -69,12 +69,61 @@ if (is_post() && $schemaErrors === []) {
             default => 'open',
         };
         $result = connection_request_schedule_upsert_slot((int) $request['id'], $date, $status, 'electrician', (int) $user['id']);
+        if (($result['ok'] ?? false)) {
+            $scheduleLabels = [
+                'open' => 'Szabad nap megnyitása',
+                'booked' => 'Időpont lefoglalása',
+                'closed' => 'Nap lezárása',
+            ];
+            send_admin_activity_notification(
+                'Szerelő naptárat módosított',
+                'Egy szerelő módosította egy munka kivitelezési naptárát.',
+                [
+                    [
+                        'title' => 'Naptár művelet',
+                        'rows' => [
+                            ['label' => 'Művelet', 'value' => $scheduleLabels[$status] ?? $status],
+                            ['label' => 'Nap', 'value' => connection_request_schedule_day_label($date)],
+                            ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                            ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                ],
+                ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
+                null,
+                'Szerelő naptárművelet'
+            );
+        }
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A naptár frissítése sikertelen.'));
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
 
     if ($request !== null && $action === 'send_authorization_form') {
         $result = send_prefilled_authorization_form_email((int) $request['id']);
+        if (($result['ok'] ?? false)) {
+            send_admin_activity_notification(
+                'Szerelő meghatalmazást küldött ügyfélnek',
+                'Egy szerelő kiküldte az ügyfélnek az előre kitöltött meghatalmazás nyomtatványt.',
+                [
+                    [
+                        'title' => 'Igény adatai',
+                        'rows' => [
+                            ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                            ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                ],
+                ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
+                null,
+                'Szerelő meghatalmazás küldés'
+            );
+        }
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A meghatalmazás email küldése sikertelen.'));
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
@@ -114,6 +163,7 @@ if (is_post() && $schemaErrors === []) {
                 $saveMessages = [];
                 $flashType = 'success';
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false);
+                $savedQuoteId = null;
 
                 if ($uploadMessages !== []) {
                     $flashType = 'error';
@@ -143,6 +193,28 @@ if (is_post() && $schemaErrors === []) {
                     }
                 }
 
+                send_admin_activity_notification(
+                    'Szerelő új felmérést rögzített',
+                    'Egy szerelő új ügyfelet és mérőhelyi felmérést rögzített a szerelői portálon.',
+                    [
+                        [
+                            'title' => 'Felmérés adatai',
+                            'rows' => [
+                                ['label' => 'Igény', 'value' => $workForm['project_name'] ?? '-'],
+                                ['label' => 'Igénytípus', 'value' => connection_request_type_label($workForm['request_type'] ?? null)],
+                                ['label' => 'Ügyfél', 'value' => ($customerForm['requester_name'] ?? '-') . "\n" . ($customerForm['email'] ?? '-') . "\n" . ($customerForm['phone'] ?? '-')],
+                                ['label' => 'Cím', 'value' => trim((string) ($workForm['site_postal_code'] ?? '') . ' ' . (string) ($workForm['site_address'] ?? ''))],
+                                ['label' => 'Árajánlat', 'value' => $savedQuoteId !== null ? ($shouldSendQuote ? 'Elkészült és ki lett küldve' : 'Piszkozatként mentve') : 'Nem készült ajánlat'],
+                            ],
+                        ],
+                    ],
+                    [
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $savedRequestId . '#portal-work-' . $savedRequestId)],
+                    ],
+                    ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
+                    $savedQuoteId,
+                    'Szerelői felmérés'
+                );
                 set_flash($flashType, 'A felmérés rögzítve lett, és a te munkáid között marad.' . ($saveMessages !== [] ? ' ' . implode(' ', $saveMessages) : ''));
                 redirect('/electrician/work-request?id=' . $savedRequestId);
             } catch (Throwable $exception) {
@@ -171,7 +243,7 @@ if (is_post() && $schemaErrors === []) {
 
         if ($errors === []) {
             try {
-                $uploadMessages = handle_connection_request_uploads((int) $request['id'], $_FILES, false);
+                $uploadMessages = handle_connection_request_uploads((int) $request['id'], $_FILES, true);
 
                 if ($uploadMessages !== []) {
                     set_flash('error', 'Néhány fájl nem lett mentve: ' . implode(' ', $uploadMessages));
@@ -233,6 +305,30 @@ if (is_post() && $schemaErrors === []) {
                     $saveMessages[] = 'Az árajánlat piszkozatként mentve lett.';
                 }
 
+                send_admin_activity_notification(
+                    $shouldSendQuote ? 'Szerelő árajánlatot küldött' : 'Szerelő árajánlat piszkozatot mentett',
+                    $shouldSendQuote
+                        ? 'Egy szerelő új árajánlatot készített és kiküldött az ügyfélnek.'
+                        : 'Egy szerelő új árajánlatot készített piszkozatként.',
+                    [
+                        [
+                            'title' => 'Ajánlat adatai',
+                            'rows' => [
+                                ['label' => 'Tárgy', 'value' => $quoteForm['subject'] ?? '-'],
+                                ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                                ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                                ['label' => 'Tételek száma', 'value' => (string) count($quoteLines)],
+                            ],
+                        ],
+                    ],
+                    [
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                        ['label' => 'Ajánlat szerkesztése', 'url' => absolute_url('/admin/quotes/edit?id=' . $savedQuoteId)],
+                    ],
+                    ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
+                    $savedQuoteId,
+                    'Szerelői árajánlat'
+                );
                 set_flash($flashType, implode(' ', $saveMessages));
                 redirect('/electrician/work-request?id=' . (int) $request['id']);
             } catch (Throwable $exception) {
@@ -243,6 +339,28 @@ if (is_post() && $schemaErrors === []) {
 
     if ($request !== null && $action === 'close_workflow_stage') {
         $result = close_connection_request_workflow_stage((int) $request['id']);
+        if (($result['ok'] ?? false)) {
+            send_admin_activity_notification(
+                'Szerelő munkafolyamat-lépést zárt',
+                'Egy szerelő lezárt egy munkafolyamat-lépést a szerelői portálon.',
+                [
+                    [
+                        'title' => 'Munka adatai',
+                        'rows' => [
+                            ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                            ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                            ['label' => 'Művelet', 'value' => 'Aktuális munkafolyamat-lépés lezárása'],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                ],
+                ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
+                null,
+                'Szerelői munkafolyamat'
+            );
+        }
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafolyamat lezárása sikertelen.'));
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }

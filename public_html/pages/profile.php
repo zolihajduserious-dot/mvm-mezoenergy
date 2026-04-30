@@ -39,6 +39,24 @@ if (is_post()) {
 
     if ($errors === []) {
         update_user_password((int) $account['id'], $password);
+        send_admin_activity_notification(
+            user_role_label($role) . ' jelszót módosított',
+            'Nem admin felhasználó módosította a belépési jelszavát.',
+            [
+                [
+                    'title' => 'Fiók adatai',
+                    'rows' => [
+                        ['label' => 'Név', 'value' => $user['name'] ?? '-'],
+                        ['label' => 'Email', 'value' => $user['email'] ?? '-'],
+                        ['label' => 'Jogosultság', 'value' => user_role_label($role)],
+                    ],
+                ],
+            ],
+            [],
+            ['email' => $user['email'] ?? '', 'name' => $user['name'] ?? ''],
+            null,
+            user_role_label($role) . ' jelszómódosítás'
+        );
         set_flash('success', 'A jelszó módosítva.');
         redirect($profilePath);
     }

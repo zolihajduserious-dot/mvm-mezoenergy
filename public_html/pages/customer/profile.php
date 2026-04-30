@@ -28,6 +28,25 @@ if (is_post()) {
 
         if ($passwordErrors === []) {
             update_user_password((int) $account['id'], $password);
+            send_admin_activity_notification(
+                'Ügyfél jelszót módosított',
+                'Egy ügyfél módosította a belépési jelszavát.',
+                [
+                    [
+                        'title' => 'Fiók adatai',
+                        'rows' => [
+                            ['label' => 'Név', 'value' => $user['name'] ?? '-'],
+                            ['label' => 'Email', 'value' => $user['email'] ?? '-'],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                ],
+                ['email' => $user['email'] ?? '', 'name' => $user['name'] ?? ''],
+                null,
+                'Ügyfél jelszómódosítás'
+            );
             set_flash('success', 'A jelszó módosítva.');
             redirect('/customer/profile');
         }
@@ -37,6 +56,7 @@ if (is_post()) {
 
         if ($profileErrors === []) {
             try {
+                $wasNewCustomerProfile = $customer === null;
                 if ($customer === null) {
                     $customerId = create_customer($form, (int) $user['id']);
                     db_query('UPDATE `users` SET `customer_id` = ? WHERE `id` = ?', [$customerId, $user['id']]);
@@ -45,6 +65,29 @@ if (is_post()) {
                     update_customer((int) $customer['id'], $form);
                 }
 
+                send_admin_activity_notification(
+                    $wasNewCustomerProfile ? 'Ügyfél adatlapot hozott létre' : 'Ügyfél adatlapot módosított',
+                    $wasNewCustomerProfile
+                        ? 'Egy ügyfél létrehozta az ügyfél adatlapját.'
+                        : 'Egy ügyfél módosította az ügyfél adatlapját.',
+                    [
+                        [
+                            'title' => 'Ügyfél adatai',
+                            'rows' => [
+                                ['label' => 'Név', 'value' => $form['requester_name'] ?? '-'],
+                                ['label' => 'Email', 'value' => $form['email'] ?? '-'],
+                                ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
+                                ['label' => 'Cím', 'value' => trim((string) ($form['postal_code'] ?? '') . ' ' . (string) ($form['city'] ?? '') . ' ' . (string) ($form['postal_address'] ?? ''))],
+                            ],
+                        ],
+                    ],
+                    [
+                        ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                    ],
+                    ['email' => $form['email'], 'name' => $form['requester_name']],
+                    null,
+                    'Ügyfél adatlap'
+                );
                 set_flash('success', 'Az adatok mentve.');
                 redirect('/customer/profile');
             } catch (Throwable $exception) {

@@ -41,6 +41,28 @@ if (is_post()) {
     if ($errors === []) {
         try {
             create_contractor_account($form, $password);
+            send_admin_activity_notification(
+                'Új generálkivitelező regisztrált',
+                'Új generálkivitelező hozott létre fiókot a weboldalon.',
+                [
+                    [
+                        'title' => 'Generálkivitelező adatai',
+                        'rows' => [
+                            ['label' => 'Név / cég', 'value' => $form['contractor_name'] ?? '-'],
+                            ['label' => 'Cégnév', 'value' => $form['company_name'] ?? '-'],
+                            ['label' => 'Kapcsolattartó', 'value' => $form['contact_name'] ?? '-'],
+                            ['label' => 'Email', 'value' => $form['email'] ?? '-'],
+                            ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                ],
+                ['email' => $form['email'], 'name' => $form['contact_name']],
+                null,
+                'Generálkivitelező regisztráció'
+            );
             $user = find_user_by_email($form['email']);
 
             if ($user !== null) {

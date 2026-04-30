@@ -2060,10 +2060,7 @@ function notify_admin_quote_response(int $quoteId, string $response, string $mes
     }
 
     if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
-        db_query(
-            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [$quoteId, CONNECTION_REQUEST_EMAIL, APP_NAME . ' árajánlat visszajelzés', 'failed', 'PHPMailer hiányzik.']
-        );
+        log_admin_notification_email($quoteId, APP_NAME . ' árajánlat visszajelzés', 'failed', 'PHPMailer hiányzik.');
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
@@ -2106,20 +2103,17 @@ function notify_admin_quote_response(int $quoteId, string $response, string $mes
         configure_mailer_transport($mail);
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
-        $mail->addAddress(CONNECTION_REQUEST_EMAIL);
+        add_admin_notification_recipients($mail);
         $mail->addReplyTo((string) $quote['email'], (string) $quote['requester_name']);
         $mail->Subject = $subject;
         apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
         $mail->send();
 
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [$quoteId, CONNECTION_REQUEST_EMAIL, $subject, 'sent']);
+        log_admin_notification_email($quoteId, $subject, 'sent');
 
         return ['ok' => true, 'message' => 'Admin értesítés elküldve.'];
     } catch (Throwable $exception) {
-        db_query(
-            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [$quoteId, CONNECTION_REQUEST_EMAIL, $subject, 'failed', $exception->getMessage()]
-        );
+        log_admin_notification_email($quoteId, $subject, 'failed', $exception->getMessage());
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az admin email értesítés küldése sikertelen.'];
     }
@@ -2989,6 +2983,126 @@ function apply_branded_email(object $mail, string $title, string $lead, array $s
     $mail->isHTML(true);
     $mail->Body = branded_email_html($title, $lead, $sections, $actions, $recipientName);
     $mail->AltBody = branded_email_text($title, $lead, $sections, $actions, $recipientName);
+}
+
+function admin_notification_copy_emails(): array
+{
+    return ['kapcsolat@villanyszerelo-bekes.hu'];
+}
+
+function admin_notification_recipients(): array
+{
+    $emails = array_merge([CONNECTION_REQUEST_EMAIL], admin_notification_copy_emails());
+    $emails = array_map(static fn (string $email): string => strtolower(trim($email)), $emails);
+    $emails = array_filter($emails, static fn (string $email): bool => $email !== '');
+
+    return array_values(array_unique($emails));
+}
+
+function add_admin_notification_recipients(object $mail): void
+{
+    $recipients = admin_notification_recipients();
+
+    if ($recipients === []) {
+        return;
+    }
+
+    $mail->addAddress($recipients[0]);
+
+    foreach (array_slice($recipients, 1) as $copyEmail) {
+        $mail->addCC($copyEmail);
+    }
+}
+
+function log_admin_notification_email(?int $quoteId, string $subject, string $status, ?string $errorMessage = null): void
+{
+    foreach (admin_notification_recipients() as $recipientEmail) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [$quoteId, $recipientEmail, $subject, $status, $errorMessage]
+        );
+    }
+}
+
+function admin_notification_should_send_for_current_actor(): bool
+{
+    return !in_array(current_user_role(), ['admin', 'specialist'], true);
+}
+
+function admin_notification_actor_rows(?string $sourceLabel = null): array
+{
+    $user = current_user();
+    $roleLabels = [
+        'guest' => 'Nyilvános link / nincs belépve',
+        'customer' => 'Ügyfél',
+        'general_contractor' => 'Generálkivitelező',
+        'electrician' => 'Szerelő',
+        'admin' => 'Admin',
+        'specialist' => 'Specialista',
+    ];
+    $role = current_user_role();
+
+    $rows = [
+        ['label' => 'Forrás', 'value' => $sourceLabel ?: ($roleLabels[$role] ?? $role)],
+        ['label' => 'Időpont', 'value' => date('Y-m-d H:i:s')],
+    ];
+
+    if (is_array($user)) {
+        $rows[] = ['label' => 'Felhasználó', 'value' => trim((string) ($user['name'] ?? '')) ?: '-'];
+        $rows[] = ['label' => 'Email', 'value' => trim((string) ($user['email'] ?? '')) ?: '-'];
+        $rows[] = ['label' => 'Felhasználó ID', 'value' => '#' . (int) ($user['id'] ?? 0)];
+    }
+
+    return $rows;
+}
+
+function send_admin_activity_notification(
+    string $title,
+    string $lead,
+    array $sections = [],
+    array $actions = [],
+    ?array $replyTo = null,
+    ?int $quoteId = null,
+    ?string $sourceLabel = null
+): array {
+    if (!admin_notification_should_send_for_current_actor()) {
+        return ['ok' => true, 'message' => 'Admin által indított művelethez nem küldtünk külön értesítést.'];
+    }
+
+    $subject = APP_NAME . ' rendszerértesítés - ' . $title;
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        log_admin_notification_email($quoteId, $subject, 'failed', 'PHPMailer hiányzik.');
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $sections[] = [
+        'title' => 'Művelet forrása',
+        'rows' => admin_notification_actor_rows($sourceLabel),
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        add_admin_notification_recipients($mail);
+
+        if (is_array($replyTo) && !empty($replyTo['email'])) {
+            $mail->addReplyTo((string) $replyTo['email'], (string) ($replyTo['name'] ?? ''));
+        }
+
+        $mail->Subject = $subject;
+        apply_branded_email($mail, $title, $lead, $sections, $actions);
+        $mail->send();
+        log_admin_notification_email($quoteId, $subject, 'sent');
+
+        return ['ok' => true, 'message' => 'Admin értesítés elküldve.'];
+    } catch (Throwable $exception) {
+        log_admin_notification_email($quoteId, $subject, 'failed', $exception->getMessage());
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az admin értesítés küldése sikertelen.'];
+    }
 }
 
 function send_password_reset_email(array $user, string $token): array
@@ -5532,10 +5646,7 @@ function send_connection_request_file_upload_notification(int $requestId, array 
     }
 
     if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
-        db_query(
-            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [null, CONNECTION_REQUEST_EMAIL, APP_NAME . ' dokumentumfeltöltés', 'failed', 'PHPMailer hiányzik.']
-        );
+        log_admin_notification_email(null, APP_NAME . ' dokumentumfeltöltés', 'failed', 'PHPMailer hiányzik.');
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
@@ -5573,20 +5684,17 @@ function send_connection_request_file_upload_notification(int $requestId, array 
         configure_mailer_transport($mail);
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
-        $mail->addAddress(CONNECTION_REQUEST_EMAIL);
+        add_admin_notification_recipients($mail);
         $mail->addReplyTo($replyToEmail, $replyToName);
         $mail->Subject = $subject;
         apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
         $mail->send();
 
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, CONNECTION_REQUEST_EMAIL, $subject, 'sent']);
+        log_admin_notification_email(null, $subject, 'sent');
 
         return ['ok' => true, 'message' => 'Admin értesítés elküldve.'];
     } catch (Throwable $exception) {
-        db_query(
-            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [null, CONNECTION_REQUEST_EMAIL, $subject, 'failed', $exception->getMessage()]
-        );
+        log_admin_notification_email(null, $subject, 'failed', $exception->getMessage());
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az admin email értesítés küldése sikertelen.'];
     }
@@ -5628,19 +5736,16 @@ function send_electrician_work_stage_notification(int $requestId, string $stage)
         configure_mailer_transport($mail);
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
-        $mail->addAddress(CONNECTION_REQUEST_EMAIL);
+        add_admin_notification_recipients($mail);
         $mail->Subject = $subject;
         apply_branded_email($mail, $stageLabel . ' feltöltve', 'A szerelő feltöltötte a kötelező munkafotók csomagját. Az admin felületen ellenőrizhető.', $sections, $actions);
         $mail->send();
 
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, CONNECTION_REQUEST_EMAIL, $subject, 'sent']);
+        log_admin_notification_email(null, $subject, 'sent');
 
         return ['ok' => true, 'message' => 'Admin értesítés elküldve.'];
     } catch (Throwable $exception) {
-        db_query(
-            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
-            [null, CONNECTION_REQUEST_EMAIL, $subject, 'failed', $exception->getMessage()]
-        );
+        log_admin_notification_email(null, $subject, 'failed', $exception->getMessage());
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az admin email értesítés küldése sikertelen.'];
     }
@@ -10998,6 +11103,7 @@ function send_connection_request_email(int $requestId, bool $finalized = false):
 
     if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
         db_query('UPDATE `connection_requests` SET `email_status` = ?, `email_error` = ? WHERE `id` = ?', ['failed', 'PHPMailer hiányzik.', $requestId]);
+        log_admin_notification_email(null, APP_NAME . ' mérőhelyi munkaigény', 'failed', 'PHPMailer hiányzik.');
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
@@ -11022,7 +11128,7 @@ function send_connection_request_email(int $requestId, bool $finalized = false):
         configure_mailer_transport($mail);
         $mail->CharSet = 'UTF-8';
         $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
-        $mail->addAddress(CONNECTION_REQUEST_EMAIL);
+        add_admin_notification_recipients($mail);
         $mail->addReplyTo((string) $request['email'], (string) $request['requester_name']);
         $mail->Subject = $subject;
         apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions);
@@ -11036,12 +11142,12 @@ function send_connection_request_email(int $requestId, bool $finalized = false):
         $mail->send();
 
         db_query('UPDATE `connection_requests` SET `email_status` = ?, `email_error` = NULL WHERE `id` = ?', ['sent', $requestId]);
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, CONNECTION_REQUEST_EMAIL, $subject, 'sent']);
+        log_admin_notification_email(null, $subject, 'sent');
 
         return ['ok' => true, 'message' => $finalized ? 'Az igényt lezártuk, és végleges igénybejelentésként elküldtük az adminnak.' : 'Az igény rögzítve és elküldve.'];
     } catch (Throwable $exception) {
         db_query('UPDATE `connection_requests` SET `email_status` = ?, `email_error` = ? WHERE `id` = ?', ['failed', $exception->getMessage(), $requestId]);
-        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)', [null, CONNECTION_REQUEST_EMAIL, $subject, 'failed', $exception->getMessage()]);
+        log_admin_notification_email(null, $subject, 'failed', $exception->getMessage());
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az igény rögzítve, de az email küldése sikertelen.'];
     }

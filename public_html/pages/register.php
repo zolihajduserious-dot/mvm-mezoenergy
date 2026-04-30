@@ -65,6 +65,28 @@ if (is_post()) {
                 $password,
                 $registrationQuote !== null ? (int) $registrationQuote['customer_id'] : null
             );
+            send_admin_activity_notification(
+                'Új ügyfél regisztrált',
+                'Új ügyfél hozott létre fiókot a weboldalon. A regisztrációt nem admin indította.',
+                [
+                    [
+                        'title' => 'Ügyfél adatai',
+                        'rows' => [
+                            ['label' => 'Név', 'value' => $form['requester_name'] ?? '-'],
+                            ['label' => 'Email', 'value' => $form['email'] ?? '-'],
+                            ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
+                            ['label' => 'Cím', 'value' => trim((string) ($form['postal_code'] ?? '') . ' ' . (string) ($form['city'] ?? '') . ' ' . (string) ($form['postal_address'] ?? ''))],
+                            ['label' => 'Regisztráció típusa', 'value' => $registrationQuote !== null ? 'Elfogadott árajánlatból' : 'Önálló ügyfélregisztráció'],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                ],
+                ['email' => $form['email'], 'name' => $form['requester_name']],
+                null,
+                'Ügyfél regisztráció'
+            );
             $user = find_user_by_id($userId);
 
             if ($user !== null) {

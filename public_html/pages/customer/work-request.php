@@ -55,6 +55,7 @@ if (is_post()) {
 
     if ($errors === []) {
         try {
+            $wasNewRequest = !$requestId;
             $savedRequestId = save_connection_request((int) $customer['id'], $form, $requestId ?: null);
             $requestId = $savedRequestId;
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, !$finalize);
@@ -65,6 +66,29 @@ if (is_post()) {
                     set_flash($result['ok'] ? 'success' : 'error', $result['message']);
                     redirect('/customer/work-requests');
                 } else {
+                    send_admin_activity_notification(
+                        $wasNewRequest ? 'Ügyfél új igény piszkozatot mentett' : 'Ügyfél igény piszkozatot módosított',
+                        $wasNewRequest
+                            ? 'Egy ügyfél új mérőhelyi igényt mentett piszkozatként.'
+                            : 'Egy ügyfél módosított egy mérőhelyi igény piszkozatot.',
+                        [
+                            [
+                                'title' => 'Igény adatai',
+                                'rows' => [
+                                    ['label' => 'Igény', 'value' => $form['project_name'] ?? '-'],
+                                    ['label' => 'Igénytípus', 'value' => connection_request_type_label($form['request_type'] ?? null)],
+                                    ['label' => 'Ügyfél', 'value' => ($customer['requester_name'] ?? '-') . "\n" . ($customer['email'] ?? '-') . "\n" . ($customer['phone'] ?? '-')],
+                                    ['label' => 'Cím', 'value' => trim((string) ($form['site_postal_code'] ?? '') . ' ' . (string) ($form['site_address'] ?? ''))],
+                                ],
+                            ],
+                        ],
+                        [
+                            ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $savedRequestId . '#portal-work-' . $savedRequestId)],
+                        ],
+                        ['email' => $customer['email'] ?? '', 'name' => $customer['requester_name'] ?? ''],
+                        null,
+                        'Ügyfél igény mentés'
+                    );
                     set_flash('success', 'Az igényt mentettük. Később folytathatod, amíg le nem zárod.');
                     redirect('/customer/work-request?id=' . $savedRequestId);
                 }

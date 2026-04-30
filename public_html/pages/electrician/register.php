@@ -38,6 +38,27 @@ if (is_post()) {
     if ($errors === []) {
         try {
             create_electrician_account($form, $password);
+            send_admin_activity_notification(
+                'Új szerelő regisztrált',
+                'Új szerelő hozott létre fiókot a weboldalon.',
+                [
+                    [
+                        'title' => 'Szerelő adatai',
+                        'rows' => [
+                            ['label' => 'Név', 'value' => $form['name'] ?? '-'],
+                            ['label' => 'Email', 'value' => $form['email'] ?? '-'],
+                            ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
+                            ['label' => 'Megjegyzés', 'value' => $form['notes'] ?? '-'],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'Szerelők megnyitása', 'url' => absolute_url('/admin/electricians')],
+                ],
+                ['email' => $form['email'], 'name' => $form['name']],
+                null,
+                'Szerelő regisztráció'
+            );
             $user = find_user_by_email($form['email']);
 
             if ($user !== null) {
