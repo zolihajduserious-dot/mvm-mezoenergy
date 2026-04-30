@@ -1470,6 +1470,20 @@ function normalize_survey_data(array $source): array
     return mvm_recalculate_power_financials($data);
 }
 
+function connection_request_quote_survey_seed(array $request): array
+{
+    return [
+        'site_address' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? '')),
+        'hrsz' => $request['hrsz'] ?? '',
+        'work_type' => connection_request_type_label($request['request_type'] ?? null),
+        'meter_serial' => $request['meter_serial'] ?? '',
+        'current_ampere' => $request['existing_general_power'] ?? '',
+        'requested_ampere' => $request['requested_general_power'] ?? '',
+        'survey_notes' => $request['notes'] ?? '',
+        'has_h_tariff' => ((string) ($request['request_type'] ?? '') === 'h_tariff') ? 1 : 0,
+    ];
+}
+
 function collect_quote_lines(array $source): array
 {
     $lines = [];
@@ -1574,7 +1588,7 @@ function save_survey(int $customerId, array $data, ?int $surveyId = null): int
 {
     $rawPayload = json_encode($data, JSON_UNESCAPED_UNICODE);
     $user = current_user();
-    $specialistId = is_staff_user() && is_array($user) ? (int) $user['id'] : null;
+    $specialistId = is_array($user) && (is_staff_user() || is_electrician_user()) ? (int) $user['id'] : null;
 
     if ($surveyId !== null) {
         db_query(
@@ -1647,7 +1661,7 @@ function save_quote(int $customerId, array $quoteData, array $surveyData, array 
 
     $totals = quote_totals($lines);
     $user = current_user();
-    $specialistId = is_staff_user() && is_array($user) ? (int) $user['id'] : null;
+    $specialistId = is_array($user) && (is_staff_user() || is_electrician_user()) ? (int) $user['id'] : null;
 
     if ($quoteId !== null) {
         $quote = find_quote($quoteId);
