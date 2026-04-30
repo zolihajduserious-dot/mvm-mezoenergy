@@ -2661,8 +2661,8 @@ function send_connection_request_status_change_email(int $requestId, string $pre
         $mail->Subject = $subject;
         $emailTitle = 'Státuszváltozás történt';
         $emailLead = $nextStage === 'under_construction'
-            ? 'A munka kivitelezési szakaszba lépett. Az alábbi összefoglalóban látod, mennyi pénzt készíts elő a kivitelezés napjára. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.'
-            : 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
+            ? 'A munka kivitelezési szakaszba lépett. Az alábbi összefoglalóban láthatja, mennyi pénzt érdemes előkészítenie a kivitelezés napjára. Ha kérdése van, kérjük, válaszoljon erre az emailre, és az üzenet automatikusan ehhez a munkához kerül.'
+            : 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdése van, kérjük, válaszoljon erre az emailre, és az üzenet automatikusan ehhez a munkához kerül.';
         apply_branded_email(
             $mail,
             $emailTitle,
@@ -2868,7 +2868,7 @@ function branded_email_html(string $title, string $lead, array $sections = [], a
                         <tr>
                             <td style="padding:26px 30px 10px;">
                                 <?php if ($recipientName !== ''): ?>
-                                    <p style="margin:0 0 12px;color:#17212f;font-size:17px;font-weight:700;">Kedves <?= h($recipientName); ?>!</p>
+                                    <p style="margin:0 0 12px;color:#17212f;font-size:17px;font-weight:700;">Tisztelt <?= h($recipientName); ?>!</p>
                                 <?php endif; ?>
                                 <p style="margin:0;color:#405266;font-size:16px;"><?= nl2br(h($lead)); ?></p>
                             </td>
@@ -2941,7 +2941,7 @@ function branded_email_text(string $title, string $lead, array $sections = [], a
     ];
 
     if ($recipientName !== '') {
-        $lines[] = 'Kedves ' . $recipientName . '!';
+        $lines[] = 'Tisztelt ' . $recipientName . '!';
         $lines[] = '';
     }
 
@@ -3000,7 +3000,7 @@ function send_password_reset_email(array $user, string $token): array
     $resetUrl = absolute_url('/reset-password?token=' . rawurlencode($token));
     $subject = APP_NAME . ' jelszó-visszaállítás';
     $emailTitle = 'Jelszó-visszaállítás';
-    $emailLead = 'Jelszó-visszaállítást kértek a fiókodhoz. A link 1 óráig érvényes.';
+    $emailLead = 'Jelszó-visszaállítást kértek a fiókjához. A link 1 óráig érvényes.';
     $emailSections = [
         [
             'title' => 'Fiók',
@@ -3081,7 +3081,7 @@ function send_uploaded_quote_notification(int $quoteId): array
     ];
     $emailActions = [
         ['label' => 'Árajánlat megtekintése', 'url' => $quoteUrl],
-        ['label' => 'Elfogadom az árajánlatot', 'url' => quote_customer_action_url($quote, 'accept')],
+        ['label' => 'Árajánlat elfogadása', 'url' => quote_customer_action_url($quote, 'accept')],
         ['label' => 'Árajánlat egyeztetés', 'url' => quote_customer_action_url($quote, 'consultation')],
     ];
 
@@ -3555,7 +3555,7 @@ function connection_request_service_fee_request_quote(int $requestId, string $fe
         'postal_code' => (string) ($request['postal_code'] ?? ''),
         'city' => (string) ($request['city'] ?? ''),
         'fee_request_note' => fee_request_note_with_extra($baseNote, $note),
-        'fee_request_email_text' => 'Kedves ' . (string) ($request['requester_name'] ?? '') . "!\n\nAz ügykezelési díjról elkészült díjbekérőt csatolva küldjük.",
+        'fee_request_email_text' => 'Tisztelt ' . (string) ($request['requester_name'] ?? '') . "!\n\nAz ügykezelési díjról elkészült díjbekérőt csatolva küldjük.",
     ];
 }
 
@@ -3704,7 +3704,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
 
     if ($emailText === '') {
         $emailText = $customerGreetingName !== ''
-            ? 'Kedves ' . $customerGreetingName . "!\n\n" . $defaultFeeRequestEmailText
+            ? 'Tisztelt ' . $customerGreetingName . "!\n\n" . $defaultFeeRequestEmailText
             : $defaultFeeRequestEmailText;
     }
     $quantity = max(1.0, (float) ($line['quantity'] ?? 1));
@@ -4054,7 +4054,7 @@ function send_quote_email(int $quoteId): array
     ];
     $emailActions = [
         ['label' => 'Árajánlat megtekintése', 'url' => quote_customer_action_url($quote)],
-        ['label' => 'Elfogadom az árajánlatot', 'url' => quote_customer_action_url($quote, 'accept')],
+        ['label' => 'Árajánlat elfogadása', 'url' => quote_customer_action_url($quote, 'accept')],
         ['label' => 'Árajánlat egyeztetés', 'url' => quote_customer_action_url($quote, 'consultation')],
     ];
 
@@ -5195,7 +5195,7 @@ function send_prefilled_authorization_form_email(int $requestId): array
     $subject = customer_email_thread_subject(APP_NAME . ' meghatalmazás nyomtatvány - ' . ($request['project_name'] ?? 'mérőhelyi igény'), $token);
     $replyAddress = mvm_mail_reply_address();
     $emailTitle = 'Meghatalmazás nyomtatvány kitöltve';
-    $emailLead = 'Csatoltuk az adataiddal előre kitöltött meghatalmazás nyomtatványt. Kérjük, nyomtasd ki, írd alá a tanúkkal együtt, majd a gombbal töltsd fel befotózva vagy beszkennelve.';
+    $emailLead = 'Csatoltuk az adataival előre kitöltött meghatalmazás nyomtatványt. Kérjük, nyomtassa ki, írja alá a tanúkkal együtt, majd a gombbal töltse fel befotózva vagy beszkennelve.';
     $sections = [
         [
             'title' => 'Igény adatai',
@@ -5209,9 +5209,9 @@ function send_prefilled_authorization_form_email(int $requestId): array
         [
             'title' => 'Teendő',
             'items' => [
-                'Nyomtasd ki a csatolt meghatalmazást.',
-                'Írd alá, és kérj két tanú aláírást is.',
-                'A gombra kattintva töltsd fel fotóként vagy PDF-ként.',
+                'Nyomtassa ki a csatolt meghatalmazást.',
+                'Írja alá, és kérjen két tanú aláírást is.',
+                'A gombra kattintva töltse fel fotóként vagy PDF-ként.',
             ],
         ],
     ];
@@ -10729,7 +10729,7 @@ function send_connection_request_complete_package_to_customer(int $documentId): 
         $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
         $mail->Subject = $subject;
         $emailTitle = 'Elkészült a komplett dokumentumcsomag';
-        $emailLead = 'A mérőhelyi ügyintézéshez összeállított komplett dokumentumcsomagot csatoltuk. Ha kérdésed van, erre az emailre válaszolj, és az üzenet automatikusan ehhez a munkához kerül.';
+        $emailLead = 'A mérőhelyi ügyintézéshez összeállított komplett dokumentumcsomagot csatoltuk. Ha kérdése van, kérjük, válaszoljon erre az emailre, és az üzenet automatikusan ehhez a munkához kerül.';
         apply_branded_email(
             $mail,
             $emailTitle,
