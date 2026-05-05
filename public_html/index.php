@@ -227,6 +227,10 @@ $routes = [
         'title' => 'Munkák',
         'file' => PAGE_PATH . '/admin/connection-requests.php',
     ],
+    'admin/calendar' => [
+        'title' => 'Kivitelezési naptár',
+        'file' => PAGE_PATH . '/admin/calendar.php',
+    ],
     'admin/connection-requests/edit' => [
         'title' => 'Mérőhelyi igény szerkesztése',
         'file' => PAGE_PATH . '/admin/connection-request-form.php',
@@ -383,6 +387,7 @@ try {
                 <?php if (is_logged_in()): ?>
                     <?php if (is_staff_user()): ?>
                         <a href="<?= h(url_path('/admin/dashboard')); ?>">Admin</a>
+                        <a href="<?= h(url_path('/admin/calendar')); ?>">Naptár</a>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/admin/profile')); ?>">Profil</a>
                     <?php elseif (is_general_contractor_user()): ?>

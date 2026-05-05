@@ -16,6 +16,7 @@ $electricianCount = null;
 $staffUserCount = null;
 $minicrmImportCount = null;
 $standaloneConnectionRequestCount = null;
+$calendarBookedCount = null;
 $workflowStages = admin_workflow_stage_definitions();
 $workflowStageCounts = array_fill_keys(array_keys($workflowStages), 0);
 $showDashboardWorkflow = false;
@@ -29,6 +30,14 @@ try {
     $staffUserCount = users_table_exists() ? (int) db_query('SELECT COUNT(*) FROM `users` WHERE `role` IN (?, ?) OR `is_admin` = ?', ['admin', 'specialist', 1])->fetchColumn() : 0;
     $minicrmImportCount = db_table_exists('minicrm_work_items') ? (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn() : 0;
     $standaloneConnectionRequestCount = $connectionRequestCount;
+    $calendarBookedCount = connection_request_schedule_is_ready()
+        ? (int) db_query(
+            'SELECT COUNT(*)
+             FROM `connection_request_schedule_slots`
+             WHERE `status` = ? AND `work_date` >= CURDATE() AND `work_date` < DATE_ADD(CURDATE(), INTERVAL 31 DAY)',
+            ['booked']
+        )->fetchColumn()
+        : null;
 
     if (db_table_exists('connection_requests') && db_table_exists('minicrm_connection_request_links')) {
         $standaloneConnectionRequestCount = (int) db_query(
@@ -122,6 +131,13 @@ $dashboardCards = [
         'description' => 'Szerelői fiókok kezelése és munkák kiadása.',
         'href' => '/admin/electricians',
         'variant' => 'system',
+    ],
+    [
+        'label' => 'Naptár',
+        'value' => $calendarBookedCount ?? '-',
+        'description' => 'A következő 31 nap lefoglalt kivitelezési munkái szerelők szerint.',
+        'href' => '/admin/calendar',
+        'variant' => 'primary',
     ],
     [
         'label' => 'Dokumentumtár',
