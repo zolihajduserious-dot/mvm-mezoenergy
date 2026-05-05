@@ -571,13 +571,6 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
             </div>
         <?php endif; ?>
 
-        <nav class="minicrm-module-tabs" aria-label="MiniCRM menü">
-            <a class="is-active" href="#minicrm-works" data-minicrm-tab="works">Munkák</a>
-            <a href="#minicrm-import-tools" data-minicrm-tab="import">Importálás</a>
-            <a href="#minicrm-documents" data-minicrm-tab="documents">Dokumentumok</a>
-            <a href="#minicrm-latest-imports" data-minicrm-tab="log">Import napló</a>
-        </nav>
-
         <div class="form-grid two minicrm-import-tools" id="minicrm-import-tools">
             <section class="auth-panel" data-minicrm-panel="import">
                 <h2>Excel import</h2>
@@ -1579,7 +1572,6 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const tabs = Array.from(document.querySelectorAll('[data-minicrm-tab]'));
     const panels = Array.from(document.querySelectorAll('[data-minicrm-panel]'));
     const importTools = document.querySelector('.minicrm-import-tools');
     const input = document.querySelector('[data-minicrm-search]');
@@ -1597,28 +1589,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    const activateTab = (tabName) => {
-        tabs.forEach((tab) => {
-            tab.classList.toggle('is-active', tab.dataset.minicrmTab === tabName);
-        });
-
-        panels.forEach((panel) => {
-            panel.hidden = panel.dataset.minicrmPanel !== tabName;
-        });
-
-        if (importTools) {
-            importTools.hidden = !['import', 'documents'].includes(tabName);
-        }
-    };
-
-    tabs.forEach((tab) => {
-        tab.addEventListener('click', (event) => {
-            event.preventDefault();
-            activateTab(tab.dataset.minicrmTab || 'works');
-        });
+    panels.forEach((panel) => {
+        panel.hidden = panel.dataset.minicrmPanel !== 'works';
     });
 
-    activateTab('works');
+    if (importTools) {
+        importTools.hidden = true;
+    }
 
     if (!input || !count || items.length === 0) {
         return;
