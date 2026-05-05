@@ -5394,6 +5394,27 @@ a.metric-card {
     resize: vertical;
 }
 
+.portal-mail-auto-sync-note {
+    display: grid;
+    gap: 4px;
+    padding: 11px 12px;
+    border: 1px solid rgba(0, 140, 115, 0.16);
+    border-radius: 8px;
+    background: #f8fcfb;
+    color: var(--color-text);
+}
+
+.portal-mail-auto-sync-note strong {
+    color: var(--color-primary-dark);
+    font-weight: 950;
+}
+
+.portal-mail-auto-sync-note span {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
 .portal-message-manual-log {
     padding: 12px;
     border: 1px solid rgba(0, 140, 115, 0.16);

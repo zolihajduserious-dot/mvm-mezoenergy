@@ -441,6 +441,10 @@ uksort($standaloneRequestsByWorkflowStage, static function (string $a, string $b
     return $comparison !== 0 ? $comparison : strcmp($a, $b);
 });
 
+$portalMailboxAutoSync = ($selectedItemId > 0 || $selectedRequestId > 0)
+    ? maybe_sync_mvm_mailbox_replies(40, 60)
+    : ['ok' => true, 'message' => '', 'matched' => 0, 'ignored' => 0, 'skipped' => true];
+
 function minicrm_import_dom_id(string $value): string
 {
     $id = preg_replace('/[^a-z0-9]+/', '-', minicrm_import_lower($value)) ?: '';
@@ -1075,31 +1079,19 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <textarea id="minicrm_message_body_<?= $itemId; ?>" name="message_body" rows="4" required></textarea>
                                                         <div class="form-actions"><button class="button" type="submit">Üzenet küldése</button></div>
                                                     </form>
-                                                    <details class="portal-message-manual-log">
-                                                        <summary>Bejövő email kézi rögzítése</summary>
-                                                        <form class="portal-message-form" method="post" action="<?= h($detailUrl); ?>">
-                                                            <?= csrf_field(); ?>
-                                                            <input type="hidden" name="action" value="log_portal_work_inbound_message">
-                                                            <input type="hidden" name="request_id" value="<?= $linkedRequestId; ?>">
-                                                            <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
-                                                            <div class="form-grid two compact">
-                                                                <div><label>Küldő neve</label><input name="sender_name" value="<?= h($profileName !== '' ? $profileName : (string) ($item['customer_name'] ?: $item['card_name'] ?: '')); ?>"></div>
-                                                                <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($displayEmail); ?>"></div>
-                                                            </div>
-                                                            <label>Tárgy</label><input name="inbound_subject" value="Bejövő ügyfélüzenet">
-                                                            <label>Üzenet szövege</label><textarea name="inbound_body" rows="4" required></textarea>
-                                                            <div class="form-actions"><button class="button button-secondary" type="submit">Bejövő üzenet rögzítése</button></div>
-                                                        </form>
-                                                    </details>
+                                                    <div class="portal-mail-auto-sync-note">
+                                                        <strong>Válaszok automatikusan</strong>
+                                                        <span>Az ügyfél válasza a <?= h(mvm_mail_reply_address()); ?> postafiókra érkezik, és az emailben lévő azonosító alapján erre az adatlapra kerül.</span>
+                                                    </div>
                                                     <form class="inline-form portal-mail-sync-form" method="post" action="<?= h($detailUrl); ?>">
                                                         <?= csrf_field(); ?>
                                                         <input type="hidden" name="action" value="sync_portal_work_mailbox">
                                                         <input type="hidden" name="request_id" value="<?= $linkedRequestId; ?>">
                                                         <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
-                                                        <button class="button button-secondary" type="submit">Központi postafiók szinkronizálása</button>
+                                                        <button class="button button-secondary" type="submit">Válaszok frissítése most</button>
                                                     </form>
-                                                    <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
-                                                        <div class="alert alert-info"><p>Az automatikus beolvasáshoz az IMAP jelszót a <strong>storage/config/local.secret.php</strong> fájlban kell megadni. Addig a bejövő email kézzel is rögzíthető.</p></div>
+                                                    <?php if (!mvm_mailbox_sync_can_run()): ?>
+                                                        <div class="alert alert-info"><p><?= h(mvm_mailbox_sync_setup_message()); ?></p></div>
                                                     <?php endif; ?>
                                                     <?php if ($linkedRequestEmailThreads !== []): ?>
                                                         <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
@@ -1659,35 +1651,20 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     </div>
                                                                 </form>
 
-                                                                <details class="portal-message-manual-log">
-                                                                    <summary>Bejövő email kézi rögzítése</summary>
-                                                                    <form class="portal-message-form" method="post" action="<?= h($requestDetailUrl); ?>">
-                                                                        <?= csrf_field(); ?>
-                                                                        <input type="hidden" name="action" value="log_portal_work_inbound_message">
-                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
-                                                                        <div class="form-grid two compact">
-                                                                            <div><label>Küldő neve</label><input name="sender_name" value="<?= h($requestCustomerName); ?>"></div>
-                                                                            <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($displayEmail); ?>"></div>
-                                                                        </div>
-                                                                        <label>Tárgy</label>
-                                                                        <input name="inbound_subject" value="Bejövő ügyfélüzenet">
-                                                                        <label>Üzenet szövege</label>
-                                                                        <textarea name="inbound_body" rows="4" required></textarea>
-                                                                        <div class="form-actions">
-                                                                            <button class="button button-secondary" type="submit">Bejövő üzenet rögzítése</button>
-                                                                        </div>
-                                                                    </form>
-                                                                </details>
+                                                                <div class="portal-mail-auto-sync-note">
+                                                                    <strong>Válaszok automatikusan</strong>
+                                                                    <span>Az ügyfél válasza a <?= h(mvm_mail_reply_address()); ?> postafiókra érkezik, és az emailben lévő azonosító alapján erre az adatlapra kerül.</span>
+                                                                </div>
 
                                                                 <form class="inline-form portal-mail-sync-form" method="post" action="<?= h($requestDetailUrl); ?>">
                                                                     <?= csrf_field(); ?>
                                                                     <input type="hidden" name="action" value="sync_portal_work_mailbox">
                                                                     <input type="hidden" name="request_id" value="<?= $requestId; ?>">
-                                                                    <button class="button button-secondary" type="submit">Központi postafiók szinkronizálása</button>
+                                                                    <button class="button button-secondary" type="submit">Válaszok frissítése most</button>
                                                                 </form>
 
-                                                                <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
-                                                                    <div class="alert alert-info"><p>Az automatikus beolvasáshoz az IMAP jelszót a <strong>storage/config/local.secret.php</strong> fájlban kell megadni. Addig a bejövő email kézzel is rögzíthető.</p></div>
+                                                                <?php if (!mvm_mailbox_sync_can_run()): ?>
+                                                                    <div class="alert alert-info"><p><?= h(mvm_mailbox_sync_setup_message()); ?></p></div>
                                                                 <?php endif; ?>
 
                                                                 <?php if ($requestEmailThreads !== []): ?>

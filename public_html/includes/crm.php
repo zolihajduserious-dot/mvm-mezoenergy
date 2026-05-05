@@ -7232,7 +7232,7 @@ function send_connection_request_manual_message(int $requestId, string $recipien
         ? [['label' => 'Ügyfélportál megnyitása', 'url' => absolute_url('/customer/work-requests')]]
         : [['label' => 'Adatlap megnyitása', 'url' => absolute_url('/electrician/work-request?id=' . $requestId)]];
     $emailTitle = 'Új üzenet érkezett';
-    $emailLead = 'Az adatlapról küldött üzenetet alább találod. Ha erre az emailre válasz érkezik a központi postafiókba, a válaszazonosító alapján ehhez az adatlaphoz kapcsolható.';
+    $emailLead = 'Az adatlapról küldött üzenetet alább találod. Ha erre az emailre válasz érkezik, az automatikusan ehhez az adatlaphoz kerül a kommunikációs előzmények közé.';
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
     try {
@@ -7711,6 +7711,74 @@ function mvm_find_email_thread_for_message(string $subject, string $body, string
     }
 
     return null;
+}
+
+function mvm_mailbox_sync_setup_message(): string
+{
+    $schemaErrors = mvm_mail_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return implode(' ', $schemaErrors);
+    }
+
+    if (!function_exists('imap_open')) {
+        return 'A központi postafiók beolvasásához a PHP IMAP bővítményt be kell kapcsolni a tárhelyen.';
+    }
+
+    $user = trim(mvm_config_value('MVM_IMAP_USER', mvm_mail_reply_address()));
+    $password = (string) mvm_config_value('MVM_IMAP_PASS', '');
+
+    if ($user === '' || $password === '') {
+        return 'A válaszok automatikus beolvasásához az MVM_IMAP_USER és MVM_IMAP_PASS beállítás szükséges.';
+    }
+
+    return '';
+}
+
+function mvm_mailbox_sync_can_run(): bool
+{
+    return mvm_mailbox_sync_setup_message() === '';
+}
+
+function maybe_sync_mvm_mailbox_replies(int $limit = 40, int $throttleSeconds = 60): array
+{
+    $setupMessage = mvm_mailbox_sync_setup_message();
+
+    if ($setupMessage !== '') {
+        return [
+            'ok' => false,
+            'message' => $setupMessage,
+            'matched' => 0,
+            'ignored' => 0,
+            'skipped' => true,
+        ];
+    }
+
+    $now = time();
+    $sessionKey = '_mvm_mailbox_auto_sync_at';
+
+    if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION[$sessionKey])) {
+        $lastRun = (int) $_SESSION[$sessionKey];
+
+        if ($lastRun > 0 && $now - $lastRun < max(5, $throttleSeconds)) {
+            return [
+                'ok' => true,
+                'message' => 'A központi postafiók nemrég frissült.',
+                'matched' => 0,
+                'ignored' => 0,
+                'skipped' => true,
+            ];
+        }
+    }
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION[$sessionKey] = $now;
+    }
+
+    $result = sync_mvm_mailbox_replies($limit);
+    $result['skipped'] = false;
+
+    return $result;
 }
 
 function sync_mvm_mailbox_replies(int $limit = 80): array

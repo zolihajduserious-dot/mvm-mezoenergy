@@ -274,6 +274,7 @@ $executionPlanPackageParts = connection_request_execution_plan_package_parts((in
 $executionPlanMissingItems = connection_request_execution_plan_package_missing_items((int) $request['id']);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
+$mvmMailboxAutoSync = maybe_sync_mvm_mailbox_replies(40, 60);
 $mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
 $mvmThreadStatusLabels = mvm_email_thread_status_labels();
 $mvmFormRow = connection_request_mvm_form((int) $request['id']);
@@ -855,17 +856,17 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">MVM levelezés</p>
                     <h2>Küldések és válaszok</h2>
-                    <p>A CRM-ből küldött MVM levelek tárgyába egy egyedi azonosító kerül. Ha az MVM erre válaszol, a válasz csak ennél az igénynél jelenik meg.</p>
+                    <p>A CRM-ből küldött levelek válaszcíme a <?= h(mvm_mail_reply_address()); ?> postafiók. A beérkező válaszokat a rendszer megnyitáskor frissíti, és az egyedi azonosító alapján ehhez az igényhez köti.</p>
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl . '#mvm-mailbox'); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button button-secondary" name="action" value="sync_mvm_mailbox" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>MVM válaszok szinkronizálása</button>
+                    <button class="button button-secondary" name="action" value="sync_mvm_mailbox" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>Válaszok frissítése most</button>
                 </form>
             </div>
 
-            <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
+            <?php if (!mvm_mailbox_sync_can_run()): ?>
                 <div class="alert alert-info">
-                    <p>A válaszok automatikus beolvasásához az <strong>MVM_IMAP_HOST</strong> és <strong>MVM_IMAP_USER</strong> már be van állítva. Az <strong>MVM_IMAP_PASS</strong> jelszót a <strong>storage/config/local.secret.php</strong> fájlban add meg, ne chatben.</p>
+                    <p><?= h(mvm_mailbox_sync_setup_message()); ?></p>
                 </div>
             <?php endif; ?>
 
