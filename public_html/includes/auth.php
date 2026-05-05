@@ -316,6 +316,11 @@ function can_manage_admin_users(): bool
     return is_admin_user();
 }
 
+function can_view_super_admin_overview(): bool
+{
+    return is_admin_user();
+}
+
 function is_specialist_user(): bool
 {
     return current_user_role() === 'specialist';

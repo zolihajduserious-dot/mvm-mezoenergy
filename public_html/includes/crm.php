@@ -6373,10 +6373,143 @@ function mvm_document_type_enum_sql(): string
     return "ENUM('" . implode("', '", mvm_document_type_keys()) . "')";
 }
 
+function mvm_submission_guard_schema_errors(): array
+{
+    if (!db_table_exists('connection_requests')) {
+        return ['Hiányzik a connection_requests tábla.'];
+    }
+
+    $columns = [
+        'mvm_fee_payment_confirmed_at' => 'ALTER TABLE `connection_requests` ADD COLUMN `mvm_fee_payment_confirmed_at` DATETIME DEFAULT NULL AFTER `admin_workflow_stage`',
+        'mvm_fee_payment_confirmed_by_user_id' => 'ALTER TABLE `connection_requests` ADD COLUMN `mvm_fee_payment_confirmed_by_user_id` INT UNSIGNED NULL AFTER `mvm_fee_payment_confirmed_at`',
+        'mvm_fee_payment_note' => 'ALTER TABLE `connection_requests` ADD COLUMN `mvm_fee_payment_note` TEXT DEFAULT NULL AFTER `mvm_fee_payment_confirmed_by_user_id`',
+    ];
+
+    try {
+        foreach ($columns as $column => $sql) {
+            if (!db_column_exists('connection_requests', $column)) {
+                db_query($sql);
+            }
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'Az MVM ügyindítási jóváhagyás mezőinek automatikus létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'Az MVM ügyindítási jóváhagyás adatbázis frissítése szükséges.',
+        ];
+    }
+
+    return [];
+}
+
+function connection_request_mvm_fee_payment_is_confirmed(array $request): bool
+{
+    return trim((string) ($request['mvm_fee_payment_confirmed_at'] ?? '')) !== '';
+}
+
+function connection_request_mvm_fee_payment_approver_label(array $request): string
+{
+    $userId = (int) ($request['mvm_fee_payment_confirmed_by_user_id'] ?? 0);
+
+    if ($userId <= 0 || !users_table_exists()) {
+        return 'Admin';
+    }
+
+    $user = db_query('SELECT `name`, `email`, `role`, `is_admin` FROM `users` WHERE `id` = ? LIMIT 1', [$userId])->fetch();
+
+    if (!is_array($user)) {
+        return 'Admin';
+    }
+
+    $role = !empty($user['is_admin']) ? 'admin' : (string) ($user['role'] ?? 'admin');
+
+    return actor_display_label_from_parts($role, (string) ($user['name'] ?? ''), (string) ($user['email'] ?? ''));
+}
+
+function connection_request_mvm_submission_guard_message(?array $request = null): string
+{
+    return 'Az MVM dokumentumok generálása és MVM felé küldése zárolva van, amíg egy admin nem rögzíti, hogy az ügykezelési díj beérkezett.';
+}
+
+function connection_request_mvm_submission_is_allowed(array $request): bool
+{
+    return connection_request_mvm_fee_payment_is_confirmed($request);
+}
+
+function connection_request_mvm_submission_guard_result(int $requestId): ?array
+{
+    $schemaErrors = mvm_submission_guard_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors), 'document_id' => null];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    if (!connection_request_mvm_submission_is_allowed($request)) {
+        return ['ok' => false, 'message' => connection_request_mvm_submission_guard_message($request), 'document_id' => null];
+    }
+
+    return null;
+}
+
+function confirm_connection_request_mvm_fee_payment(int $requestId, string $note = ''): array
+{
+    $schemaErrors = mvm_submission_guard_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    if (!is_staff_user()) {
+        return ['ok' => false, 'message' => 'Az ügykezelési díj beérkezését csak admin rögzítheti.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'A munka nem található.'];
+    }
+
+    $user = current_user();
+    $userId = is_array($user) ? (int) $user['id'] : null;
+    db_query(
+        'UPDATE `connection_requests`
+         SET `mvm_fee_payment_confirmed_at` = NOW(),
+             `mvm_fee_payment_confirmed_by_user_id` = ?,
+             `mvm_fee_payment_note` = ?
+         WHERE `id` = ?',
+        [
+            $userId !== null && $userId > 0 ? $userId : null,
+            trim($note) !== '' ? trim($note) : null,
+            $requestId,
+        ]
+    );
+
+    record_connection_request_activity(
+        $requestId,
+        'payment_confirmed',
+        'Ügykezelési díj beérkezése jóváhagyva',
+        trim($note)
+    );
+
+    return ['ok' => true, 'message' => 'Az ügykezelési díj beérkezése rögzítve. Az MVM dokumentumgenerálás és beküldés engedélyezve van.'];
+}
+
 function mvm_document_schema_errors(): array
 {
     if (!db_table_exists('connection_request_documents')) {
         return ['Hianyzik a connection_request_documents tabla.'];
+    }
+
+    $guardSchemaErrors = mvm_submission_guard_schema_errors();
+
+    if ($guardSchemaErrors !== []) {
+        return $guardSchemaErrors;
     }
 
     try {
@@ -7023,6 +7156,10 @@ function send_connection_request_document_to_mvm(int $documentId, string $recipi
         return ['ok' => false, 'message' => 'Az igény nem található.'];
     }
 
+    if (!connection_request_mvm_submission_is_allowed($request)) {
+        return ['ok' => false, 'message' => connection_request_mvm_submission_guard_message($request)];
+    }
+
     $recipientEmail = trim($recipientEmail);
 
     if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
@@ -7122,6 +7259,12 @@ function send_connection_request_document_to_mvm(int $documentId, string $recipi
             ]
         );
         db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+        record_connection_request_activity(
+            (int) $request['id'],
+            'mvm_submission',
+            'MVM dokumentum elküldve',
+            $documentLabel . ' -> ' . $recipientEmail
+        );
 
         return ['ok' => true, 'message' => 'A dokumentum elküldve az MVM részére.'];
     } catch (Throwable $exception) {
@@ -9342,6 +9485,12 @@ function replace_mvm_execution_plan_photos(ZipArchive $zip, int $requestId): arr
 
 function generate_primavill_mvm_docx(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     if (!class_exists('ZipArchive')) {
         return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
     }
@@ -9504,6 +9653,12 @@ function mvm_execution_plan_literal_map(array $placeholderMap): array
 
 function generate_mvm_execution_plan_docx(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     if (!class_exists('ZipArchive')) {
         return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
     }
@@ -10354,6 +10509,12 @@ function add_mvm_pdf_sketch(\setasign\Fpdi\Fpdi $pdf, array $form, int $page, ar
 
 function generate_primavill_mvm_pdf_from_template(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     if (!class_exists('\\setasign\\Fpdi\\Fpdi')) {
         return ['ok' => false, 'message' => 'A PDF sablon kitöltéséhez hiányzik az FPDI csomag.', 'document_id' => null];
     }
@@ -10579,6 +10740,12 @@ function generate_mvm_execution_plan_pdf(int $requestId): array
 
 function generate_mvm_technical_handover_docx(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     if (!class_exists('ZipArchive')) {
         return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
     }
@@ -11458,6 +11625,12 @@ function extract_connection_request_pdf_pages(array $sourceDocument, string $tar
 
 function generate_connection_request_technical_declaration(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     $request = find_connection_request($requestId);
 
     if ($request === null) {
@@ -11522,6 +11695,12 @@ function generate_connection_request_technical_declaration(int $requestId): arra
 
 function generate_connection_request_complete_package(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     $request = find_connection_request($requestId);
 
     if ($request === null) {
@@ -11612,6 +11791,12 @@ function generate_connection_request_complete_package(int $requestId): array
 
 function generate_connection_request_execution_plan_package(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     $request = find_connection_request($requestId);
 
     if ($request === null) {
@@ -11682,6 +11867,12 @@ function generate_connection_request_execution_plan_package(int $requestId): arr
 
 function generate_connection_request_technical_handover_package(int $requestId): array
 {
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
     $request = find_connection_request($requestId);
 
     if ($request === null) {

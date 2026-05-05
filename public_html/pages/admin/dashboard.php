@@ -157,6 +157,14 @@ $dashboardCards = [
 
 if ($canManageAdminUsers) {
     $dashboardCards[] = [
+        'label' => 'Szuper riport',
+        'value' => '7 nap',
+        'description' => 'Ügyindítások, elfogadott árajánlatok, díjbekérők és státuszváltozások egy helyen.',
+        'href' => '/admin/super-overview',
+        'variant' => 'primary',
+    ];
+
+    $dashboardCards[] = [
         'label' => 'Adminisztrátorok',
         'value' => $staffUserCount ?? '-',
         'description' => 'Adminisztrátori profilok létrehozása és jogosultsági szintek áttekintése.',

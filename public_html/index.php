@@ -207,6 +207,10 @@ $routes = [
         'title' => 'Admin felulet',
         'file' => PAGE_PATH . '/admin/dashboard.php',
     ],
+    'admin/super-overview' => [
+        'title' => 'Szuper admin riport',
+        'file' => PAGE_PATH . '/admin/super-overview.php',
+    ],
     'admin/profile' => [
         'title' => 'Admin profil',
         'file' => PAGE_PATH . '/profile.php',
@@ -388,6 +392,9 @@ try {
                     <?php if (is_staff_user()): ?>
                         <a href="<?= h(url_path('/admin/dashboard')); ?>">Admin</a>
                         <a href="<?= h(url_path('/admin/calendar')); ?>">Naptár</a>
+                        <?php if (can_view_super_admin_overview()): ?>
+                            <a href="<?= h(url_path('/admin/super-overview')); ?>">Szuper riport</a>
+                        <?php endif; ?>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/admin/profile')); ?>">Profil</a>
                     <?php elseif (is_general_contractor_user()): ?>

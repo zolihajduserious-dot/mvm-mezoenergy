@@ -70,13 +70,37 @@ $mvmSourceValues = connection_request_mvm_source_form_values($request, $isMvmFor
 $templateErrors = mvm_form_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $planTemplateErrors = mvm_plan_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $handoverTemplateErrors = mvm_technical_handover_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
+$mvmSubmissionApproved = connection_request_mvm_submission_is_allowed($request);
+$mvmSubmissionGuardMessage = connection_request_mvm_submission_guard_message($request);
+$mvmPaymentApproverLabel = $mvmSubmissionApproved ? connection_request_mvm_fee_payment_approver_label($request) : '';
 
 if (is_post()) {
     require_valid_csrf_token();
 
     $action = (string) ($_POST['action'] ?? 'upload');
+    $requiresMvmSubmissionApproval = in_array($action, [
+        'generate_mvm_docx',
+        'generate_mvm_pdf',
+        'generate_plan_docx',
+        'generate_plan_pdf',
+        'generate_handover_docx',
+        'generate_handover_pdf',
+        'build_package',
+        'build_execution_plan_package',
+        'build_handover_package',
+        'generate_technical_declaration',
+        'send_mvm_document',
+    ], true);
 
-    if (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf'], true)) {
+    if ($action === 'confirm_mvm_fee_payment') {
+        $result = confirm_connection_request_mvm_fee_payment((int) $request['id'], trim((string) ($_POST['payment_note'] ?? '')));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ügykezelési díj beérkezésének rögzítése sikertelen.'));
+        redirect($mvmRedirectPath . '#mvm-payment-gate');
+    }
+
+    if ($requiresMvmSubmissionApproval && !$mvmSubmissionApproved) {
+        $errors[] = $mvmSubmissionGuardMessage;
+    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf'], true)) {
         if ($mvmFormSchemaErrors !== []) {
             $errors = array_merge($errors, $mvmFormSchemaErrors);
         }
@@ -332,6 +356,41 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
             </div>
         <?php endif; ?>
 
+        <section id="mvm-payment-gate" class="auth-panel form-block mvm-payment-gate">
+            <div class="admin-header compact">
+                <div>
+                    <p class="eyebrow">Ügykezelési díj</p>
+                    <h2>MVM ügyindítás admin jóváhagyása</h2>
+                    <?php if ($mvmSubmissionApproved): ?>
+                        <p>Az ügykezelési díj beérkezése rögzítve lett. A dokumentumgenerálás és az MVM felé küldés engedélyezett.</p>
+                    <?php else: ?>
+                        <p><?= h($mvmSubmissionGuardMessage); ?></p>
+                    <?php endif; ?>
+                </div>
+                <?php if ($mvmSubmissionApproved): ?>
+                    <span class="status-badge status-badge-sent">Engedélyezve</span>
+                <?php else: ?>
+                    <span class="status-badge status-badge-failed">Zárolva</span>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($mvmSubmissionApproved): ?>
+                <dl class="admin-request-data-list admin-request-data-list-compact">
+                    <div><dt>Jóváhagyta</dt><dd><?= h($mvmPaymentApproverLabel); ?></dd></div>
+                    <div><dt>Időpont</dt><dd><?= h((string) ($request['mvm_fee_payment_confirmed_at'] ?? '-')); ?></dd></div>
+                    <div><dt>Megjegyzés</dt><dd><?= h((string) (($request['mvm_fee_payment_note'] ?? '') ?: '-')); ?></dd></div>
+                </dl>
+            <?php else: ?>
+                <form class="form" method="post" action="<?= h($mvmPageUrl . '#mvm-payment-gate'); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="confirm_mvm_fee_payment">
+                    <label for="payment_note">Belső megjegyzés</label>
+                    <textarea id="payment_note" name="payment_note" rows="2" placeholder="Például: banki jóváírás ellenőrizve, díjbekérő kiegyenlítve"></textarea>
+                    <button class="button" type="submit">Pénz beérkezett, ügyindítást jóváhagyom</button>
+                </form>
+            <?php endif; ?>
+        </section>
+
         <section class="auth-panel form-block mvm-docx-panel">
             <div class="admin-header compact">
                 <div>
@@ -552,12 +611,12 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
 
                     <div class="form-actions">
                     <button class="button button-secondary" name="action" value="save_mvm_form" type="submit" <?= $mvmFormSchemaErrors !== [] ? 'disabled' : ''; ?>>Adatok mentése</button>
-                    <button class="button button-secondary" name="action" value="generate_mvm_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== []) ? 'disabled' : ''; ?>>Kitöltött Word dokumentum generálása</button>
-                    <button class="button" name="action" value="generate_mvm_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== []) ? 'disabled' : ''; ?>>PDF generálása Word dokumentumból</button>
-                    <button class="button button-secondary" name="action" value="generate_plan_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== []) ? 'disabled' : ''; ?>>Terv Word dokumentum generálása</button>
-                    <button class="button" name="action" value="generate_plan_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== []) ? 'disabled' : ''; ?>>Terv PDF generálása Word dokumentumból</button>
-                    <button class="button button-secondary" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== []) ? 'disabled' : ''; ?>>Műszaki átadás Word generálása</button>
-                    <button class="button" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== []) ? 'disabled' : ''; ?>>Műszaki átadás PDF generálása</button>
+                    <button class="button button-secondary" name="action" value="generate_mvm_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Kitöltött Word dokumentum generálása</button>
+                    <button class="button" name="action" value="generate_mvm_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálása Word dokumentumból</button>
+                    <button class="button button-secondary" name="action" value="generate_plan_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Terv Word dokumentum generálása</button>
+                    <button class="button" name="action" value="generate_plan_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Terv PDF generálása Word dokumentumból</button>
+                    <button class="button button-secondary" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás Word generálása</button>
+                    <button class="button" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás PDF generálása</button>
                     </div>
                 </div>
             </form>
@@ -605,7 +664,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button" name="action" value="build_package" type="submit" <?= ($missingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>MVM jóváhagyási csomag generálása</button>
+                    <button class="button" name="action" value="build_package" type="submit" <?= ($missingItems !== [] || !$pdfMergeAvailable || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>MVM jóváhagyási csomag generálása</button>
                 </form>
             </div>
 
@@ -672,7 +731,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button" name="action" value="build_execution_plan_package" type="submit" <?= ($executionPlanMissingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Kiviteli terv csomag generálása</button>
+                    <button class="button" name="action" value="build_execution_plan_package" type="submit" <?= ($executionPlanMissingItems !== [] || !$pdfMergeAvailable || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Kiviteli terv csomag generálása</button>
                 </form>
             </div>
 
@@ -734,11 +793,11 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || latest_connection_request_mvm_request_pdf_document((int) $request['id']) === null) ? 'disabled' : ''; ?>>Nyilatkozatok adatlap kinyerése</button>
+                    <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || latest_connection_request_mvm_request_pdf_document((int) $request['id']) === null || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Nyilatkozatok adatlap kinyerése</button>
                 </form>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
-                    <button class="button" name="action" value="build_handover_package" type="submit" <?= ($technicalHandoverMissingItems !== [] || !$pdfMergeAvailable) ? 'disabled' : ''; ?>>Műszaki átadás csomag generálása</button>
+                    <button class="button" name="action" value="build_handover_package" type="submit" <?= ($technicalHandoverMissingItems !== [] || !$pdfMergeAvailable || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás csomag generálása</button>
                 </form>
             </div>
 
@@ -885,7 +944,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                                             <input type="hidden" name="document_id" value="<?= (int) $document['id']; ?>">
                                             <input name="mvm_recipient" type="email" value="<?= h($defaultRecipient); ?>" placeholder="mvm@email.hu" required>
                                             <textarea name="mvm_note" rows="2" placeholder="Rövid megjegyzés az MVM-nek (opcionális)"></textarea>
-                                            <button class="button button-secondary" name="action" value="send_mvm_document" type="submit" <?= $mvmMailSchemaErrors !== [] ? 'disabled' : ''; ?>>Küldés MVM-nek</button>
+                                            <button class="button button-secondary" name="action" value="send_mvm_document" type="submit" <?= ($mvmMailSchemaErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Küldés MVM-nek</button>
                                         </form>
                                         <?php else: ?>
                                             <span class="muted-text">MVM-nek csak PDF csomagot kuldunk.</span>
