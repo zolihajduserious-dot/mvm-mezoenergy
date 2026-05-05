@@ -332,6 +332,7 @@ $customerProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by
 $quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
 $requestStatusLabels = $schemaErrors === [] ? connection_request_status_labels() : [];
 $electricianStatusLabels = $schemaErrors === [] ? electrician_work_status_labels() : [];
+$workflowStages = admin_workflow_stage_definitions();
 $totalItems = count($items);
 $totalUnifiedItems = $totalItems + count($standaloneRequests);
 $localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
@@ -340,7 +341,7 @@ $documentZipCandidates = minicrm_document_zip_candidates();
 $itemsByStatus = [];
 $selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
 $selectedRequestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
-$standaloneRequestsByStatus = [];
+$standaloneRequestsByWorkflowStage = [];
 
 foreach ($items as $item) {
     if ($selectedItemId === 0 && $selectedRequestId === 0) {
@@ -358,11 +359,15 @@ foreach ($standaloneRequests as $request) {
         $selectedRequestId = (int) ($request['id'] ?? 0);
     }
 
-    $statusName = connection_request_type_label($request['request_type'] ?? null);
-    $standaloneRequestsByStatus[$statusName][] = $request;
+    $workflowStage = minicrm_import_request_list_workflow_stage($request);
+    $standaloneRequestsByWorkflowStage[$workflowStage][] = $request;
 }
 
-uasort($standaloneRequestsByStatus, static fn (array $a, array $b): int => count($b) <=> count($a));
+uksort($standaloneRequestsByWorkflowStage, static function (string $a, string $b): int {
+    $comparison = admin_workflow_stage_number($a) <=> admin_workflow_stage_number($b);
+
+    return $comparison !== 0 ? $comparison : strcmp($a, $b);
+});
 
 function minicrm_import_dom_id(string $value): string
 {
@@ -370,6 +375,21 @@ function minicrm_import_dom_id(string $value): string
     $id = trim($id, '-');
 
     return $id !== '' ? $id : 'nincs-statusz';
+}
+
+function minicrm_import_request_list_workflow_stage(array $request): string
+{
+    if ((string) ($request['electrician_status'] ?? '') === 'completed' || !empty($request['after_photos_completed_at'])) {
+        return 'completed';
+    }
+
+    // Keep the list query light; opened cards recalculate the document-based stage in detail.
+    return normalize_admin_workflow_stage((string) ($request['admin_workflow_stage'] ?? '')) ?? 'case_starting';
+}
+
+function minicrm_import_portal_group_dom_id(string $workflowStage, int $index): string
+{
+    return $index === 0 ? 'portal-works' : 'portal-workflow-' . minicrm_import_dom_id($workflowStage);
 }
 
 function minicrm_import_short_text(string $value, int $length = 150): string
@@ -696,12 +716,19 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 <strong><?= count($statusItems); ?></strong>
                             </a>
                         <?php endforeach; ?>
-                        <?php if ($standaloneRequests !== []): ?>
-                            <a href="#portal-works">
-                                <span>Port&#225;los munk&#225;k</span>
-                                <strong><?= count($standaloneRequests); ?></strong>
+                        <?php $portalNavIndex = 0; ?>
+                        <?php foreach ($standaloneRequestsByWorkflowStage as $workflowStage => $requestItems): ?>
+                            <?php
+                            $workflowDefinition = $workflowStages[$workflowStage] ?? null;
+                            $workflowLabel = $workflowDefinition !== null ? (string) $workflowDefinition['title'] : admin_workflow_stage_label((string) $workflowStage);
+                            $portalGroupDomId = minicrm_import_portal_group_dom_id((string) $workflowStage, $portalNavIndex);
+                            ?>
+                            <a href="#<?= h($portalGroupDomId); ?>">
+                                <span>Port&#225;l: <?= h($workflowLabel); ?></span>
+                                <strong><?= count($requestItems); ?></strong>
                             </a>
-                        <?php endif; ?>
+                            <?php $portalNavIndex++; ?>
+                        <?php endforeach; ?>
                     </nav>
 
                     <div class="minicrm-status-groups" data-minicrm-list>
@@ -1207,19 +1234,24 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 </div>
                             </section>
                         <?php endforeach; ?>
-                    </div>
 
-                    <?php if ($standaloneRequestsByStatus !== []): ?>
-                        <section class="minicrm-status-group" id="portal-works" data-minicrm-status-group>
+                        <?php $portalGroupIndex = 0; ?>
+                        <?php foreach ($standaloneRequestsByWorkflowStage as $workflowStage => $requestItems): ?>
+                            <?php
+                            $requestGroupDefinition = $workflowStages[$workflowStage] ?? null;
+                            $requestGroupName = $requestGroupDefinition !== null ? (string) $requestGroupDefinition['title'] : admin_workflow_stage_label((string) $workflowStage);
+                            $requestGroupClass = (string) ($requestGroupDefinition['variant'] ?? 'finalized');
+                            $portalGroupDomId = minicrm_import_portal_group_dom_id((string) $workflowStage, $portalGroupIndex);
+                            ?>
+                        <section class="minicrm-status-group" id="<?= h($portalGroupDomId); ?>" data-minicrm-status-group>
                             <header class="minicrm-status-group-head">
                                 <div>
-                                    <span class="status-badge status-badge-finalized">Port&#225;lon r&#246;gz&#237;tett munk&#225;k</span>
-                                    <strong><?= count($standaloneRequests); ?> munka</strong>
+                                    <span class="status-badge status-badge-<?= h($requestGroupClass); ?>"><?= h($requestGroupName); ?></span>
+                                    <strong><?= count($requestItems); ?> port&#225;los munka</strong>
                                 </div>
-                                <span data-minicrm-status-count><?= count($standaloneRequests); ?> l&#225;that&#243;</span>
+                                <span data-minicrm-status-count><?= count($requestItems); ?> l&#225;that&#243;</span>
                             </header>
 
-                            <?php foreach ($standaloneRequestsByStatus as $requestGroupName => $requestItems): ?>
                                 <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $requestGroupName); ?> port&#225;los munk&#225;k">
                                     <div class="minicrm-work-table-head" role="row">
                                         <span>Ügyfél / cím / munka</span>
@@ -1245,8 +1277,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $requestAcceptedQuote = $isSelectedRequest ? accepted_quote_for_connection_request($requestId) : null;
                                         $requestWorkflowStage = $isSelectedRequest
                                             ? connection_request_admin_workflow_stage($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
-                                            : 'case_starting';
-                                        $requestWorkflowDefinition = admin_workflow_stage_definitions()[$requestWorkflowStage] ?? null;
+                                            : (string) $workflowStage;
+                                        $requestWorkflowDefinition = $workflowStages[$requestWorkflowStage] ?? null;
+                                        $requestWorkflowLabel = $requestWorkflowDefinition !== null ? (string) $requestWorkflowDefinition['title'] : admin_workflow_stage_label($requestWorkflowStage);
                                         $requestNextWorkflowStage = next_admin_workflow_stage($requestWorkflowStage);
                                         $requestProfile = $customerProfilesByRequest[$requestId] ?? null;
                                         $profileEmail = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
@@ -1262,6 +1295,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             $requestSiteAddress,
                                             (string) ($request['electrician_name'] ?? ''),
                                             $requestSubmitterLabel,
+                                            $requestWorkflowLabel,
                                             $requestStatusLabels[$requestStatus] ?? $requestStatus,
                                             $electricianStatusLabels[$electricianStatus] ?? $electricianStatus,
                                         ]);
@@ -1279,8 +1313,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                 </span>
                                                 <span class="minicrm-work-date"><?= h((string) ($request['created_at'] ?? '-')); ?></span>
                                                 <span class="admin-workflow-request-badges">
-                                                    <strong><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></strong>
-                                                    <small><?= h($electricianStatusLabels[$electricianStatus] ?? $electricianStatus); ?></small>
+                                                    <strong><?= h($requestWorkflowLabel); ?></strong>
+                                                    <small><?= h(($requestStatusLabels[$requestStatus] ?? $requestStatus) . ' / ' . ($electricianStatusLabels[$electricianStatus] ?? $electricianStatus)); ?></small>
                                                 </span>
                                             </summary>
 
@@ -1533,9 +1567,10 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         </details>
                                     <?php endforeach; ?>
                                 </div>
-                            <?php endforeach; ?>
                         </section>
-                    <?php endif; ?>
+                            <?php $portalGroupIndex++; ?>
+                        <?php endforeach; ?>
+                    </div>
                 </section>
             </div>
         <?php endif; ?>
