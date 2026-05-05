@@ -37,7 +37,13 @@ if (is_post()) {
 
     if ($errors === []) {
         try {
-            create_electrician_account($form, $password);
+            $userId = create_electrician_account($form, $password);
+            $user = find_user_by_id($userId);
+
+            if ($user !== null) {
+                login_user($user);
+            }
+
             send_admin_activity_notification(
                 'Új szerelő regisztrált',
                 'Új szerelő hozott létre fiókot a weboldalon.',
@@ -59,11 +65,6 @@ if (is_post()) {
                 null,
                 'Szerelő regisztráció'
             );
-            $user = find_user_by_email($form['email']);
-
-            if ($user !== null) {
-                login_user($user);
-            }
 
             set_flash('success', 'Sikeres szerelői regisztráció. Most már rögzíthetsz saját felmérést, illetve az admin ki tud adni neked munkát.');
             redirect('/electrician/work-requests');

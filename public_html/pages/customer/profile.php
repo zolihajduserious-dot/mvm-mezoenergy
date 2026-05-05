@@ -58,7 +58,7 @@ if (is_post()) {
             try {
                 $wasNewCustomerProfile = $customer === null;
                 if ($customer === null) {
-                    $customerId = create_customer($form, (int) $user['id']);
+                    $customerId = create_customer($form, (int) $user['id'], (int) $user['id']);
                     db_query('UPDATE `users` SET `customer_id` = ? WHERE `id` = ?', [$customerId, $user['id']]);
                     $_SESSION['user']['customer_id'] = $customerId;
                 } else {

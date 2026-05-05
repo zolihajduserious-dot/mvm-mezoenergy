@@ -1235,6 +1235,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
                                         $requestTitle = trim((string) ($request['project_name'] ?? '')) ?: connection_request_type_label($request['request_type'] ?? null);
                                         $requestCustomerName = trim((string) ($request['requester_name'] ?? '')) ?: '-';
+                                        $requestSubmitterLabel = connection_request_submitter_label($request);
                                         $requestSiteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
                                         $requestDetailUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
                                         $requestQuotes = $isSelectedRequest ? quotes_for_connection_request($requestId) : [];
@@ -1260,6 +1261,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             $displayPhone,
                                             $requestSiteAddress,
                                             (string) ($request['electrician_name'] ?? ''),
+                                            $requestSubmitterLabel,
                                             $requestStatusLabels[$requestStatus] ?? $requestStatus,
                                             $electricianStatusLabels[$electricianStatus] ?? $electricianStatus,
                                         ]);
@@ -1311,6 +1313,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <div><dt>Email</dt><dd><?= h($displayEmail !== '' ? $displayEmail : '-'); ?></dd></div>
                                                                 <div><dt>Telefon</dt><dd><?= h($displayPhone !== '' ? $displayPhone : '-'); ?></dd></div>
                                                                 <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
+                                                                <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
                                                                 <div><dt>C&#237;m</dt><dd><?= h($requestSiteAddress !== '' ? $requestSiteAddress : '-'); ?></dd></div>
                                                                 <div><dt>HRSZ</dt><dd><?= h((string) ($request['lot_number'] ?? '-')); ?></dd></div>
                                                                 <div><dt>Munka t&#237;pusa</dt><dd><?= h(connection_request_type_label($request['request_type'] ?? null)); ?></dd></div>
@@ -1439,6 +1442,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 <div class="admin-request-doc-meta">
                                                                                     <strong><?= h((string) ($file['label'] ?? 'Fájl')); ?></strong>
                                                                                     <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                                                                     <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt a fájlt? Ez nem visszavonható.');">
                                                                                         <?= csrf_field(); ?>
@@ -1472,6 +1476,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 <div class="admin-request-doc-meta">
                                                                                     <strong><?= h((string) ($file['label'] ?? 'Munka fájl')); ?></strong>
                                                                                     <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                                                                     <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt a munka fájlt? Ez nem visszavonható.');">
                                                                                         <?= csrf_field(); ?>
@@ -1505,6 +1510,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 <div class="admin-request-doc-meta">
                                                                                     <strong><?= h((string) ($document['title'] ?? 'MVM dokumentum')); ?></strong>
                                                                                     <span><?= h((string) ($document['original_name'] ?? '-')); ?></span>
+                                                                                    <span>Létrehozó: <?= h(portal_file_uploader_label($document, 'Létrehozó ismeretlen')); ?></span>
                                                                                     <a href="<?= h($documentUrl); ?>" target="_blank">Megnyitás</a>
                                                                                     <form method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt az MVM dokumentumot? Ez nem visszavonható.');">
                                                                                         <?= csrf_field(); ?>

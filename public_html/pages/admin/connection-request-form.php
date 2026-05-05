@@ -181,7 +181,7 @@ if (is_post()) {
                         <h3>Már feltöltött fájlok</h3>
                         <div class="inline-link-list">
                             <?php foreach ($existingFiles as $file): ?>
-                                <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) $file['label']); ?>: <?= h((string) $file['original_name']); ?></a>
+                                <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) $file['label']); ?>: <?= h((string) $file['original_name']); ?> - <?= h(portal_file_uploader_label($file)); ?></a>
                             <?php endforeach; ?>
                         </div>
                     </div>

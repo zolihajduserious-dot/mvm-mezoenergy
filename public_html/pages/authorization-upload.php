@@ -32,7 +32,7 @@ if (is_post()) {
 
     if ($errors === []) {
         try {
-            $messages = handle_connection_request_uploads((int) $request['id'], $_FILES, true);
+            $messages = handle_connection_request_uploads((int) $request['id'], $_FILES, true, 'Nyilvános meghatalmazás feltöltőlink');
 
             if ($messages !== []) {
                 set_flash('error', 'Néhány fájl nem lett mentve: ' . implode(' ', $messages));

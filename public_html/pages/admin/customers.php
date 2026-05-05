@@ -180,7 +180,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
         $events[] = [
             'date' => (string) ($request['created_at'] ?? ''),
             'title' => 'Igény rögzítve',
-            'actor' => $projectName,
+            'actor' => connection_request_submitter_label($request),
             'body' => connection_request_type_label($request['request_type'] ?? null),
             'kind' => 'request',
         ];
@@ -296,6 +296,9 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                     $isSelectedCustomer = $customerId === $selectedCustomerId;
                                     $customerAddress = trim((string) ($customer['postal_code'] ?? '') . ' ' . (string) ($customer['city'] ?? '') . ', ' . (string) ($customer['postal_address'] ?? ''));
                                     $ownerLabel = customer_owner_label($customer);
+                                    $accountLabel = !empty($customer['account_role'])
+                                        ? actor_display_label_from_parts((string) $customer['account_role'], (string) ($customer['account_user_name'] ?? ''), (string) ($customer['account_user_email'] ?? ''))
+                                        : (!empty($customer['user_id']) ? actor_label_for_user_id((int) $customer['user_id'], 'Ismeretlen regisztrált fiók') : '-');
                                     $detailUrl = url_path('/admin/customers') . '?customer=' . $customerId . '#customer-' . $customerId;
                                     $requestCount = count($customerRequests);
                                     $documentCount = 0;
@@ -308,6 +311,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                         $customerAddress,
                                         (string) ($customer['status'] ?? ''),
                                         $ownerLabel,
+                                        $accountLabel,
                                     ]);
 
                                     foreach ($customerRequests as $request) {
@@ -381,6 +385,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                             <div><dt>Telefon</dt><dd><?= h((string) ($customer['phone'] ?: '-')); ?></dd></div>
                                                             <div><dt>Cím</dt><dd><?= h($customerAddress !== '' ? $customerAddress : '-'); ?></dd></div>
                                                             <div><dt>Státusz</dt><dd><?= h((string) ($customer['status'] ?: '-')); ?></dd></div>
+                                                            <div><dt>Regisztrált fiók</dt><dd><?= h($accountLabel); ?></dd></div>
                                                             <div><dt>Munkák</dt><dd><?= $requestCount; ?> db</dd></div>
                                                             <div><dt>Árajánlatok</dt><dd><?= $quoteCount; ?> db</dd></div>
                                                         </dl>
@@ -603,6 +608,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                             <div><span>Mérő</span><strong><?= h((string) ($request['meter_serial'] ?: '-')); ?></strong></div>
                                                                             <div><span>Fogyasztási hely</span><strong><?= h((string) ($request['consumption_place_id'] ?: '-')); ?></strong></div>
                                                                             <div><span>Igényelt teljesítmény</span><strong><?= h((string) ($request['requested_general_power'] ?: '-')); ?></strong></div>
+                                                                            <div><span>Rögzítette</span><strong><?= h(connection_request_submitter_label($request)); ?></strong></div>
                                                                             <div><span>Frissítve</span><strong><?= h(customer_crm_date_label($request['updated_at'] ?? $request['created_at'] ?? null)); ?></strong></div>
                                                                         </div>
 
@@ -644,6 +650,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                 <div class="admin-request-doc-meta">
                                                                                                     <strong><?= h((string) $document['title']); ?></strong>
                                                                                                     <span><?= h((string) $document['original_name']); ?></span>
+                                                                                                    <span>Létrehozó: <?= h(portal_file_uploader_label($document, 'Létrehozó ismeretlen')); ?></span>
                                                                                                     <a href="<?= h($documentUrl); ?>" target="_blank">Megnyitás</a>
                                                                                                 </div>
                                                                                             </article>
@@ -680,6 +687,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                 <div class="admin-request-doc-meta">
                                                                                                     <strong><?= h((string) $file['label']); ?></strong>
                                                                                                     <span><?= h((string) $file['original_name']); ?></span>
+                                                                                                    <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                                                                                 </div>
                                                                                             </article>
@@ -700,6 +708,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                 <div class="admin-request-doc-meta">
                                                                                                     <strong><?= h((string) $workFile['label']); ?></strong>
                                                                                                     <span><?= h((string) $workFile['original_name']); ?></span>
+                                                                                                    <span>Feltöltő: <?= h(portal_file_uploader_label($workFile)); ?></span>
                                                                                                     <a href="<?= h($workFileUrl); ?>" target="_blank">Megnyitás</a>
                                                                                                 </div>
                                                                                             </article>

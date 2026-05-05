@@ -1107,11 +1107,13 @@ function all_customers(): array
         && db_column_exists('connection_requests', 'assigned_electrician_user_id')
     ) {
         $statement = db_query(
-            'SELECT c.*, u.role AS owner_role, u.name AS owner_user_name,
+            'SELECT c.*, u.role AS owner_role, u.name AS owner_user_name, u.email AS owner_user_email,
+                    au.id AS account_user_id, au.role AS account_role, au.name AS account_user_name, au.email AS account_user_email,
                     e.name AS owner_electrician_name, ct.contractor_name AS owner_contractor_name,
                     ae.name AS assigned_electrician_name
              FROM `customers` c
              LEFT JOIN `users` u ON u.id = c.created_by_user_id
+             LEFT JOIN `users` au ON au.id = c.user_id
              LEFT JOIN `electricians` e ON e.user_id = c.created_by_user_id
              LEFT JOIN `contractors` ct ON ct.user_id = c.created_by_user_id
              LEFT JOIN (
@@ -1356,27 +1358,155 @@ function delete_customer_with_related_data(int $customerId): array
     ];
 }
 
+function actor_role_display_label(?string $role): string
+{
+    $role = trim((string) $role);
+    $labels = user_role_labels();
+    $labels['guest'] = 'Nyilvános link / nincs belépve';
+    $labels['specialist'] = 'Adminisztrátor';
+
+    if ($role === '') {
+        return 'Ismeretlen szerepkör';
+    }
+
+    return $labels[$role] ?? $role;
+}
+
+function actor_display_label_from_parts(?string $role, ?string $name = null, ?string $email = null, ?int $userId = null): string
+{
+    $roleLabel = actor_role_display_label($role);
+    $name = trim((string) $name);
+    $email = trim((string) $email);
+    $details = [];
+
+    if ($name !== '') {
+        $details[] = $name;
+    }
+
+    if ($email !== '' && strcasecmp($email, $name) !== 0) {
+        $details[] = $email;
+    }
+
+    if ($details === [] && $userId !== null && $userId > 0) {
+        $details[] = '#' . $userId;
+    }
+
+    return $details !== [] ? $roleLabel . ': ' . implode(' - ', $details) : $roleLabel;
+}
+
+function actor_label_for_user_id(?int $userId, string $fallback = 'Ismeretlen felhasználó'): string
+{
+    if ($userId === null || $userId <= 0) {
+        return $fallback;
+    }
+
+    $user = find_user_by_id($userId);
+
+    if ($user === null) {
+        return $fallback . ' (#' . $userId . ')';
+    }
+
+    $role = (string) ($user['role'] ?? '');
+    $name = trim((string) ($user['name'] ?? ''));
+
+    if ($role === 'electrician') {
+        $electrician = find_electrician_by_user($userId);
+        $name = trim((string) ($electrician['name'] ?? $name));
+    } elseif ($role === 'general_contractor') {
+        $contractor = find_contractor_by_user($userId);
+        $contractorName = trim((string) ($contractor['contractor_name'] ?? ''));
+        $contactName = trim((string) ($contractor['contact_name'] ?? $name));
+        $name = $contractorName !== '' && $contactName !== '' && $contractorName !== $contactName
+            ? $contractorName . ' - ' . $contactName
+            : ($contractorName !== '' ? $contractorName : $contactName);
+    }
+
+    return actor_display_label_from_parts($role, $name, (string) ($user['email'] ?? ''), $userId);
+}
+
+function current_actor_snapshot(?string $sourceLabel = null): array
+{
+    $user = current_user();
+    $role = current_user_role();
+    $name = '';
+    $email = '';
+    $userId = null;
+
+    if (is_array($user)) {
+        $userId = (int) ($user['id'] ?? 0);
+        $name = trim((string) ($user['name'] ?? ''));
+        $email = trim((string) ($user['email'] ?? ''));
+
+        if ($role === 'electrician') {
+            $electrician = find_electrician_by_user($userId);
+            $name = trim((string) ($electrician['name'] ?? $name));
+        } elseif ($role === 'general_contractor') {
+            $contractor = find_contractor_by_user($userId);
+            $contractorName = trim((string) ($contractor['contractor_name'] ?? ''));
+            $contactName = trim((string) ($contractor['contact_name'] ?? $name));
+            $name = $contractorName !== '' && $contactName !== '' && $contractorName !== $contactName
+                ? $contractorName . ' - ' . $contactName
+                : ($contractorName !== '' ? $contractorName : $contactName);
+        }
+    } elseif ($sourceLabel !== null && trim($sourceLabel) !== '') {
+        $name = trim($sourceLabel);
+    }
+
+    return [
+        'user_id' => $userId,
+        'role' => $role,
+        'role_label' => actor_role_display_label($role),
+        'name' => $name,
+        'email' => $email,
+        'source_label' => trim((string) $sourceLabel),
+    ];
+}
+
+function actor_snapshot_label(array $actor): string
+{
+    return actor_display_label_from_parts(
+        (string) ($actor['role'] ?? ''),
+        (string) ($actor['name'] ?? ''),
+        (string) ($actor['email'] ?? ''),
+        isset($actor['user_id']) ? (int) $actor['user_id'] : null
+    );
+}
+
 function customer_owner_label(array $customer): string
 {
     $role = (string) ($customer['owner_role'] ?? '');
+
+    if ($role === 'electrician') {
+        return actor_display_label_from_parts('electrician', (string) ($customer['owner_electrician_name'] ?: $customer['owner_user_name'] ?: ''), (string) ($customer['owner_user_email'] ?? ''));
+    }
+
+    if ($role === 'general_contractor') {
+        return actor_display_label_from_parts('general_contractor', (string) ($customer['owner_contractor_name'] ?: $customer['owner_user_name'] ?: ''), (string) ($customer['owner_user_email'] ?? ''));
+    }
+
+    if ($role === 'admin' || $role === 'specialist' || $role === 'customer') {
+        return actor_display_label_from_parts($role, (string) ($customer['owner_user_name'] ?? ''), (string) ($customer['owner_user_email'] ?? ''));
+    }
+
+    $accountRole = (string) ($customer['account_role'] ?? '');
+
+    if ($accountRole !== '') {
+        return actor_display_label_from_parts($accountRole, (string) ($customer['account_user_name'] ?? ''), (string) ($customer['account_user_email'] ?? ''));
+    }
+
+    if (!empty($customer['created_by_user_id'])) {
+        return actor_label_for_user_id((int) $customer['created_by_user_id'], 'Ismeretlen létrehozó');
+    }
+
+    if (!empty($customer['user_id'])) {
+        return actor_label_for_user_id((int) $customer['user_id'], 'Ismeretlen regisztrált fiók');
+    }
 
     if (!empty($customer['assigned_electrician_name'])) {
         return 'Kiadott szerelő: ' . (string) $customer['assigned_electrician_name'];
     }
 
-    if ($role === 'electrician') {
-        return 'Szerelő: ' . (string) ($customer['owner_electrician_name'] ?: $customer['owner_user_name'] ?: '-');
-    }
-
-    if ($role === 'general_contractor') {
-        return 'Generálkivitelező: ' . (string) ($customer['owner_contractor_name'] ?: $customer['owner_user_name'] ?: '-');
-    }
-
-    if ($role === 'admin' || $role === 'specialist') {
-        return 'Admin: ' . (string) ($customer['owner_user_name'] ?: '-');
-    }
-
-    return 'Saját ügyfél / nincs felelős';
+    return 'Nincs rögzített létrehozó';
 }
 
 function create_customer_account(array $customerData, string $password, ?int $claimCustomerId = null): int
@@ -1415,7 +1545,12 @@ function create_customer_account(array $customerData, string $password, ?int $cl
         );
 
         $userId = (int) db()->lastInsertId();
-        db_query('UPDATE `customers` SET `user_id` = ? WHERE `id` = ?', [$userId, $customerId]);
+        db_query(
+            'UPDATE `customers`
+             SET `user_id` = ?, `created_by_user_id` = COALESCE(`created_by_user_id`, ?)
+             WHERE `id` = ?',
+            [$userId, $userId, $customerId]
+        );
 
         $pdo->commit();
 
@@ -3026,31 +3161,30 @@ function log_admin_notification_email(?int $quoteId, string $subject, string $st
 
 function admin_notification_should_send_for_current_actor(): bool
 {
-    return !in_array(current_user_role(), ['admin', 'specialist'], true);
+    return true;
 }
 
 function admin_notification_actor_rows(?string $sourceLabel = null): array
 {
-    $user = current_user();
-    $roleLabels = [
-        'guest' => 'Nyilvános link / nincs belépve',
-        'customer' => 'Ügyfél',
-        'general_contractor' => 'Generálkivitelező',
-        'electrician' => 'Szerelő',
-        'admin' => 'Admin',
-        'specialist' => 'Specialista',
-    ];
-    $role = current_user_role();
+    $actor = current_actor_snapshot($sourceLabel);
+    $source = trim((string) ($actor['source_label'] ?? ''));
 
     $rows = [
-        ['label' => 'Forrás', 'value' => $sourceLabel ?: ($roleLabels[$role] ?? $role)],
+        ['label' => 'Forrás', 'value' => $source !== '' ? $source : (string) $actor['role_label']],
+        ['label' => 'Szerepkör', 'value' => (string) $actor['role_label']],
         ['label' => 'Időpont', 'value' => date('Y-m-d H:i:s')],
     ];
 
-    if (is_array($user)) {
-        $rows[] = ['label' => 'Felhasználó', 'value' => trim((string) ($user['name'] ?? '')) ?: '-'];
-        $rows[] = ['label' => 'Email', 'value' => trim((string) ($user['email'] ?? '')) ?: '-'];
-        $rows[] = ['label' => 'Felhasználó ID', 'value' => '#' . (int) ($user['id'] ?? 0)];
+    if (trim((string) ($actor['name'] ?? '')) !== '') {
+        $rows[] = ['label' => 'Név', 'value' => (string) $actor['name']];
+    }
+
+    if (trim((string) ($actor['email'] ?? '')) !== '') {
+        $rows[] = ['label' => 'Email', 'value' => (string) $actor['email']];
+    }
+
+    if (!empty($actor['user_id'])) {
+        $rows[] = ['label' => 'Felhasználó ID', 'value' => '#' . (int) $actor['user_id']];
     }
 
     return $rows;
@@ -4488,11 +4622,13 @@ function connection_request_has_photo_file(?int $requestId): bool
     return false;
 }
 
-function handle_connection_request_uploads(int $requestId, array $files, bool $notifyAdmin = true): array
+function handle_connection_request_uploads(int $requestId, array $files, bool $notifyAdmin = true, ?string $sourceLabel = null): array
 {
     $messages = [];
     $savedFiles = [];
     $targetDir = CONNECTION_UPLOAD_PATH . '/' . $requestId;
+    $actor = current_actor_snapshot($sourceLabel);
+    $storeActor = connection_request_file_actor_columns_ready();
     ensure_storage_dir($targetDir);
 
     foreach (connection_request_upload_definitions() as $key => $definition) {
@@ -4549,25 +4685,49 @@ function handle_connection_request_uploads(int $requestId, array $files, bool $n
                 continue;
             }
 
-            db_query(
-                'INSERT INTO `connection_request_files`
-                    (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                    $requestId,
-                    $key,
-                    $definition['label'],
-                    $originalName,
-                    $storedName,
-                    $targetPath,
-                    $mimeType !== '' ? $mimeType : $allowed[$extension],
-                    (int) $file['size'],
-                ]
-            );
+            if ($storeActor) {
+                db_query(
+                    'INSERT INTO `connection_request_files`
+                        (`connection_request_id`, `uploaded_by_user_id`, `uploaded_by_role`, `uploaded_by_name`, `uploaded_by_email`,
+                         `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        $requestId,
+                        $actor['user_id'],
+                        $actor['role'],
+                        trim((string) $actor['name']) !== '' ? $actor['name'] : null,
+                        trim((string) $actor['email']) !== '' ? $actor['email'] : null,
+                        $key,
+                        $definition['label'],
+                        $originalName,
+                        $storedName,
+                        $targetPath,
+                        $mimeType !== '' ? $mimeType : $allowed[$extension],
+                        (int) $file['size'],
+                    ]
+                );
+            } else {
+                db_query(
+                    'INSERT INTO `connection_request_files`
+                        (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        $requestId,
+                        $key,
+                        $definition['label'],
+                        $originalName,
+                        $storedName,
+                        $targetPath,
+                        $mimeType !== '' ? $mimeType : $allowed[$extension],
+                        (int) $file['size'],
+                    ]
+                );
+            }
 
             $savedFiles[] = [
                 'label' => $definition['label'],
                 'original_name' => $originalName,
+                'uploaded_by' => actor_snapshot_label($actor),
             ];
         }
     }
@@ -4728,7 +4888,8 @@ function admin_standalone_connection_request_items(int $limit = 500): array
     }
 
     $limit = max(1, min(1000, $limit));
-    $hasElectricians = db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id');
+    $hasElectricianTable = db_table_exists('electricians');
+    $hasElectricians = $hasElectricianTable && db_column_exists('connection_requests', 'assigned_electrician_user_id');
     $hasMinicrmLinks = minicrm_connection_request_link_schema_errors() === [];
     $electricianSelect = $hasElectricians
         ? ', e.name AS electrician_name, e.phone AS electrician_phone, e.email AS electrician_email'
@@ -4736,6 +4897,8 @@ function admin_standalone_connection_request_items(int $limit = 500): array
     $electricianJoin = $hasElectricians
         ? ' LEFT JOIN `electricians` e ON e.user_id = cr.assigned_electrician_user_id'
         : '';
+    $submittedByElectricianSelect = $hasElectricianTable ? ', se.name AS submitted_by_electrician_name' : ', NULL AS submitted_by_electrician_name';
+    $submittedByElectricianJoin = $hasElectricianTable ? ' LEFT JOIN `electricians` se ON se.user_id = cr.submitted_by_user_id' : '';
     $minicrmSelect = $hasMinicrmLinks ? ', l.work_item_id AS minicrm_work_item_id' : ', NULL AS minicrm_work_item_id';
     $minicrmJoin = $hasMinicrmLinks
         ? ' LEFT JOIN `minicrm_connection_request_links` l ON l.connection_request_id = cr.id'
@@ -4746,12 +4909,18 @@ function admin_standalone_connection_request_items(int $limit = 500): array
         'SELECT cr.*, c.requester_name, c.birth_name, c.company_name, c.tax_number, c.is_legal_entity,
                 c.phone, c.email, c.postal_address, c.postal_code, c.city,
                 c.mother_name, c.birth_place, c.birth_date,
+                su.role AS submitted_by_user_role, su.name AS submitted_by_user_name, su.email AS submitted_by_user_email'
+                . $submittedByElectricianSelect . ',
+                sct.contractor_name AS submitted_by_contractor_name, sct.contact_name AS submitted_by_contractor_contact_name,
                 ct.contractor_name, ct.contact_name AS contractor_contact_name,
                 ct.phone AS contractor_phone, ct.email AS contractor_email,
                 ct.postal_code AS contractor_postal_code, ct.city AS contractor_city, ct.postal_address AS contractor_postal_address'
                 . $electricianSelect . $minicrmSelect . '
          FROM `connection_requests` cr
          INNER JOIN `customers` c ON c.id = cr.customer_id
+         LEFT JOIN `users` su ON su.id = cr.submitted_by_user_id
+         ' . $submittedByElectricianJoin . '
+         LEFT JOIN `contractors` sct ON sct.user_id = cr.submitted_by_user_id
          LEFT JOIN `contractors` ct ON ct.user_id = cr.submitted_by_user_id'
          . $electricianJoin . $minicrmJoin . $where . '
          ORDER BY cr.created_at DESC, cr.id DESC
@@ -4761,10 +4930,28 @@ function admin_standalone_connection_request_items(int $limit = 500): array
 
 function connection_requests_for_customer(int $customerId): array
 {
+    $select = 'SELECT cr.*, su.role AS submitted_by_user_role, su.name AS submitted_by_user_name, su.email AS submitted_by_user_email';
+    $joins = ' FROM `connection_requests` cr
+         LEFT JOIN `users` su ON su.id = cr.submitted_by_user_id';
+
+    if (db_table_exists('electricians')) {
+        $select .= ', se.name AS submitted_by_electrician_name';
+        $joins .= ' LEFT JOIN `electricians` se ON se.user_id = cr.submitted_by_user_id';
+    } else {
+        $select .= ', NULL AS submitted_by_electrician_name';
+    }
+
+    if (db_table_exists('contractors')) {
+        $select .= ', sct.contractor_name AS submitted_by_contractor_name, sct.contact_name AS submitted_by_contractor_contact_name';
+        $joins .= ' LEFT JOIN `contractors` sct ON sct.user_id = cr.submitted_by_user_id';
+    } else {
+        $select .= ', NULL AS submitted_by_contractor_name, NULL AS submitted_by_contractor_contact_name';
+    }
+
     return db_query(
-        'SELECT * FROM `connection_requests`
-         WHERE `customer_id` = ?
-         ORDER BY `created_at` DESC, `id` DESC',
+        $select . $joins . '
+         WHERE cr.`customer_id` = ?
+         ORDER BY cr.`created_at` DESC, cr.`id` DESC',
         [$customerId]
     )->fetchAll();
 }
@@ -4827,6 +5014,92 @@ function connection_request_files(int $requestId): array
         'SELECT * FROM `connection_request_files` WHERE `connection_request_id` = ? ORDER BY `id` ASC',
         [$requestId]
     )->fetchAll();
+}
+
+function connection_request_file_actor_columns_ready(): bool
+{
+    static $ready = null;
+
+    if ($ready === null) {
+        if (!db_table_exists('connection_request_files')) {
+            $ready = false;
+            return $ready;
+        }
+
+        $columns = [
+            'uploaded_by_user_id' => 'ALTER TABLE `connection_request_files` ADD COLUMN `uploaded_by_user_id` INT UNSIGNED NULL AFTER `connection_request_id`',
+            'uploaded_by_role' => 'ALTER TABLE `connection_request_files` ADD COLUMN `uploaded_by_role` VARCHAR(40) NOT NULL DEFAULT \'guest\' AFTER `uploaded_by_user_id`',
+            'uploaded_by_name' => 'ALTER TABLE `connection_request_files` ADD COLUMN `uploaded_by_name` VARCHAR(160) DEFAULT NULL AFTER `uploaded_by_role`',
+            'uploaded_by_email' => 'ALTER TABLE `connection_request_files` ADD COLUMN `uploaded_by_email` VARCHAR(190) DEFAULT NULL AFTER `uploaded_by_name`',
+        ];
+
+        foreach ($columns as $column => $sql) {
+            if (!db_column_exists('connection_request_files', $column)) {
+                try {
+                    db_query($sql);
+                } catch (Throwable) {
+                    $ready = false;
+                    return $ready;
+                }
+            }
+        }
+
+        try {
+            $indexExists = (bool) db_query(
+                'SELECT 1 FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+                [DB_NAME, 'connection_request_files', 'idx_connection_request_files_uploader']
+            )->fetchColumn();
+
+            if (!$indexExists) {
+                db_query('ALTER TABLE `connection_request_files` ADD KEY `idx_connection_request_files_uploader` (`uploaded_by_user_id`, `created_at`)');
+            }
+        } catch (Throwable) {
+            // The actor columns are the important part; the index can be added by the SQL upgrade later.
+        }
+
+        $ready = db_column_exists('connection_request_files', 'uploaded_by_user_id')
+            && db_column_exists('connection_request_files', 'uploaded_by_role')
+            && db_column_exists('connection_request_files', 'uploaded_by_name')
+            && db_column_exists('connection_request_files', 'uploaded_by_email');
+    }
+
+    return $ready;
+}
+
+function connection_request_submitter_label(array $request): string
+{
+    $submittedByUserId = (int) ($request['submitted_by_user_id'] ?? 0);
+
+    if ($submittedByUserId > 0) {
+        if (!empty($request['submitted_by_user_role']) || !empty($request['submitted_by_user_name']) || !empty($request['submitted_by_user_email'])) {
+            $role = (string) ($request['submitted_by_user_role'] ?? '');
+            $name = (string) ($request['submitted_by_user_name'] ?? '');
+
+            if ($role === 'electrician' && !empty($request['submitted_by_electrician_name'])) {
+                $name = (string) $request['submitted_by_electrician_name'];
+            } elseif ($role === 'general_contractor' && !empty($request['submitted_by_contractor_name'])) {
+                $contractorName = (string) $request['submitted_by_contractor_name'];
+                $contactName = trim((string) ($request['submitted_by_contractor_contact_name'] ?? ''));
+                $name = $contactName !== '' && $contactName !== $contractorName
+                    ? $contractorName . ' - ' . $contactName
+                    : $contractorName;
+            }
+
+            return actor_display_label_from_parts($role, $name, (string) ($request['submitted_by_user_email'] ?? ''), $submittedByUserId);
+        }
+
+        return actor_label_for_user_id($submittedByUserId, 'Ismeretlen beküldő');
+    }
+
+    $customerName = trim((string) ($request['requester_name'] ?? ''));
+    $customerEmail = trim((string) ($request['email'] ?? ''));
+
+    if ($customerName !== '' || $customerEmail !== '') {
+        return actor_display_label_from_parts('customer', $customerName, $customerEmail);
+    }
+
+    return 'Nincs rögzített beküldő';
 }
 
 function authorization_signature_token(array $request): string
@@ -5401,19 +5674,37 @@ function connection_request_work_files(int $requestId, ?string $stage = null): a
         return [];
     }
 
+    $select = 'SELECT wf.*, u.role AS uploaded_by_user_role, u.name AS uploaded_by_user_name, u.email AS uploaded_by_user_email';
+    $joins = ' FROM `connection_request_work_files` wf
+         LEFT JOIN `users` u ON u.id = wf.uploaded_by_user_id';
+
+    if (db_table_exists('electricians')) {
+        $select .= ', e.name AS uploaded_by_electrician_name';
+        $joins .= ' LEFT JOIN `electricians` e ON e.user_id = wf.uploaded_by_user_id';
+    } else {
+        $select .= ', NULL AS uploaded_by_electrician_name';
+    }
+
+    if (db_table_exists('contractors')) {
+        $select .= ', ct.contractor_name AS uploaded_by_contractor_name, ct.contact_name AS uploaded_by_contractor_contact_name';
+        $joins .= ' LEFT JOIN `contractors` ct ON ct.user_id = wf.uploaded_by_user_id';
+    } else {
+        $select .= ', NULL AS uploaded_by_contractor_name, NULL AS uploaded_by_contractor_contact_name';
+    }
+
     if ($stage !== null) {
         return db_query(
-            'SELECT * FROM `connection_request_work_files`
-             WHERE `connection_request_id` = ? AND `stage` = ?
-             ORDER BY `created_at` DESC, `id` DESC',
+            $select . $joins . '
+             WHERE wf.`connection_request_id` = ? AND wf.`stage` = ?
+             ORDER BY wf.`created_at` DESC, wf.`id` DESC',
             [$requestId, $stage]
         )->fetchAll();
     }
 
     return db_query(
-        'SELECT * FROM `connection_request_work_files`
-         WHERE `connection_request_id` = ?
-         ORDER BY `stage` ASC, `created_at` DESC, `id` DESC',
+        $select . $joins . '
+         WHERE wf.`connection_request_id` = ?
+         ORDER BY wf.`stage` ASC, wf.`created_at` DESC, wf.`id` DESC',
         [$requestId]
     )->fetchAll();
 }
@@ -5593,6 +5884,68 @@ function portal_file_preview_extension(array $file): string
     return $extension !== '' ? $extension : 'FÁJL';
 }
 
+function portal_file_uploader_label(array $file, string $fallback = 'Feltöltő ismeretlen'): string
+{
+    if (!empty($file['uploaded_by_role']) || !empty($file['uploaded_by_name']) || !empty($file['uploaded_by_email'])) {
+        if (
+            (string) ($file['uploaded_by_role'] ?? '') === 'guest'
+            && trim((string) ($file['uploaded_by_name'] ?? '')) === ''
+            && trim((string) ($file['uploaded_by_email'] ?? '')) === ''
+            && empty($file['uploaded_by_user_id'])
+        ) {
+            return $fallback;
+        }
+
+        return actor_display_label_from_parts(
+            (string) ($file['uploaded_by_role'] ?? ''),
+            (string) ($file['uploaded_by_name'] ?? ''),
+            (string) ($file['uploaded_by_email'] ?? ''),
+            isset($file['uploaded_by_user_id']) ? (int) $file['uploaded_by_user_id'] : null
+        );
+    }
+
+    if (!empty($file['uploaded_by_user_role']) || !empty($file['uploaded_by_user_name']) || !empty($file['uploaded_by_user_email'])) {
+        $role = (string) ($file['uploaded_by_user_role'] ?? '');
+        $name = (string) ($file['uploaded_by_user_name'] ?? '');
+
+        if ($role === 'electrician' && !empty($file['uploaded_by_electrician_name'])) {
+            $name = (string) $file['uploaded_by_electrician_name'];
+        } elseif ($role === 'general_contractor' && !empty($file['uploaded_by_contractor_name'])) {
+            $contractorName = (string) $file['uploaded_by_contractor_name'];
+            $contactName = trim((string) ($file['uploaded_by_contractor_contact_name'] ?? ''));
+            $name = $contactName !== '' && $contactName !== $contractorName
+                ? $contractorName . ' - ' . $contactName
+                : $contractorName;
+        }
+
+        return actor_display_label_from_parts(
+            $role,
+            $name,
+            (string) ($file['uploaded_by_user_email'] ?? ''),
+            isset($file['uploaded_by_user_id']) ? (int) $file['uploaded_by_user_id'] : null
+        );
+    }
+
+    if (!empty($file['created_by_user_role']) || !empty($file['created_by_user_name']) || !empty($file['created_by_user_email'])) {
+        return actor_display_label_from_parts(
+            (string) ($file['created_by_user_role'] ?? ''),
+            (string) ($file['created_by_user_name'] ?? ''),
+            (string) ($file['created_by_user_email'] ?? ''),
+            isset($file['created_by_user_id']) ? (int) $file['created_by_user_id'] : null
+        );
+    }
+
+    if (!empty($file['uploaded_by_user_id'])) {
+        return actor_label_for_user_id((int) $file['uploaded_by_user_id'], $fallback);
+    }
+
+    if (!empty($file['created_by_user_id'])) {
+        return actor_label_for_user_id((int) $file['created_by_user_id'], $fallback);
+    }
+
+    return $fallback;
+}
+
 function find_connection_request_file(int $fileId): ?array
 {
     $statement = db_query('SELECT * FROM `connection_request_files` WHERE `id` = ? LIMIT 1', [$fileId]);
@@ -5653,6 +6006,12 @@ function send_connection_request_file_upload_notification(int $requestId, array 
     $subject = APP_NAME . ' dokumentumfeltöltés - ' . $request['project_name'] . ' - ' . $request['requester_name'];
     $emailTitle = 'Új ügyféldokumentum érkezett';
     $emailLead = 'Új dokumentum vagy fotó került feltöltésre egy mérőhelyi igényhez. Az admin felületen letölthető.';
+    $uploaderLabel = trim((string) ($savedFiles[0]['uploaded_by'] ?? ''));
+
+    if ($uploaderLabel === '') {
+        $uploaderLabel = actor_snapshot_label(current_actor_snapshot());
+    }
+
     $emailSections = [
         [
             'title' => 'Igény adatai',
@@ -5664,9 +6023,16 @@ function send_connection_request_file_upload_notification(int $requestId, array 
             ],
         ],
         [
+            'title' => 'Feltöltő',
+            'rows' => [
+                ['label' => 'Feltöltő', 'value' => $uploaderLabel],
+                ['label' => 'Időpont', 'value' => date('Y-m-d H:i:s')],
+            ],
+        ],
+        [
             'title' => 'Feltöltött fájlok',
             'items' => array_map(
-                static fn (array $file): string => (string) ($file['label'] ?? 'Dokumentum') . ': ' . (string) ($file['original_name'] ?? '-'),
+                static fn (array $file): string => (string) ($file['label'] ?? 'Dokumentum') . ': ' . (string) ($file['original_name'] ?? '-') . ' - ' . (string) ($file['uploaded_by'] ?? ''),
                 $savedFiles
             ),
         ],
@@ -9869,9 +10235,11 @@ function connection_request_documents(int $requestId): array
     }
 
     return db_query(
-        'SELECT * FROM `connection_request_documents`
-         WHERE `connection_request_id` = ?
-         ORDER BY `created_at` DESC, `id` DESC',
+        'SELECT d.*, u.role AS created_by_user_role, u.name AS created_by_user_name, u.email AS created_by_user_email
+         FROM `connection_request_documents` d
+         LEFT JOIN `users` u ON u.id = d.created_by_user_id
+         WHERE d.`connection_request_id` = ?
+         ORDER BY d.`created_at` DESC, d.`id` DESC',
         [$requestId]
     )->fetchAll();
 }

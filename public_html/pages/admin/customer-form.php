@@ -25,7 +25,8 @@ if (is_post()) {
                 update_customer((int) $id, $form);
                 set_flash('success', 'Az ügyfél frissült.');
             } else {
-                create_customer($form, null);
+                $user = current_user();
+                create_customer($form, null, is_array($user) ? (int) $user['id'] : null);
                 set_flash('success', 'Az ügyfél létrejött.');
             }
             redirect('/admin/customers');

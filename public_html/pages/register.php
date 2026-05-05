@@ -65,6 +65,12 @@ if (is_post()) {
                 $password,
                 $registrationQuote !== null ? (int) $registrationQuote['customer_id'] : null
             );
+            $user = find_user_by_id($userId);
+
+            if ($user !== null) {
+                login_user($user);
+            }
+
             send_admin_activity_notification(
                 'Új ügyfél regisztrált',
                 'Új ügyfél hozott létre fiókot a weboldalon. A regisztrációt nem admin indította.',
@@ -87,11 +93,6 @@ if (is_post()) {
                 null,
                 'Ügyfél regisztráció'
             );
-            $user = find_user_by_id($userId);
-
-            if ($user !== null) {
-                login_user($user);
-            }
 
             $redirectPath = '/customer/work-request';
 
