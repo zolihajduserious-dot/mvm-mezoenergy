@@ -590,6 +590,41 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
     </section>
     <?php
 };
+
+$renderElectricianWorkPhotoForm = static function (array $request, string $stage, bool $stageLocked, string $buttonLabel): void {
+    $requestId = (int) $request['id'];
+    ?>
+    <?php if ($stageLocked): ?>
+        <div class="alert alert-info"><p>Az utána fotókat az induló fotók lezárása után lehet feltölteni.</p></div>
+    <?php endif; ?>
+    <form class="form electrician-work-photo-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request') . '?id=' . $requestId); ?>">
+        <?= csrf_field(); ?>
+        <input type="hidden" name="action" value="<?= $stage === 'before' ? 'complete_before' : 'complete_after'; ?>">
+        <div class="file-upload-grid">
+            <?php foreach (electrician_work_file_definitions($stage) as $key => $definition): ?>
+                <?php $hasExisting = connection_request_has_work_file_type($requestId, $stage, (string) $key); ?>
+                <label class="file-upload-item">
+                    <span><?= h((string) $definition['label']); ?> *</span>
+                    <small><?= $hasExisting ? 'Már feltöltve, de új képet is hozzáadhatsz.' : 'Kötelező fotó. Telefonon a kamera megnyílik.'; ?></small>
+                    <input
+                        name="work_file_<?= h($stage); ?>_<?= h((string) $key); ?>[]"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        capture="environment"
+                        <?= !empty($definition['multiple']) ? 'multiple' : ''; ?>
+                        <?= $hasExisting ? '' : 'required'; ?>
+                        <?= $stageLocked ? 'disabled' : ''; ?>
+                    >
+                </label>
+            <?php endforeach; ?>
+        </div>
+        <div class="form-actions">
+            <button class="button" type="submit" <?= $stageLocked ? 'disabled' : ''; ?>><?= h($buttonLabel); ?></button>
+            <button class="button button-secondary" type="button" data-work-dialog-close>Bezárás</button>
+        </div>
+    </form>
+    <?php
+};
 ?>
 <section class="admin-section">
     <div class="container admin-requests-container">
@@ -600,6 +635,11 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
                 <p><?= $request === null ? 'Új ügyfelet és mérőhelyi igényt rögzíthetsz, ami a te neved alatt marad.' : h((string) $displayCustomerName . ' · ' . (string) $request['project_name']); ?></p>
             </div>
             <div class="admin-actions">
+                <?php if ($request !== null): ?>
+                    <?php $topAfterLocked = empty($request['before_photos_completed_at']); ?>
+                    <button class="button" type="button" data-work-dialog-open="before">Megkezdem a kivitelezést</button>
+                    <button class="button button-secondary" type="button" data-work-dialog-open="after" <?= $topAfterLocked ? 'disabled title="Előbb a kivitelezés előtti fotókat kell menteni."' : ''; ?>>Befejezem a kivitelezést</button>
+                <?php endif; ?>
                 <?php if ($request !== null): ?><a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
                 <?php if ($request !== null): ?>
                     <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
@@ -611,6 +651,30 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
                 <a class="button button-secondary" href="<?= h(url_path('/electrician/work-requests')); ?>">Munkáim</a>
             </div>
         </div>
+
+        <?php if ($request !== null): ?>
+            <?php $afterPhotoDialogLocked = empty($request['before_photos_completed_at']); ?>
+            <dialog class="electrician-work-dialog" id="electricianWorkBeforeDialog" data-work-dialog="before" aria-labelledby="electricianWorkBeforeTitle">
+                <div class="electrician-work-dialog-card">
+                    <div>
+                        <p class="eyebrow">Kivitelezés indítása</p>
+                        <h2 id="electricianWorkBeforeTitle">Kivitelezés előtti fotók</h2>
+                        <p>Mentsd el a kötelező induló képeket, mielőtt megkezded a helyszíni munkát.</p>
+                    </div>
+                    <?php $renderElectricianWorkPhotoForm($request, 'before', false, 'Megkezdem a kivitelezést'); ?>
+                </div>
+            </dialog>
+            <dialog class="electrician-work-dialog" id="electricianWorkAfterDialog" data-work-dialog="after" aria-labelledby="electricianWorkAfterTitle">
+                <div class="electrician-work-dialog-card">
+                    <div>
+                        <p class="eyebrow">Kivitelezés lezárása</p>
+                        <h2 id="electricianWorkAfterTitle">Kivitelezés utáni fotók</h2>
+                        <p>Mentsd el a kész munka fotóit és az elkészült beavatkozási lapot, amikor végeztél.</p>
+                    </div>
+                    <?php $renderElectricianWorkPhotoForm($request, 'after', $afterPhotoDialogLocked, 'Befejezem a kivitelezést'); ?>
+                </div>
+            </dialog>
+        <?php endif; ?>
 
         <?php if ($flash !== null): ?>
             <div class="alert alert-<?= h((string) $flash['type']); ?>"><p><?= h((string) $flash['message']); ?></p></div>
@@ -1098,31 +1162,14 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
                         </div>
                     <?php endif; ?>
 
-                    <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
-                        <?= csrf_field(); ?>
-                        <input type="hidden" name="action" value="<?= $stage === 'before' ? 'complete_before' : 'complete_after'; ?>">
-                        <div class="file-upload-grid">
-                            <?php foreach (electrician_work_file_definitions($stage) as $key => $definition): ?>
-                                <?php $hasExisting = connection_request_has_work_file_type((int) $request['id'], $stage, (string) $key); ?>
-                                <label class="file-upload-item">
-                                    <span><?= h((string) $definition['label']); ?> *</span>
-                                    <small><?= $hasExisting ? 'Már feltöltve, de új képet is hozzáadhatsz.' : 'Kötelező fotó. Telefonon a kamera megnyílik.'; ?></small>
-                                    <input
-                                        name="work_file_<?= h($stage); ?>_<?= h((string) $key); ?>[]"
-                                        type="file"
-                                        accept="image/jpeg,image/png,image/webp"
-                                        capture="environment"
-                                        <?= !empty($definition['multiple']) ? 'multiple' : ''; ?>
-                                        <?= $hasExisting ? '' : 'required'; ?>
-                                        <?= $stageLocked ? 'disabled' : ''; ?>
-                                    >
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-                        <div class="form-actions">
-                            <button class="button" type="submit" <?= $stageLocked ? 'disabled' : ''; ?>><?= $stage === 'before' ? 'Induló fotók mentése' : 'Kész munka lezárása'; ?></button>
-                        </div>
-                    </form>
+                    <div class="form-actions">
+                        <button
+                            class="button"
+                            type="button"
+                            data-work-dialog-open="<?= h($stage); ?>"
+                            <?= $stageLocked ? 'disabled title="Előbb az induló fotókat kell lezárni."' : ''; ?>
+                        ><?= $stage === 'before' ? 'Induló fotók feltöltése' : 'Kész munka fotóinak feltöltése'; ?></button>
+                    </div>
                 </section>
             <?php endforeach; ?>
                 </div>
@@ -1154,5 +1201,55 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
 
     select.addEventListener('change', syncHTariffFields);
     syncHTariffFields();
+})();
+
+(() => {
+    const dialogs = new Map();
+
+    document.querySelectorAll('[data-work-dialog]').forEach((dialog) => {
+        dialogs.set(dialog.dataset.workDialog, dialog);
+
+        dialog.addEventListener('click', (event) => {
+            if (event.target === dialog) {
+                if (typeof dialog.close === 'function') {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute('open');
+                }
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-work-dialog-open]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const dialog = dialogs.get(button.dataset.workDialogOpen);
+
+            if (!dialog || button.disabled) {
+                return;
+            }
+
+            if (typeof dialog.showModal === 'function') {
+                dialog.showModal();
+            } else {
+                dialog.setAttribute('open', 'open');
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-work-dialog-close]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const dialog = button.closest('[data-work-dialog]');
+
+            if (!dialog) {
+                return;
+            }
+
+            if (typeof dialog.close === 'function') {
+                dialog.close();
+            } else {
+                dialog.removeAttribute('open');
+            }
+        });
+    });
 })();
 </script>
