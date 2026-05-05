@@ -8176,6 +8176,166 @@ function normalize_mvm_form_data(array $source): array
     return mvm_apply_plan_field_defaults($data);
 }
 
+function connection_request_mvm_source_form_values(array $request, ?array $source = null): array
+{
+    $values = [
+        'requester_name' => (string) ($request['requester_name'] ?? ''),
+        'birth_name' => (string) ($request['birth_name'] ?? ''),
+        'mother_name' => (string) ($request['mother_name'] ?? ''),
+        'birth_place' => (string) ($request['birth_place'] ?? ''),
+        'birth_date' => (string) ($request['birth_date'] ?? ''),
+        'tax_number' => (string) ($request['tax_number'] ?? ''),
+        'project_name' => (string) ($request['project_name'] ?? ''),
+        'request_type' => (string) ($request['request_type'] ?? 'phase_upgrade'),
+        'site_postal_code' => (string) ($request['site_postal_code'] ?? ''),
+        'site_address' => (string) ($request['site_address'] ?? ''),
+        'hrsz' => (string) ($request['hrsz'] ?? ''),
+        'meter_serial' => (string) ($request['meter_serial'] ?? ''),
+        'consumption_place_id' => (string) ($request['consumption_place_id'] ?? ''),
+    ];
+
+    if ($source !== null) {
+        foreach (array_keys($values) as $key) {
+            $sourceKey = 'source_' . $key;
+
+            if (array_key_exists($sourceKey, $source)) {
+                $values[$key] = trim((string) $source[$sourceKey]);
+            }
+        }
+    }
+
+    if (!isset(connection_request_type_options()[$values['request_type']])) {
+        $values['request_type'] = 'phase_upgrade';
+    }
+
+    return $values;
+}
+
+function normalize_connection_request_mvm_source_date(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/^(\d{4})[.\-\/ ]+(\d{1,2})[.\-\/ ]+(\d{1,2})$/', $value, $matches)) {
+        $year = (int) $matches[1];
+        $month = (int) $matches[2];
+        $day = (int) $matches[3];
+    } elseif (preg_match('/^(\d{1,2})[.\-\/ ]+(\d{1,2})[.\-\/ ]+(\d{4})$/', $value, $matches)) {
+        $year = (int) $matches[3];
+        $month = (int) $matches[2];
+        $day = (int) $matches[1];
+    } else {
+        return '';
+    }
+
+    if (!checkdate($month, $day, $year)) {
+        return '';
+    }
+
+    return sprintf('%04d-%02d-%02d', $year, $month, $day);
+}
+
+function save_connection_request_mvm_source_data(int $requestId, array $source): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        throw new RuntimeException('Az adatlap nem található.');
+    }
+
+    $values = connection_request_mvm_source_form_values($request, $source);
+    $birthDateRaw = trim((string) ($source['source_birth_date'] ?? ''));
+    $values['birth_date'] = normalize_connection_request_mvm_source_date($birthDateRaw);
+
+    if ($birthDateRaw !== '' && $values['birth_date'] === '') {
+        throw new RuntimeException('A születési idő formátuma legyen ÉÉÉÉ-HH-NN.');
+    }
+
+    if (trim($values['requester_name']) === '') {
+        throw new RuntimeException('Az ügyfél neve kötelező.');
+    }
+
+    if (trim($values['project_name']) === '') {
+        throw new RuntimeException('A munka megnevezése kötelező.');
+    }
+
+    if (trim($values['site_postal_code']) === '' || trim($values['site_address']) === '') {
+        throw new RuntimeException('A kivitelezési irányítószám és cím kötelező.');
+    }
+
+    $labels = [
+        'requester_name' => 'Ügyfél neve',
+        'birth_name' => 'Születési név',
+        'mother_name' => 'Anyja neve',
+        'birth_place' => 'Születési hely',
+        'birth_date' => 'Születési idő',
+        'tax_number' => 'Adószám',
+        'project_name' => 'Munka megnevezése',
+        'request_type' => 'Munka típusa',
+        'site_postal_code' => 'Kivitelezési irányítószám',
+        'site_address' => 'Kivitelezési cím',
+        'hrsz' => 'HRSZ',
+        'meter_serial' => 'Mérő gyári szám',
+        'consumption_place_id' => 'Fogyasztási hely azonosító',
+    ];
+    $changes = [];
+
+    foreach ($labels as $key => $label) {
+        $old = trim((string) ($request[$key] ?? ''));
+        $new = trim((string) ($values[$key] ?? ''));
+
+        if ($old !== $new) {
+            $changes[] = $label . ': ' . ($old !== '' ? $old : '-') . ' -> ' . ($new !== '' ? $new : '-');
+        }
+    }
+
+    db_query(
+        'UPDATE `customers`
+         SET `requester_name` = ?, `birth_name` = ?, `mother_name` = ?, `birth_place` = ?, `birth_date` = ?, `tax_number` = ?
+         WHERE `id` = ?',
+        [
+            $values['requester_name'],
+            $values['birth_name'] !== '' ? $values['birth_name'] : null,
+            $values['mother_name'] !== '' ? $values['mother_name'] : null,
+            $values['birth_place'] !== '' ? $values['birth_place'] : null,
+            $values['birth_date'] !== '' ? $values['birth_date'] : null,
+            $values['tax_number'] !== '' ? $values['tax_number'] : null,
+            (int) $request['customer_id'],
+        ]
+    );
+
+    db_query(
+        'UPDATE `connection_requests`
+         SET `request_type` = ?, `project_name` = ?, `site_address` = ?, `site_postal_code` = ?,
+             `hrsz` = ?, `meter_serial` = ?, `consumption_place_id` = ?
+         WHERE `id` = ?',
+        [
+            $values['request_type'],
+            $values['project_name'],
+            $values['site_address'],
+            $values['site_postal_code'],
+            $values['hrsz'] !== '' ? $values['hrsz'] : null,
+            $values['meter_serial'] !== '' ? $values['meter_serial'] : null,
+            $values['consumption_place_id'] !== '' ? $values['consumption_place_id'] : null,
+            $requestId,
+        ]
+    );
+
+    if ($changes !== []) {
+        record_connection_request_activity(
+            $requestId,
+            'request_update',
+            'MVM dokumentum adatlapadatai módosítva',
+            implode("\n", array_slice($changes, 0, 12))
+        );
+    }
+
+    return $values;
+}
+
 function connection_request_mvm_form(int $requestId): ?array
 {
     if (!db_table_exists('connection_request_mvm_forms')) {

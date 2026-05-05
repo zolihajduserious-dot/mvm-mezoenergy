@@ -8,15 +8,27 @@ $minicrmItem = null;
 $minicrmLinkResult = null;
 
 if ($minicrmItemId) {
-    $minicrmLinkResult = ensure_minicrm_work_item_connection_request((int) $minicrmItemId);
+    $minicrmItem = find_minicrm_work_item((int) $minicrmItemId);
 
-    if (!($minicrmLinkResult['ok'] ?? false)) {
-        set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka MVM dokumentumhoz kapcsolasa sikertelen.'));
+    if ($minicrmItem === null) {
+        set_flash('error', 'A MiniCRM munka nem található.');
         redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
     }
 
-    $minicrmItem = find_minicrm_work_item((int) $minicrmItemId);
-    $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
+    $linkedRequestId = minicrm_work_item_connection_request_id((int) $minicrmItemId);
+
+    if ($linkedRequestId !== null) {
+        $requestId = $linkedRequestId;
+    } else {
+        $minicrmLinkResult = ensure_minicrm_work_item_connection_request((int) $minicrmItemId);
+
+        if (!($minicrmLinkResult['ok'] ?? false)) {
+            set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka MVM dokumentumhoz kapcsolasa sikertelen.'));
+            redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+        }
+
+        $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
+    }
 } else {
     $requestId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 }
@@ -54,6 +66,7 @@ $title = trim((string) ($_POST['title'] ?? ''));
 $mvmFormValues = $isMvmFormPost
     ? array_merge(mvm_form_default_values($request), normalize_mvm_form_data($_POST))
     : connection_request_mvm_form_values($request);
+$mvmSourceValues = connection_request_mvm_source_form_values($request, $isMvmFormPost ? $_POST : null);
 $templateErrors = mvm_form_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $planTemplateErrors = mvm_plan_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $handoverTemplateErrors = mvm_technical_handover_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
@@ -82,6 +95,8 @@ if (is_post()) {
 
         if ($errors === []) {
             try {
+                save_connection_request_mvm_source_data((int) $request['id'], $_POST);
+                $request = find_connection_request((int) $request['id']) ?? $request;
                 save_connection_request_mvm_form((int) $request['id'], $_POST, $_FILES['sketch_image'] ?? null);
 
                 if ($action === 'generate_mvm_pdf') {
@@ -322,31 +337,77 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">Fővállalkozói sablon</p>
                     <h2>MVM igénybejelentő kitöltése</h2>
-                    <p>Az ügyféladatokat a rendszer tölti, az MVM-hez szükséges plusz mezőket itt adja meg az admin. A kiválasztott fővállalkozói sablonba kerülnek az adatok és a feltöltött skicc kép.</p>
+                    <p>Az ügyfél- és munkaadatok itt javíthatók, az MVM-hez szükséges plusz mezőket pedig ugyanebben az űrlapban adja meg az admin. A kiválasztott fővállalkozói sablonba kerülnek az adatok és a feltöltött skicc kép.</p>
                 </div>
             </div>
 
             <form class="form mvm-docx-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl); ?>">
                 <?= csrf_field(); ?>
 
-                <div class="mvm-docx-auto-data">
+                <section class="mvm-form-section">
                     <div>
-                        <span>Ügyfél</span>
-                        <strong><?= h($request['requester_name']); ?></strong>
+                        <h3>Adatlap adatai</h3>
+                        <p>Ezek az adatok közvetlenül az ügyfélhez és a munkához mentődnek, ezért a generált MVM dokumentumok is a javított értékeket használják.</p>
                     </div>
-                    <div>
-                        <span>Születési adatok</span>
-                        <strong><?= h(trim((string) ($request['birth_place'] ?? '') . ' ' . (string) ($request['birth_date'] ?? '')) ?: '-'); ?></strong>
+                    <div class="mvm-field-grid">
+                        <div class="mvm-input-field">
+                            <label for="source_requester_name">Ügyfél neve</label>
+                            <input id="source_requester_name" name="source_requester_name" value="<?= h($mvmSourceValues['requester_name']); ?>" required>
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_birth_name">Születési név</label>
+                            <input id="source_birth_name" name="source_birth_name" value="<?= h($mvmSourceValues['birth_name']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_mother_name">Anyja neve</label>
+                            <input id="source_mother_name" name="source_mother_name" value="<?= h($mvmSourceValues['mother_name']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_birth_place">Születési hely</label>
+                            <input id="source_birth_place" name="source_birth_place" value="<?= h($mvmSourceValues['birth_place']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_birth_date">Születési idő</label>
+                            <input id="source_birth_date" name="source_birth_date" value="<?= h($mvmSourceValues['birth_date']); ?>" placeholder="ÉÉÉÉ-HH-NN">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_tax_number">Adószám</label>
+                            <input id="source_tax_number" name="source_tax_number" value="<?= h($mvmSourceValues['tax_number']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_project_name">Munka megnevezése</label>
+                            <input id="source_project_name" name="source_project_name" value="<?= h($mvmSourceValues['project_name']); ?>" required>
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_request_type">Munka típusa</label>
+                            <select id="source_request_type" name="source_request_type">
+                                <?php foreach (connection_request_type_options() as $typeKey => $typeLabel): ?>
+                                    <option value="<?= h((string) $typeKey); ?>" <?= (string) $mvmSourceValues['request_type'] === (string) $typeKey ? 'selected' : ''; ?>><?= h($typeLabel); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_site_postal_code">Felhasználási hely irányítószáma</label>
+                            <input id="source_site_postal_code" name="source_site_postal_code" value="<?= h($mvmSourceValues['site_postal_code']); ?>" required>
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_site_address">Felhasználási / kivitelezési cím</label>
+                            <input id="source_site_address" name="source_site_address" value="<?= h($mvmSourceValues['site_address']); ?>" required>
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_hrsz">HRSZ</label>
+                            <input id="source_hrsz" name="source_hrsz" value="<?= h($mvmSourceValues['hrsz']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_consumption_place_id">Fogyasztási hely azonosító</label>
+                            <input id="source_consumption_place_id" name="source_consumption_place_id" value="<?= h($mvmSourceValues['consumption_place_id']); ?>">
+                        </div>
+                        <div class="mvm-input-field">
+                            <label for="source_meter_serial">Mérő gyári szám</label>
+                            <input id="source_meter_serial" name="source_meter_serial" value="<?= h($mvmSourceValues['meter_serial']); ?>">
+                        </div>
                     </div>
-                    <div>
-                        <span>Anyja neve</span>
-                        <strong><?= h($request['mother_name'] ?: '-'); ?></strong>
-                    </div>
-                    <div>
-                        <span>HRSZ</span>
-                        <strong><?= h($request['hrsz'] ?: '-'); ?></strong>
-                    </div>
-                </div>
+                </section>
 
                 <?php
                     $ampereOptions = [0, 10, 16, 20, 25, 32, 35, 40, 50, 63, 80, 100];
