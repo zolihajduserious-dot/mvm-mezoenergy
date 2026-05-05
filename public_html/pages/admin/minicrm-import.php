@@ -97,6 +97,45 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_file') {
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_request') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+    $confirmation = trim((string) ($_POST['delete_confirmation'] ?? ''));
+
+    if (!can_view_super_admin_overview()) {
+        set_flash('error', 'Adatlapot törölni csak szuperadmin jogosultsággal lehet.');
+        redirect('/admin/minicrm-import');
+    }
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó adatlap azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    if ($confirmation !== 'TORLES') {
+        set_flash('error', 'A törléshez írd be pontosan: TORLES.');
+        redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+    }
+
+    try {
+        $deleteSummary = delete_connection_request_with_related_data($requestId);
+        set_flash(
+            'success',
+            'Az adatlap törölve: #' . (int) $deleteSummary['request_id'] . ' - ' . (string) $deleteSummary['request_title']
+                . '. Kapcsolódó adatok: ' . (int) $deleteSummary['quotes'] . ' árajánlat, '
+                . (int) $deleteSummary['surveys'] . ' felmérés, '
+                . (int) $deleteSummary['files'] . ' fájl.'
+        );
+    } catch (Throwable $exception) {
+        set_flash('error', APP_DEBUG ? $exception->getMessage() : 'Az adatlap törlése sikertelen.');
+        redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+    }
+
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import#portal-works');
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'assign_portal_work_electrician') {
     require_valid_csrf_token();
 
@@ -991,6 +1030,22 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                     <p class="request-admin-empty">A munkafolyamat státusza nem olvasható.</p>
                                                 <?php endif; ?>
                                             </section>
+
+                                            <?php if (can_view_super_admin_overview() && is_array($linkedMvmRequest)): ?>
+                                                <section class="minicrm-compact-docs portal-assignment-panel customer-crm-danger">
+                                                    <h3>Szuperadmin törlés</h3>
+                                                    <p class="muted-text">Téves vagy feleslegessé vált adatlap törlése a kapcsolódó ajánlatokkal, fájlokkal, MVM dokumentumokkal, email szálakkal és naplókkal együtt. Az ügyfél törzsadata külön megmarad.</p>
+                                                    <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt az adatlapot és minden kapcsolódó adatát?') && confirm('Második megerősítés: ez nem visszavonható. Folytatod?');">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="delete_portal_work_request">
+                                                        <input type="hidden" name="request_id" value="<?= (int) $linkedMvmRequest['id']; ?>">
+                                                        <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                        <label for="delete_confirmation_minicrm_<?= $itemId; ?>">Megerősítés: TORLES</label>
+                                                        <input id="delete_confirmation_minicrm_<?= $itemId; ?>" name="delete_confirmation" placeholder="TORLES" autocomplete="off" required>
+                                                        <button class="table-action-button table-action-danger" type="submit">Adatlap törlése</button>
+                                                    </form>
+                                                </section>
+                                            <?php endif; ?>
                                         </aside>
 
                                         <div class="minicrm-work-main">
@@ -1584,6 +1639,21 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <p class="request-admin-empty">A munkafolyamat státusza nem olvasható.</p>
                                                                 <?php endif; ?>
                                                             </section>
+
+                                                            <?php if (can_view_super_admin_overview()): ?>
+                                                                <section class="minicrm-compact-docs portal-assignment-panel customer-crm-danger">
+                                                                    <h3>Szuperadmin törlés</h3>
+                                                                    <p class="muted-text">Téves vagy feleslegessé vált adatlap törlése a kapcsolódó ajánlatokkal, fájlokkal, MVM dokumentumokkal, email szálakkal és naplókkal együtt. Az ügyfél törzsadata külön megmarad.</p>
+                                                                    <form class="portal-assignment-form" method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan törlöd ezt az adatlapot és minden kapcsolódó adatát?') && confirm('Második megerősítés: ez nem visszavonható. Folytatod?');">
+                                                                        <?= csrf_field(); ?>
+                                                                        <input type="hidden" name="action" value="delete_portal_work_request">
+                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                        <label for="delete_confirmation_request_<?= $requestId; ?>">Megerősítés: TORLES</label>
+                                                                        <input id="delete_confirmation_request_<?= $requestId; ?>" name="delete_confirmation" placeholder="TORLES" autocomplete="off" required>
+                                                                        <button class="table-action-button table-action-danger" type="submit">Adatlap törlése</button>
+                                                                    </form>
+                                                                </section>
+                                                            <?php endif; ?>
                                                         </aside>
 
                                                         <div class="minicrm-work-main">

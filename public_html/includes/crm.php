@@ -1373,6 +1373,144 @@ function delete_customer_with_related_data(int $customerId): array
     ];
 }
 
+function delete_connection_request_with_related_data(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        throw new RuntimeException('Az adatlap nem található.');
+    }
+
+    $quoteIds = db_table_exists('quotes') && db_column_exists('quotes', 'connection_request_id')
+        ? db_fetch_int_column('SELECT `id` FROM `quotes` WHERE `connection_request_id` = ?', [$requestId])
+        : [];
+    $surveyIds = $quoteIds !== []
+        ? db_fetch_int_column('SELECT `survey_id` FROM `quotes` WHERE `id` IN (' . db_in_placeholders($quoteIds) . ') AND `survey_id` IS NOT NULL', $quoteIds)
+        : [];
+    $filePaths = [];
+
+    if ($quoteIds !== []) {
+        $quotePlaceholders = db_in_placeholders($quoteIds);
+        $quoteRows = db_query('SELECT * FROM `quotes` WHERE `id` IN (' . $quotePlaceholders . ')', $quoteIds)->fetchAll();
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `pdf_path` FROM `quotes` WHERE `id` IN (' . $quotePlaceholders . ') AND `pdf_path` IS NOT NULL', $quoteIds)
+        );
+
+        if (db_table_exists('quote_photos')) {
+            $filePaths = array_merge(
+                $filePaths,
+                collect_string_column('SELECT `storage_path` FROM `quote_photos` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds)
+            );
+        }
+
+        foreach ($quoteRows as $quoteRow) {
+            $filePaths[] = quote_fee_request_pdf_path($quoteRow);
+        }
+    }
+
+    $filePaths = array_merge(
+        $filePaths,
+        collect_string_column('SELECT `storage_path` FROM `connection_request_files` WHERE `connection_request_id` = ?', [$requestId])
+    );
+
+    if (db_table_exists('connection_request_work_files')) {
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `storage_path` FROM `connection_request_work_files` WHERE `connection_request_id` = ?', [$requestId])
+        );
+    }
+
+    if (db_table_exists('connection_request_documents')) {
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `storage_path` FROM `connection_request_documents` WHERE `connection_request_id` = ?', [$requestId])
+        );
+    }
+
+    if (db_table_exists('connection_request_mvm_forms')) {
+        $filePaths = array_merge(
+            $filePaths,
+            collect_string_column('SELECT `sketch_storage_path` FROM `connection_request_mvm_forms` WHERE `connection_request_id` = ? AND `sketch_storage_path` IS NOT NULL', [$requestId])
+        );
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        if ($quoteIds !== []) {
+            $quotePlaceholders = db_in_placeholders($quoteIds);
+
+            if (db_table_exists('email_logs')) {
+                db_query('DELETE FROM `email_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            }
+
+            db_query('DELETE FROM `quote_lines` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+
+            if (db_table_exists('quote_photos')) {
+                db_query('DELETE FROM `quote_photos` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            }
+
+            db_query('DELETE FROM `quotes` WHERE `id` IN (' . $quotePlaceholders . ')', $quoteIds);
+        }
+
+        if ($surveyIds !== []) {
+            db_query('DELETE FROM `surveys` WHERE `id` IN (' . db_in_placeholders($surveyIds) . ')', $surveyIds);
+        }
+
+        if (db_table_exists('mvm_email_messages')) {
+            db_query('DELETE FROM `mvm_email_messages` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('mvm_email_threads')) {
+            db_query('DELETE FROM `mvm_email_threads` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('connection_request_schedule_slots')) {
+            db_query('DELETE FROM `connection_request_schedule_slots` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('connection_request_activity_logs')) {
+            db_query('DELETE FROM `connection_request_activity_logs` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('connection_request_mvm_forms')) {
+            db_query('DELETE FROM `connection_request_mvm_forms` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('connection_request_documents')) {
+            db_query('DELETE FROM `connection_request_documents` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('connection_request_work_files')) {
+            db_query('DELETE FROM `connection_request_work_files` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('minicrm_connection_request_links')) {
+            db_query('DELETE FROM `minicrm_connection_request_links` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        db_query('DELETE FROM `connection_request_files` WHERE `connection_request_id` = ?', [$requestId]);
+        db_query('DELETE FROM `connection_requests` WHERE `id` = ?', [$requestId]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+
+    return [
+        'request_title' => trim((string) ($request['project_name'] ?? '')) ?: ('Adatlap #' . $requestId),
+        'request_id' => $requestId,
+        'quotes' => count($quoteIds),
+        'surveys' => count($surveyIds),
+        'files' => delete_storage_files($filePaths),
+    ];
+}
+
 function actor_role_display_label(?string $role): string
 {
     $role = trim((string) $role);

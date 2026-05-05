@@ -4154,7 +4154,8 @@ a.metric-card {
     text-transform: uppercase;
 }
 
-.portal-assignment-form select {
+.portal-assignment-form select,
+.portal-assignment-form input {
     width: 100%;
     min-height: 42px;
     padding: 8px 10px;
@@ -4164,6 +4165,30 @@ a.metric-card {
     color: var(--color-text);
     font: inherit;
     font-weight: 800;
+}
+
+.customer-crm-danger {
+    border-color: rgba(179, 38, 58, 0.24);
+    background: #fff8f9;
+}
+
+.customer-crm-danger .table-action-danger {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid rgba(179, 38, 58, 0.32);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #8f1f31;
+    font: inherit;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.customer-crm-danger .table-action-danger:hover,
+.customer-crm-danger .table-action-danger:focus {
+    border-color: #b3263a;
+    background: #b3263a;
+    color: #ffffff;
 }
 
 .portal-assignment-form .button {
