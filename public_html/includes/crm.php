@@ -2682,11 +2682,13 @@ function record_quote_customer_response(int $quoteId, string $response, string $
         db_query('UPDATE `quotes` SET ' . implode(', ', $sets) . ' WHERE `id` = ?', $params);
         $notification = notify_admin_quote_response($quoteId, $response, $message);
         $registrationOffer = send_quote_registration_offer($quoteId);
-        $feeRequest = send_quote_fee_request_email($quoteId);
+        $feeRequest = send_quote_fee_request_email($quoteId, '', true);
         $responseMessage = 'Köszönjük, az árajánlat elfogadását rögzítettük.';
 
-        if ($feeRequest['ok']) {
+        if ($feeRequest['ok'] && empty($feeRequest['skipped'])) {
             $responseMessage .= ' Az ügykezelési díjról a díjbekérőt emailben elküldtük. A munka MVM felé történő indítását a díj beérkezése után tudjuk megkezdeni.';
+        } elseif ($feeRequest['ok'] && !empty($feeRequest['skipped'])) {
+            $responseMessage .= ' Az ajánlatban nincs fizetendő ügykezelési díj, ezért díjbekérőt nem küldünk.';
         } else {
             $responseMessage .= ' Az ügykezelési díjbekérő automatikus kiküldése közben technikai hiba történt, kollégáink ellenőrzik és szükség esetén külön jelentkeznek.';
         }
@@ -3995,15 +3997,44 @@ function quote_fee_request_selected_lines(array $lines): array
     return $selectedLines;
 }
 
+function quote_has_zero_fee_request_line(array $lines): bool
+{
+    $itemNames = quote_fee_request_item_names();
+
+    foreach ($lines as $line) {
+        $name = (string) ($line['name'] ?? '');
+
+        if (!in_array($name, $itemNames, true)) {
+            continue;
+        }
+
+        if ((float) ($line['quantity'] ?? 0) <= 0) {
+            continue;
+        }
+
+        if ((float) ($line['line_gross'] ?? 0) <= 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function quote_fee_request_selection(int $quoteId): array
 {
-    $selectedLines = quote_fee_request_selected_lines(quote_lines($quoteId));
+    $lines = quote_lines($quoteId);
+    $selectedLines = quote_fee_request_selected_lines($lines);
 
     if ($selectedLines === []) {
+        $message = quote_has_zero_fee_request_line($lines)
+            ? 'Az ügykezelési díj 0 Ft, ezért nem készül díjbekérő.'
+            : 'Az ajánlatban nincs fizetendő ügykezelési díj tétel, ezért nem készül díjbekérő.';
+
         return [
             'ok' => false,
-            'message' => 'Az ajánlatban nincs kitöltött ügykezelési díj tétel.',
+            'message' => $message,
             'line' => null,
+            'skipped' => true,
         ];
     }
 
@@ -4012,6 +4043,7 @@ function quote_fee_request_selection(int $quoteId): array
             'ok' => false,
             'message' => 'Egyszerre csak az egyik ügykezelési díj tétel lehet kitöltve a díjbekérőhöz.',
             'line' => null,
+            'skipped' => false,
         ];
     }
 
@@ -4019,6 +4051,7 @@ function quote_fee_request_selection(int $quoteId): array
         'ok' => true,
         'message' => 'Díjbekérő tétel kiválasztva.',
         'line' => $selectedLines[0],
+        'skipped' => false,
     ];
 }
 
@@ -4496,7 +4529,7 @@ function szamlazz_create_quote_fee_request(array $quote, array $line): array
     ];
 }
 
-function send_quote_fee_request_email(int $quoteId, string $note = ''): array
+function send_quote_fee_request_email(int $quoteId, string $note = '', bool $allowSkip = false): array
 {
     $quote = find_quote($quoteId);
 
@@ -4526,7 +4559,33 @@ function send_quote_fee_request_email(int $quoteId, string $note = ''): array
     $selection = quote_fee_request_selection($quoteId);
 
     if (!$selection['ok'] || !is_array($selection['line'])) {
+        if ($allowSkip && !empty($selection['skipped'])) {
+            return [
+                'ok' => true,
+                'message' => (string) $selection['message'],
+                'path' => null,
+                'invoice_number' => null,
+                'skipped' => true,
+            ];
+        }
+
         return ['ok' => false, 'message' => (string) $selection['message']];
+    }
+
+    if ((float) ($selection['line']['line_gross'] ?? 0) <= 0) {
+        $message = 'Az ügykezelési díj 0 Ft, ezért nem készül díjbekérő.';
+
+        if ($allowSkip) {
+            return [
+                'ok' => true,
+                'message' => $message,
+                'path' => null,
+                'invoice_number' => null,
+                'skipped' => true,
+            ];
+        }
+
+        return ['ok' => false, 'message' => $message];
     }
 
     $baseNote = 'Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-');
