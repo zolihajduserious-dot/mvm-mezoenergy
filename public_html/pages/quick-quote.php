@@ -117,6 +117,17 @@ function quick_quote_render_connection_request_upload_panel(?int $requestId, arr
     <?php
 }
 
+function quick_quote_customer_operation_message(array $result): string
+{
+    $message = (string) ($result['message'] ?? '');
+
+    if (!($result['ok'] ?? false) && preg_match('/dompdf|phpmailer|composer|vendor|smtp/i', $message)) {
+        return 'A művelet jelenleg nem indítható. Kérlek próbáld újra később, vagy jelezd a weboldal karbantartójának.';
+    }
+
+    return $message;
+}
+
 $user = current_user();
 $quoteId = filter_input(INPUT_GET, 'quote_id', FILTER_VALIDATE_INT);
 $quote = $quoteId ? find_quote($quoteId) : null;
@@ -181,12 +192,7 @@ if (is_post()) {
 
     if ($quote !== null && in_array($action, ['pdf', 'send'], true)) {
         $result = $action === 'send' ? send_quote_email((int) $quote['id']) : generate_quote_pdf((int) $quote['id']);
-        $message = (string) $result['message'];
-
-        if (!$result['ok'] && preg_match('/dompdf|phpmailer|composer|vendor|smtp/i', $message)) {
-            $message = 'A művelet jelenleg nem indítható. Kérlek próbáld újra később, vagy jelezd a weboldal karbantartójának.';
-        }
-
+        $message = quick_quote_customer_operation_message($result);
         set_flash($result['ok'] ? 'success' : 'error', $message);
         redirect('/quick-quote?quote_id=' . (int) $quote['id']);
     }
@@ -303,12 +309,23 @@ if (is_post()) {
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false, 'Gyors árajánlat');
                 $savedQuoteId = save_quote($customerId, $quoteForm, $surveyForm, $lines, null, $savedRequestId);
                 ensure_quote_public_token($savedQuoteId);
+                $mailResult = send_quote_email($savedQuoteId);
+                $mailMessage = quick_quote_customer_operation_message($mailResult);
+                $messages = [];
+
+                if ($mailResult['ok']) {
+                    $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, az ajánlatot emailben elküldtük az ügyfélnek. Az ügyfél a levélből meg tudja nyitni és el tudja fogadni az ajánlatot.';
+                } else {
+                    $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, de az email küldése nem sikerült: ' . $mailMessage . ' Az ajánlat oldalán az Email küldése gombbal újrapróbálható.';
+                }
+
+                if ($uploadMessages !== []) {
+                    $messages[] = 'Néhány fájlt nem sikerült feltölteni: ' . implode(' ', $uploadMessages);
+                }
 
                 set_flash(
-                    $uploadMessages === [] ? 'success' : 'error',
-                    $uploadMessages === []
-                        ? 'A gyors árajánlat és a hozzá tartozó adatlap elkészült. Innen megnyitható, PDF-be menthető vagy emailben kiküldhető.'
-                        : 'A gyors árajánlat és az adatlap elkészült, de néhány fájlt nem sikerült feltölteni: ' . implode(' ', $uploadMessages)
+                    $mailResult['ok'] && $uploadMessages === [] ? 'success' : 'error',
+                    implode(' ', $messages)
                 );
                 redirect('/quick-quote?quote_id=' . $savedQuoteId);
             } catch (Throwable $exception) {
@@ -533,7 +550,7 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                 </section>
 
                 <div class="form-actions">
-                    <button class="button" type="submit">Gyors árajánlat mentése</button>
+                    <button class="button" type="submit">Gyors árajánlat mentése és elküldése</button>
                 </div>
             </form>
         <?php endif; ?>
