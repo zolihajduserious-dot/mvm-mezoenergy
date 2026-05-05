@@ -5012,6 +5012,7 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
         'Adatlap létrehozva',
         trim((string) $data['project_name']) !== '' ? (string) $data['project_name'] : 'Új mérőhelyi igény.'
     );
+    connection_request_assign_submitter_electrician_if_needed($savedRequestId, $submittedByUserId);
 
     return $savedRequestId;
 }
@@ -5235,6 +5236,89 @@ function assign_connection_request_to_electrician(int $requestId, ?int $electric
     );
 }
 
+function connection_request_electrician_assignment_schema_ready(): bool
+{
+    return db_table_exists('electricians')
+        && db_column_exists('connection_requests', 'assigned_electrician_user_id')
+        && db_column_exists('connection_requests', 'electrician_status');
+}
+
+function connection_request_assign_submitter_electrician_if_needed(int $requestId, ?int $submittedByUserId): bool
+{
+    if ($requestId <= 0 || $submittedByUserId === null || $submittedByUserId <= 0) {
+        return false;
+    }
+
+    if (!connection_request_electrician_assignment_schema_ready()) {
+        return false;
+    }
+
+    $electrician = find_electrician_by_user((int) $submittedByUserId);
+
+    if ($electrician === null) {
+        return false;
+    }
+
+    $statement = db_query(
+        'UPDATE `connection_requests`
+         SET `assigned_electrician_user_id` = ?,
+             `electrician_status` = CASE
+                WHEN `electrician_status` IN (?, ?) THEN `electrician_status`
+                ELSE ?
+             END
+         WHERE `id` = ? AND `assigned_electrician_user_id` IS NULL',
+        [(int) $submittedByUserId, 'in_progress', 'completed', 'assigned', $requestId]
+    );
+
+    if ($statement->rowCount() <= 0) {
+        return false;
+    }
+
+    record_connection_request_activity(
+        $requestId,
+        'assignment',
+        'Szerelő automatikusan hozzárendelve',
+        trim((string) ($electrician['name'] ?? $electrician['email'] ?? '')) ?: ('Szerelő #' . (int) $submittedByUserId)
+    );
+
+    return true;
+}
+
+function connection_request_auto_assign_submitted_electrician_items(?int $submittedByUserId = null): int
+{
+    if (!connection_request_electrician_assignment_schema_ready()) {
+        return 0;
+    }
+
+    $params = [];
+    $filter = '';
+
+    if ($submittedByUserId !== null && $submittedByUserId > 0) {
+        $filter = ' AND cr.`submitted_by_user_id` = ?';
+        $params[] = $submittedByUserId;
+    }
+
+    $rows = db_query(
+        'SELECT cr.`id`, cr.`submitted_by_user_id`
+         FROM `connection_requests` cr
+         INNER JOIN `electricians` e ON e.`user_id` = cr.`submitted_by_user_id`
+         WHERE cr.`assigned_electrician_user_id` IS NULL
+           AND cr.`submitted_by_user_id` IS NOT NULL' . $filter . '
+         ORDER BY cr.`id` DESC
+         LIMIT 100',
+        $params
+    )->fetchAll();
+    $updated = 0;
+
+    foreach ($rows as $row) {
+        if (connection_request_assign_submitter_electrician_if_needed((int) $row['id'], (int) $row['submitted_by_user_id'])) {
+            $updated++;
+        }
+    }
+
+    return $updated;
+}
+
 function send_electrician_assignment_email(int $requestId, int $electricianUserId): array
 {
     $request = find_connection_request($requestId);
@@ -5360,6 +5444,8 @@ function update_connection_request_customer_email(int $requestId, string $email)
 
 function all_connection_requests(): array
 {
+    connection_request_auto_assign_submitted_electrician_items();
+
     if (db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
         return db_query(
             'SELECT cr.*, c.requester_name, c.email, c.phone,
@@ -5388,6 +5474,8 @@ function admin_standalone_connection_request_items(int $limit = 500): array
     if (!db_table_exists('connection_requests') || !db_table_exists('customers')) {
         return [];
     }
+
+    connection_request_auto_assign_submitted_electrician_items();
 
     $limit = max(1, min(1000, $limit));
     $hasElectricianTable = db_table_exists('electricians');
@@ -5499,6 +5587,8 @@ function connection_requests_for_electrician(int $electricianUserId): array
     if (!db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
         return [];
     }
+
+    connection_request_auto_assign_submitted_electrician_items($electricianUserId);
 
     return db_query(
         'SELECT cr.*, c.requester_name, c.email, c.phone
