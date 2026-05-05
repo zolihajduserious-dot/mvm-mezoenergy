@@ -141,6 +141,23 @@ if (is_post() && ($_POST['action'] ?? '') === 'close_portal_workflow_stage') {
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'update_portal_work_customer_email') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+    $customerEmail = trim((string) ($_POST['customer_email'] ?? ''));
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó munka azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $result = update_connection_request_customer_email($requestId, $customerEmail);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ügyfél email címének mentése sikertelen.'));
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
     require_valid_csrf_token();
 
@@ -837,13 +854,15 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             }
                             $profileName = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_name', ['Szemely1 Nev', 'Személy1: Név', 'Nev', 'Név']) : '';
                             $profileEmail = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email', 'Ceg Email', 'Cég: Email', 'Email']) : '';
+                            $linkedCustomerEmail = is_array($linkedMvmRequest) ? trim((string) ($linkedMvmRequest['email'] ?? '')) : '';
+                            $displayEmail = $linkedCustomerEmail !== '' ? $linkedCustomerEmail : $profileEmail;
                             $profilePhone = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon', 'Ceg Telefon', 'Cég: Telefon', 'Telefon']) : '';
                             $profileConsent = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_consent', ['Szemely1 Adatkezelesi hozzajarulas', 'Személy1: Adatkezelési hozzájárulás']) : '';
                             $profilePosition = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_position', ['Szemely1 Beosztas', 'Személy1: Beosztás']) : '';
                             $profileWebsite = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_website', ['Szemely1 Weboldal', 'Személy1: Weboldal']) : '';
                             $profileSummary = is_array($customerProfile) ? minicrm_customer_profile_display_value($customerProfile, 'person_summary', ['Szemely1 Osszefoglalo', 'Személy1: Összefoglaló']) : '';
-                            $profileContactLine = trim(implode(' · ', array_filter([$profileEmail, $profilePhone], static fn (string $value): bool => $value !== '')));
-                            $profileHasContact = $profileEmail !== '' || $profilePhone !== '';
+                            $profileContactLine = trim(implode(' · ', array_filter([$displayEmail, $profilePhone], static fn (string $value): bool => $value !== '')));
+                            $profileHasContact = $displayEmail !== '' || $profilePhone !== '';
                             $searchText = implode(' ', [
                                 (string) ($item['card_name'] ?? ''),
                                 (string) ($item['source_id'] ?? ''),
@@ -851,7 +870,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 (string) ($item['minicrm_status'] ?? ''),
                                 $assignedElectricianName,
                                 $profileName,
-                                $profileEmail,
+                                $displayEmail,
                                 $profilePhone,
                                 $siteAddress,
                             ]);
@@ -901,7 +920,23 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         <aside class="minicrm-work-facts">
                                             <dl>
                                                 <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
-                                                <div><dt>Email</dt><dd><?= h($profileEmail !== '' ? $profileEmail : 'Nincs importalt email'); ?></dd></div>
+                                                <div>
+                                                    <dt>Email</dt>
+                                                    <dd>
+                                                        <?php if (is_array($linkedMvmRequest)): ?>
+                                                            <form class="portal-customer-email-form" method="post" action="<?= h($detailUrl); ?>">
+                                                                <?= csrf_field(); ?>
+                                                                <input type="hidden" name="action" value="update_portal_work_customer_email">
+                                                                <input type="hidden" name="request_id" value="<?= (int) $linkedMvmRequest['id']; ?>">
+                                                                <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                                <input name="customer_email" type="email" autocomplete="email" value="<?= h($displayEmail); ?>" placeholder="ugyfel@email.hu" aria-label="Ugyfel alap email cime" required>
+                                                                <button class="button button-secondary" type="submit">Ment&#233;s</button>
+                                                            </form>
+                                                        <?php else: ?>
+                                                            <?= h($displayEmail !== '' ? $displayEmail : 'Nincs importalt email'); ?>
+                                                        <?php endif; ?>
+                                                    </dd>
+                                                </div>
                                                 <div><dt>Telefon</dt><dd><?= h($profilePhone !== '' ? $profilePhone : 'Nincs importalt telefon'); ?></dd></div>
                                                 <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
                                                 <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
@@ -1018,7 +1053,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <label for="minicrm_message_recipient_<?= $itemId; ?>">Címzett</label>
                                                                 <select id="minicrm_message_recipient_<?= $itemId; ?>" name="message_recipient" required>
                                                                     <option value="responsible">Adatlap felelőse<?= !empty($linkedMvmRequest['electrician_name']) ? ' - ' . h((string) $linkedMvmRequest['electrician_name']) : ''; ?></option>
-                                                                    <option value="customer">Ügyfél<?= $profileEmail !== '' ? ' - ' . h($profileEmail) : ''; ?></option>
+                                                                    <option value="customer">Ügyfél<?= $displayEmail !== '' ? ' - ' . h($displayEmail) : ''; ?></option>
                                                                 </select>
                                                             </div>
                                                             <div>
@@ -1029,7 +1064,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <div class="form-grid two compact">
                                                             <div>
                                                                 <label for="minicrm_customer_recipient_email_<?= $itemId; ?>">Ügyfél email címzett</label>
-                                                                <input id="minicrm_customer_recipient_email_<?= $itemId; ?>" name="customer_recipient_email" type="text" inputmode="email" autocomplete="email" value="<?= h($profileEmail !== '' ? $profileEmail : (string) ($linkedMvmRequest['email'] ?? '')); ?>">
+                                                                <input id="minicrm_customer_recipient_email_<?= $itemId; ?>" name="customer_recipient_email" type="email" inputmode="email" autocomplete="email" value="<?= h($displayEmail); ?>">
                                                             </div>
                                                             <div>
                                                                 <label for="minicrm_customer_recipient_name_<?= $itemId; ?>">Ügyfél címzett neve</label>
@@ -1049,7 +1084,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
                                                             <div class="form-grid two compact">
                                                                 <div><label>Küldő neve</label><input name="sender_name" value="<?= h($profileName !== '' ? $profileName : (string) ($item['customer_name'] ?: $item['card_name'] ?: '')); ?>"></div>
-                                                                <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($profileEmail); ?>"></div>
+                                                                <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($displayEmail); ?>"></div>
                                                             </div>
                                                             <label>Tárgy</label><input name="inbound_subject" value="Bejövő ügyfélüzenet">
                                                             <label>Üzenet szövege</label><textarea name="inbound_body" rows="4" required></textarea>
@@ -1127,7 +1162,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                 <?php else: ?>
                                                     <div class="minicrm-readable-grid">
                                                         <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
-                                                        <div class="minicrm-readable-row"><span>Email</span><strong><?= h($profileEmail !== '' ? $profileEmail : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Email</span><strong><?= h($displayEmail !== '' ? $displayEmail : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h($profileConsent !== '' ? $profileConsent : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h($profilePosition !== '' ? $profilePosition : '-'); ?></strong></div>
@@ -1448,7 +1483,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $requestProfile = $customerProfilesByRequest[$requestId] ?? null;
                                         $profileEmail = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
                                         $profilePhone = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
-                                        $displayEmail = $profileEmail !== '' ? $profileEmail : trim((string) ($request['email'] ?? ''));
+                                        $savedCustomerEmail = trim((string) ($request['email'] ?? ''));
+                                        $displayEmail = $savedCustomerEmail !== '' ? $savedCustomerEmail : $profileEmail;
                                         $displayPhone = $profilePhone !== '' ? $profilePhone : trim((string) ($request['phone'] ?? ''));
                                         $requestContactLine = trim(implode(' · ', array_filter([$displayEmail, $displayPhone], static fn (string $value): bool => $value !== '')));
                                         $requestSearchText = implode(' ', [
@@ -1508,7 +1544,18 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <aside class="minicrm-work-facts">
                                                             <dl>
                                                                 <div><dt>&#220;gyf&#233;l</dt><dd><?= h($requestCustomerName); ?></dd></div>
-                                                                <div><dt>Email</dt><dd><?= h($displayEmail !== '' ? $displayEmail : '-'); ?></dd></div>
+                                                                <div>
+                                                                    <dt>Email</dt>
+                                                                    <dd>
+                                                                        <form class="portal-customer-email-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                            <?= csrf_field(); ?>
+                                                                            <input type="hidden" name="action" value="update_portal_work_customer_email">
+                                                                            <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                            <input name="customer_email" type="email" autocomplete="email" value="<?= h($displayEmail); ?>" placeholder="ugyfel@email.hu" aria-label="Ugyfel alap email cime" required>
+                                                                            <button class="button button-secondary" type="submit">Ment&#233;s</button>
+                                                                        </form>
+                                                                    </dd>
+                                                                </div>
                                                                 <div><dt>Telefon</dt><dd><?= h($displayPhone !== '' ? $displayPhone : '-'); ?></dd></div>
                                                                 <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
                                                                 <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
@@ -1598,7 +1645,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <div class="form-grid two compact">
                                                                         <div>
                                                                             <label for="customer_recipient_email_<?= $requestId; ?>">Ügyfél email címzett</label>
-                                                                            <input id="customer_recipient_email_<?= $requestId; ?>" name="customer_recipient_email" type="text" inputmode="email" autocomplete="email" value="<?= h($displayEmail); ?>">
+                                                                            <input id="customer_recipient_email_<?= $requestId; ?>" name="customer_recipient_email" type="email" inputmode="email" autocomplete="email" value="<?= h($displayEmail); ?>">
                                                                         </div>
                                                                         <div>
                                                                             <label for="customer_recipient_name_<?= $requestId; ?>">Ügyfél címzett neve</label>

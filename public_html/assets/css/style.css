@@ -4009,6 +4009,31 @@ a.metric-card {
     overflow-wrap: anywhere;
 }
 
+.portal-customer-email-form {
+    display: grid;
+    gap: 6px;
+}
+
+.portal-customer-email-form input {
+    width: 100%;
+    min-height: 36px;
+    padding: 7px 9px;
+    border: 1px solid rgba(0, 140, 115, 0.22);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.portal-customer-email-form .button {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 0.78rem;
+}
+
 .minicrm-compact-docs {
     padding: 11px 12px;
     border-top: 1px solid rgba(223, 230, 238, 0.8);

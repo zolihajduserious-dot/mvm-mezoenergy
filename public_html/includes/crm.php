@@ -5263,6 +5263,42 @@ function find_connection_request(int $id): ?array
     return is_array($request) ? $request : null;
 }
 
+function update_connection_request_customer_email(int $requestId, string $email): array
+{
+    $request = find_connection_request($requestId);
+    $email = trim($email);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Érvényes ügyfél email címet adj meg.'];
+    }
+
+    $customerId = (int) ($request['customer_id'] ?? 0);
+
+    if ($customerId <= 0) {
+        return ['ok' => false, 'message' => 'Az adatlaphoz nem található ügyfél.'];
+    }
+
+    $previousEmail = trim((string) ($request['email'] ?? ''));
+
+    if (strcasecmp($previousEmail, $email) === 0) {
+        return ['ok' => true, 'message' => 'Az ügyfél alap email címe már ez volt.'];
+    }
+
+    db_query('UPDATE `customers` SET `email` = ? WHERE `id` = ?', [$email, $customerId]);
+    record_connection_request_activity(
+        $requestId,
+        'customer-email',
+        'Ügyfél email címe módosítva',
+        'Régi email: ' . ($previousEmail !== '' ? $previousEmail : '-') . "\nÚj email: " . $email
+    );
+
+    return ['ok' => true, 'message' => 'Az ügyfél alap email címe frissült.'];
+}
+
 function all_connection_requests(): array
 {
     if (db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
