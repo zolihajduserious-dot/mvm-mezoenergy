@@ -179,29 +179,6 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
     redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
-if (is_post() && ($_POST['action'] ?? '') === 'log_portal_work_inbound_message') {
-    require_valid_csrf_token();
-
-    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
-
-    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
-
-    if ($requestId <= 0) {
-        set_flash('error', 'Hiányzó munka azonosító.');
-        redirect('/admin/minicrm-import#portal-works');
-    }
-
-    $result = record_connection_request_manual_inbound_message(
-        $requestId,
-        trim((string) ($_POST['sender_name'] ?? '')),
-        trim((string) ($_POST['sender_email'] ?? '')),
-        trim((string) ($_POST['inbound_subject'] ?? '')),
-        trim((string) ($_POST['inbound_body'] ?? ''))
-    );
-    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A bejövő üzenet rögzítése sikertelen.'));
-    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
-}
-
 if (is_post() && ($_POST['action'] ?? '') === 'sync_portal_work_mailbox') {
     require_valid_csrf_token();
 

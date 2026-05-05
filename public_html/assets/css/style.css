@@ -5415,23 +5415,6 @@ a.metric-card {
     line-height: 1.4;
 }
 
-.portal-message-manual-log {
-    padding: 12px;
-    border: 1px solid rgba(0, 140, 115, 0.16);
-    border-radius: 8px;
-    background: #f8fcfb;
-}
-
-.portal-message-manual-log summary {
-    cursor: pointer;
-    color: var(--color-primary-dark);
-    font-weight: 900;
-}
-
-.portal-message-manual-log .portal-message-form {
-    margin-top: 14px;
-}
-
 .portal-mail-sync-form {
     justify-content: start;
 }
