@@ -867,7 +867,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $linkedWorkflowDefinition = admin_workflow_stage_definitions()[$linkedWorkflowStage] ?? null;
                             $linkedNextWorkflowStage = next_admin_workflow_stage($linkedWorkflowStage);
                             $serviceFeeOptions = service_fee_request_options();
-                            $quoteCreateUrl = url_path('/admin/quotes/create') . '?minicrm_item=' . $itemId;
+                            $quoteCreateUrl = url_path('/quick-quote') . '?minicrm_item=' . $itemId;
                             $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
                             if ($customerProfile === null && $isSelectedItem) {
                                 $customerProfile = minicrm_customer_profile_for_work_item($item);
@@ -1260,8 +1260,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             <?php
                                                             $quoteId = (int) $quote['id'];
                                                             $quoteStatus = (string) ($quote['status'] ?? 'draft');
-                                                            $quoteEditUrl = url_path('/admin/quotes/edit') . '?id=' . $quoteId . '&minicrm_item=' . $itemId;
-                                                            $quoteSendUrl = url_path('/admin/quotes/send') . '?id=' . $quoteId . '&minicrm_item=' . $itemId;
+                                                            $quoteEditUrl = url_path('/quick-quote') . '?quote_id=' . $quoteId;
+                                                            $quoteSendUrl = $quoteEditUrl;
                                                             $quoteFileUrl = quote_file_is_available($quote) ? url_path('/admin/quotes/file') . '?id=' . $quoteId : null;
                                                             $feeRequestSelection = quote_fee_request_selection($quoteId);
                                                             $feeRequestLine = is_array($feeRequestSelection['line'] ?? null) ? $feeRequestSelection['line'] : null;
@@ -1559,7 +1559,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             <?php if ($requestWorkflowDefinition !== null): ?><span class="status-badge status-badge-<?= h((string) ($requestWorkflowDefinition['variant'] ?? 'draft')); ?>"><?= h((string) $requestWorkflowDefinition['title']); ?></span><?php endif; ?>
                                                             <span class="status-badge status-badge-<?= h($requestStatus); ?>"><?= h($requestStatusLabels[$requestStatus] ?? $requestStatus); ?></span>
                                                             <span class="status-badge status-badge-<?= h($electricianStatus); ?>"><?= h($electricianStatusLabels[$electricianStatus] ?? $electricianStatus); ?></span>
-                                                            <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . $requestId); ?>">Aj&#225;nlat</a>
+                                                            <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . $requestId); ?>">Aj&#225;nlat</a>
                                                             <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . $requestId); ?>">MVM dokumentumok</a>
                                                         </div>
                                                     </div>
@@ -1762,7 +1762,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <span><?= count($requestQuotes); ?> aj&#225;nlat</span>
                                                                 </div>
                                                                 <div class="form-actions">
-                                                                    <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $request['customer_id'] . '&request_id=' . $requestId); ?>">&#218;j aj&#225;nlat k&#233;sz&#237;t&#233;se</a>
+                                                                    <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . $requestId); ?>">&#218;j aj&#225;nlat k&#233;sz&#237;t&#233;se</a>
                                                                     <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . $requestId); ?>">Adatok szerkeszt&#233;se</a>
                                                                 </div>
                                                                 <?php if ($requestQuotes === []): ?>
@@ -1784,8 +1784,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                     <strong><?= h(quote_display_total($quote)); ?></strong>
                                                                                 </div>
                                                                                 <div class="inline-link-list">
-                                                                                    <a href="<?= h(url_path('/admin/quotes/edit') . '?id=' . $quoteId . '&request_id=' . $requestId); ?>">Szerkeszt&#233;s</a>
-                                                                                    <a href="<?= h(url_path('/admin/quotes/send') . '?id=' . $quoteId . '&request_id=' . $requestId); ?>">PDF / email</a>
+                                                                                    <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . $quoteId); ?>">Szerkeszt&#233;s</a>
+                                                                                    <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . $quoteId); ?>">PDF / email</a>
                                                                                     <?php if (quote_file_is_available($quote)): ?>
                                                                                         <a href="<?= h(url_path('/admin/quotes/file') . '?id=' . $quoteId); ?>" target="_blank">PDF megnyit&#225;sa</a>
                                                                                     <?php endif; ?>

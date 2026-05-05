@@ -13,6 +13,10 @@ if ($quote === null) {
     redirect('/admin/customers');
 }
 
+if (!is_post()) {
+    redirect('/quick-quote?quote_id=' . (int) $quote['id']);
+}
+
 $result = null;
 $serviceFeeRequestId = $requestIdFromQuery ?: (int) ($quote['connection_request_id'] ?? 0);
 

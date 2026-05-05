@@ -97,7 +97,7 @@ if (is_post()) {
                     <p><?= h(connection_request_status_label((string) ($request['request_status'] ?? 'draft'))); ?><?= !empty($request['created_at']) ? ' · Létrehozva: ' . h((string) $request['created_at']) : ''; ?></p>
                 </div>
                 <div class="inline-link-list">
-                    <a href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . (int) $customer['id'] . '&request_id=' . (int) $request['id']); ?>">Árajánlat készítése</a>
+                    <a href="<?= h(url_path('/quick-quote') . '?request_id=' . (int) $request['id']); ?>">Gyors árajánlat</a>
                     <a href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">MVM dokumentumok</a>
                 </div>
             </section>

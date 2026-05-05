@@ -342,7 +342,7 @@ if (is_post() && $schemaErrors === []) {
                     ],
                     [
                         ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
-                        ['label' => 'Ajánlat szerkesztése', 'url' => absolute_url('/admin/quotes/edit?id=' . $savedQuoteId)],
+                        ['label' => 'Ajánlat megnyitása', 'url' => absolute_url('/quick-quote?quote_id=' . $savedQuoteId)],
                     ],
                     ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
                     $savedQuoteId,
@@ -769,12 +769,8 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                     </div>
                 </section>
 
-                <?php $renderQuoteFields('new_survey', $quoteForm, $quoteSurveyForm); ?>
-
                 <div class="form-actions">
                     <button class="button button-secondary" name="quote_submit" value="survey_only" type="submit">Felmérés mentése</button>
-                    <button class="button" name="quote_submit" value="save_quote" type="submit">Felmérés + árajánlat mentése</button>
-                    <button class="button button-secondary" name="quote_submit" value="send_quote" type="submit">Felmérés + árajánlat elküldése</button>
                 </div>
             </form>
         <?php elseif ($schemaErrors === [] && $request !== null): ?>
@@ -1029,18 +1025,13 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 
                         <?php if ($acceptedQuote === null): ?>
                             <div class="admin-request-section-title admin-request-subtitle">
-                                <h3>Szerelői árajánlat rögzítése</h3>
+                                <h3>Gyors árajánlat</h3>
                                 <span><?= $latestQuote !== null ? 'frissített ajánlat' : 'új ajánlat'; ?></span>
                             </div>
-                            <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
-                                <?= csrf_field(); ?>
-                                <input type="hidden" name="action" value="save_quote">
-                                <?php $renderQuoteFields('existing_quote', $quoteForm, $quoteSurveyForm); ?>
-                                <div class="form-actions">
-                                    <button class="button" name="quote_submit" value="save_quote" type="submit">Árajánlat mentése</button>
-                                    <button class="button button-secondary" name="quote_submit" value="send_quote" type="submit">Árajánlat mentése és elküldése</button>
-                                </div>
-                            </form>
+                            <p class="muted-text">Árajánlatot egységesen a gyors árajánlat felületen lehet készíteni, módosítani és kiküldeni.</p>
+                            <div class="form-actions">
+                                <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . (int) $request['id']); ?>">Gyors árajánlat megnyitása</a>
+                            </div>
                         <?php endif; ?>
                     </section>
 

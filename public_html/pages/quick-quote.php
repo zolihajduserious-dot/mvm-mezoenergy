@@ -21,14 +21,31 @@ function quick_quote_user_can_manage(array $quote): bool
         $request = find_connection_request((int) $quote['connection_request_id']);
 
         if ($request !== null) {
-            return (int) ($request['submitted_by_user_id'] ?? 0) === $userId
-                || (int) ($request['assigned_electrician_user_id'] ?? 0) === $userId;
+            return quick_quote_user_can_manage_request($request);
         }
     }
 
     $customer = find_customer((int) $quote['customer_id']);
 
     return $customer !== null && (int) ($customer['created_by_user_id'] ?? 0) === $userId;
+}
+
+function quick_quote_user_can_manage_request(array $request): bool
+{
+    if (is_staff_user()) {
+        return true;
+    }
+
+    $user = current_user();
+
+    if (!is_array($user)) {
+        return false;
+    }
+
+    $userId = (int) $user['id'];
+
+    return (int) ($request['submitted_by_user_id'] ?? 0) === $userId
+        || (int) ($request['assigned_electrician_user_id'] ?? 0) === $userId;
 }
 
 function quick_quote_request_file_url(array $file): string
@@ -130,6 +147,9 @@ function quick_quote_customer_operation_message(array $result): string
 
 $user = current_user();
 $quoteId = filter_input(INPUT_GET, 'quote_id', FILTER_VALIDATE_INT);
+$requestIdFromQuery = filter_input(INPUT_GET, 'request_id', FILTER_VALIDATE_INT);
+$customerIdFromQuery = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
+$minicrmItemId = filter_input(INPUT_GET, 'minicrm_item', FILTER_VALIDATE_INT);
 $quote = $quoteId ? find_quote($quoteId) : null;
 
 if ($quoteId && ($quote === null || !quick_quote_user_can_manage($quote))) {
@@ -138,7 +158,42 @@ if ($quoteId && ($quote === null || !quick_quote_user_can_manage($quote))) {
 }
 
 $requestId = $quote !== null && !empty($quote['connection_request_id']) ? (int) $quote['connection_request_id'] : null;
+
+if ($quote === null && $minicrmItemId) {
+    $minicrmLinkResult = ensure_minicrm_work_item_connection_request((int) $minicrmItemId);
+
+    if (!($minicrmLinkResult['ok'] ?? false)) {
+        set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka árajánlathoz kapcsolása sikertelen.'));
+        redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+    }
+
+    $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
+} elseif ($quote === null && $requestIdFromQuery) {
+    $requestId = (int) $requestIdFromQuery;
+}
+
 $request = $requestId ? find_connection_request($requestId) : null;
+
+if ($quote === null && $requestId && ($request === null || !quick_quote_user_can_manage_request($request))) {
+    set_flash('error', 'Az adatlap nem található, vagy nincs jogosultságod árajánlatot készíteni hozzá.');
+    redirect('/quick-quote');
+}
+
+$customer = null;
+
+if ($quote !== null) {
+    $customer = find_customer((int) $quote['customer_id']);
+} elseif ($request !== null) {
+    $customer = find_customer((int) $request['customer_id']);
+} elseif ($customerIdFromQuery) {
+    $customer = find_customer((int) $customerIdFromQuery);
+
+    if ($customer === null || (!is_staff_user() && (int) ($customer['created_by_user_id'] ?? 0) !== (int) ($user['id'] ?? 0))) {
+        set_flash('error', 'Az ügyfél nem található, vagy nincs jogosultságod árajánlatot készíteni hozzá.');
+        redirect('/quick-quote');
+    }
+}
+
 $existingFiles = $requestId ? connection_request_files($requestId) : [];
 
 $priceItems = active_price_items();
@@ -186,6 +241,67 @@ $surveyForm = normalize_survey_data([
 $selectedQuantities = [];
 $customRows = array_fill(0, 3, []);
 
+if ($quote !== null) {
+    $form = [
+        'requester_name' => (string) ($quote['requester_name'] ?? ''),
+        'email' => (string) ($quote['email'] ?? ''),
+        'phone' => (string) ($quote['phone'] ?? ''),
+        'subject' => (string) ($quote['subject'] ?? (APP_NAME . ' árajánlat')),
+        'customer_message' => (string) ($quote['customer_message'] ?? ''),
+    ];
+    $survey = quote_survey(isset($quote['survey_id']) ? (int) $quote['survey_id'] : null);
+    $surveyForm = normalize_survey_data($survey ?? ($request !== null ? connection_request_quote_survey_seed($request) : []));
+} elseif ($request !== null) {
+    $form = [
+        'requester_name' => (string) ($request['requester_name'] ?? ''),
+        'email' => (string) ($request['email'] ?? ''),
+        'phone' => (string) ($request['phone'] ?? ''),
+        'subject' => APP_NAME . ' árajánlat' . (!empty($request['project_name']) ? ' - ' . (string) $request['project_name'] : ''),
+        'customer_message' => '',
+    ];
+    $requestForm = normalize_connection_request_data($request);
+    $surveyForm = normalize_survey_data(connection_request_quote_survey_seed($request));
+} elseif ($customer !== null) {
+    $form = [
+        'requester_name' => (string) ($customer['requester_name'] ?? ''),
+        'email' => (string) ($customer['email'] ?? ''),
+        'phone' => (string) ($customer['phone'] ?? ''),
+        'subject' => APP_NAME . ' árajánlat',
+        'customer_message' => '',
+    ];
+    $requestForm['site_address'] = (string) ($customer['postal_address'] ?? '');
+    $requestForm['site_postal_code'] = (string) ($customer['postal_code'] ?? '');
+    $surveyForm = normalize_survey_data([
+        'site_address' => trim((string) ($customer['postal_code'] ?? '') . ' ' . (string) ($customer['city'] ?? '') . ' ' . (string) ($customer['postal_address'] ?? '')),
+    ]);
+}
+
+$existingLines = $quote !== null ? quote_lines((int) $quote['id']) : [];
+$activePriceItemIds = [];
+
+foreach ($priceItems as $item) {
+    $activePriceItemIds[(int) $item['id']] = true;
+}
+
+if ($quote !== null) {
+    $customRows = [];
+}
+
+foreach ($existingLines as $line) {
+    $priceItemId = isset($line['price_item_id']) ? (int) $line['price_item_id'] : 0;
+
+    if ($priceItemId > 0 && isset($activePriceItemIds[$priceItemId])) {
+        $selectedQuantities[$priceItemId] = quote_quantity_value((string) (int) round((float) $line['quantity']));
+        continue;
+    }
+
+    $customRows[] = $line;
+}
+
+if ($customRows === []) {
+    $customRows = array_fill(0, 3, []);
+}
+
 if (is_post()) {
     require_valid_csrf_token();
     $action = (string) ($_POST['quick_action'] ?? 'save_quote');
@@ -195,6 +311,120 @@ if (is_post()) {
         $message = quick_quote_customer_operation_message($result);
         set_flash($result['ok'] ? 'success' : 'error', $message);
         redirect('/quick-quote?quote_id=' . (int) $quote['id']);
+    }
+
+    if ($quote !== null && $action === 'fee_request') {
+        $result = send_quote_fee_request_email((int) $quote['id']);
+        $message = quick_quote_customer_operation_message($result);
+        set_flash($result['ok'] ? 'success' : 'error', $message);
+        redirect('/quick-quote?quote_id=' . (int) $quote['id']);
+    }
+
+    if ($quote !== null && $action === 'save_quote') {
+        $form = [
+            'requester_name' => trim((string) ($_POST['requester_name'] ?? '')),
+            'email' => trim((string) ($_POST['email'] ?? '')),
+            'phone' => trim((string) ($_POST['phone'] ?? '')),
+            'subject' => trim((string) ($_POST['subject'] ?? '')),
+            'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+        ];
+        $requestForm = normalize_connection_request_data($_POST);
+        $surveyForm = normalize_survey_data([
+            'site_address' => trim((string) $requestForm['site_postal_code'] . ' ' . (string) $requestForm['site_address']),
+            'work_type' => connection_request_type_label($requestForm['request_type']),
+            'hrsz' => $requestForm['hrsz'],
+            'meter_serial' => $requestForm['meter_serial'],
+            'current_ampere' => $requestForm['existing_general_power'],
+            'requested_ampere' => $requestForm['requested_general_power'],
+            'survey_notes' => $requestForm['notes'],
+            'has_h_tariff' => $requestForm['request_type'] === 'h_tariff' ? 1 : 0,
+        ]);
+        $lines = collect_quote_lines($_POST);
+        $shouldSendQuote = (string) ($_POST['quote_submit'] ?? 'save') === 'send';
+
+        if ($form['requester_name'] === '') {
+            $errors[] = 'A név megadása kötelező.';
+        }
+
+        if (!filter_var($form['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Érvényes email cím megadása kötelező.';
+        }
+
+        if ($form['phone'] === '') {
+            $errors[] = 'A telefonszám megadása kötelező.';
+        }
+
+        if ($requestForm['site_address'] === '') {
+            $errors[] = 'A cím megadása kötelező.';
+        }
+
+        if ($form['subject'] === '') {
+            $errors[] = 'Az ajánlat tárgya kötelező.';
+        }
+
+        if ($lines === []) {
+            $errors[] = 'Legalább egy ajánlati tételt adj meg.';
+        }
+
+        if ($errors === []) {
+            try {
+                if ($customer !== null) {
+                    $billingAddress = quote_billing_address_parts(
+                        (string) $requestForm['site_postal_code'],
+                        (string) $requestForm['site_address'],
+                        (string) ($customer['city'] ?? '')
+                    );
+                    $customerForm = normalize_customer_data($customer);
+                    $customerForm['requester_name'] = $form['requester_name'];
+                    $customerForm['email'] = $form['email'];
+                    $customerForm['phone'] = $form['phone'];
+                    $customerForm['postal_code'] = (string) $billingAddress['postal_code'];
+                    $customerForm['city'] = (string) $billingAddress['city'];
+                    $customerForm['postal_address'] = (string) $billingAddress['postal_address'];
+                    update_customer((int) $customer['id'], $customerForm);
+                }
+
+                $savedQuoteId = save_quote((int) $quote['customer_id'], $form, $surveyForm, $lines, (int) $quote['id'], $requestId);
+                $messages = ['Az árajánlat frissült.'];
+                $flashType = 'success';
+
+                if ($shouldSendQuote) {
+                    $mailResult = send_quote_email($savedQuoteId);
+                    $flashType = ($mailResult['ok'] ?? false) ? $flashType : 'error';
+                    $messages[] = quick_quote_customer_operation_message($mailResult);
+                }
+
+                set_flash($flashType, implode(' ', $messages));
+                redirect('/quick-quote?quote_id=' . $savedQuoteId);
+            } catch (Throwable $exception) {
+                $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az árajánlat mentése sikertelen.';
+            }
+        }
+
+        $postedQuantities = $_POST['price_item_quantity'] ?? [];
+
+        foreach ($priceItems as $item) {
+            $selectedQuantities[(int) $item['id']] = quote_quantity_value($postedQuantities[$item['id']] ?? 0);
+        }
+
+        $customRows = [];
+        $customNames = $_POST['custom_name'] ?? [];
+        $customCategories = $_POST['custom_category'] ?? [];
+        $customUnits = $_POST['custom_unit'] ?? [];
+        $customQuantities = $_POST['custom_quantity'] ?? [];
+        $customPrices = $_POST['custom_unit_price'] ?? [];
+        $rowCount = max(count((array) $customNames), 3);
+
+        for ($index = 0; $index < $rowCount; $index++) {
+            $customRows[] = [
+                'category' => quote_normalize_category(trim((string) ($customCategories[$index] ?? ''))),
+                'name' => trim((string) ($customNames[$index] ?? '')),
+                'unit' => trim((string) ($customUnits[$index] ?? 'db')) ?: 'db',
+                'quantity' => quote_quantity_value($customQuantities[$index] ?? 0),
+                'unit_price' => trim((string) ($customPrices[$index] ?? '')),
+                'vat_rate' => 27,
+            ];
+        }
     }
 
     if ($quote !== null && $action === 'upload_request_files') {
@@ -272,9 +502,14 @@ if (is_post()) {
             $errors[] = 'Legalább egy ajánlati tételt adj meg.';
         }
 
-        $errors = array_merge($errors, validate_connection_request_data($requestForm, $_FILES, false, null));
+        $errors = array_merge($errors, validate_connection_request_data($requestForm, $_FILES, false, $requestId));
 
         if ($errors === []) {
+            $billingAddress = quote_billing_address_parts(
+                (string) $requestForm['site_postal_code'],
+                (string) $requestForm['site_address'],
+                $customer !== null ? (string) ($customer['city'] ?? '') : ''
+            );
             $customerForm = [
                 'is_legal_entity' => 0,
                 'requester_name' => $form['requester_name'],
@@ -283,9 +518,9 @@ if (is_post()) {
                 'tax_number' => '',
                 'phone' => $form['phone'],
                 'email' => $form['email'],
-                'postal_address' => $requestForm['site_address'],
-                'postal_code' => $requestForm['site_postal_code'],
-                'city' => '',
+                'postal_address' => (string) $billingAddress['postal_address'],
+                'postal_code' => (string) $billingAddress['postal_code'],
+                'city' => (string) $billingAddress['city'],
                 'mailing_address' => '',
                 'mother_name' => '',
                 'birth_place' => '',
@@ -304,8 +539,24 @@ if (is_post()) {
             ];
 
             try {
-                $customerId = create_customer($customerForm, null, is_array($user) ? (int) $user['id'] : null);
-                $savedRequestId = save_connection_request($customerId, $requestForm, null, is_array($user) ? (int) $user['id'] : null);
+                if ($customer !== null) {
+                    $existingCustomerForm = normalize_customer_data($customer);
+                    $existingCustomerForm['requester_name'] = $customerForm['requester_name'];
+                    $existingCustomerForm['phone'] = $customerForm['phone'];
+                    $existingCustomerForm['email'] = $customerForm['email'];
+                    $existingCustomerForm['postal_address'] = $customerForm['postal_address'];
+                    $existingCustomerForm['postal_code'] = $customerForm['postal_code'];
+                    $existingCustomerForm['city'] = $customerForm['city'];
+                    $customerForm = $existingCustomerForm;
+                    $customerId = (int) $customer['id'];
+                    update_customer($customerId, $customerForm);
+                } else {
+                    $customerId = create_customer($customerForm, null, is_array($user) ? (int) $user['id'] : null);
+                }
+
+                $savedRequestId = $request !== null
+                    ? (int) $request['id']
+                    : save_connection_request($customerId, $requestForm, null, is_array($user) ? (int) $user['id'] : null);
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false, 'Gyors árajánlat');
                 $savedQuoteId = save_quote($customerId, $quoteForm, $surveyForm, $lines, null, $savedRequestId);
                 ensure_quote_public_token($savedQuoteId);
@@ -363,6 +614,29 @@ if (is_post()) {
 $requestContextUrl = quick_quote_request_context_url($request);
 $quoteLines = $quote !== null ? quote_lines((int) $quote['id']) : [];
 $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
+$feeRequestSelection = $quote !== null ? quote_fee_request_selection((int) $quote['id']) : null;
+$feeRequestFileUrl = $quote !== null && quote_fee_request_file_is_available($quote)
+    ? url_path('/admin/quotes/fee-request-file') . '?id=' . (int) $quote['id']
+    : null;
+$quickQuoteCreateAction = url_path('/quick-quote');
+
+if ($quote === null) {
+    $query = [];
+
+    if ($request !== null) {
+        $query['request_id'] = (int) $request['id'];
+    } elseif ($customer !== null) {
+        $query['customer_id'] = (int) $customer['id'];
+    }
+
+    if ($minicrmItemId) {
+        $query['minicrm_item'] = (int) $minicrmItemId;
+    }
+
+    if ($query !== []) {
+        $quickQuoteCreateAction .= '?' . http_build_query($query);
+    }
+}
 ?>
 <section class="admin-section">
     <div class="container">
@@ -409,7 +683,21 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                         <?= csrf_field(); ?>
                         <button class="button button-secondary" name="quick_action" value="send" type="submit">Email küldése</button>
                     </form>
+                    <?php if ((string) ($quote['status'] ?? '') === 'accepted'): ?>
+                        <?php if ($feeRequestFileUrl !== null): ?>
+                            <a class="button button-secondary" href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a>
+                        <?php else: ?>
+                            <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="button button-secondary" name="quick_action" value="fee_request" type="submit" <?= !($feeRequestSelection['ok'] ?? false) ? 'disabled' : ''; ?>>Díjbekérő küldése</button>
+                            </form>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
+
+                <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestSelection !== null && !($feeRequestSelection['ok'] ?? false)): ?>
+                    <div class="alert alert-info"><p><?= h((string) ($feeRequestSelection['message'] ?? 'Ehhez az árajánlathoz nem készül díjbekérő.')); ?></p></div>
+                <?php endif; ?>
 
                 <?php if ($quoteLines !== []): ?>
                     <div class="table-wrap">
@@ -430,6 +718,106 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                 <?php endif; ?>
             </section>
 
+            <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
+                <?= csrf_field(); ?>
+                <input type="hidden" name="quick_action" value="save_quote">
+
+                <div class="form-grid two">
+                    <section class="auth-panel">
+                        <h2>Ügyfél és ajánlat</h2>
+                        <label for="requester_name">Név</label>
+                        <input id="requester_name" name="requester_name" value="<?= h($form['requester_name']); ?>" required>
+
+                        <label for="email">Email cím</label>
+                        <input id="email" name="email" type="email" value="<?= h($form['email']); ?>" required>
+
+                        <label for="phone">Telefonszám</label>
+                        <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
+
+                        <label for="subject">Tárgy</label>
+                        <input id="subject" name="subject" value="<?= h($form['subject']); ?>" required>
+
+                        <label for="customer_message">Üzenet az ügyfélnek</label>
+                        <textarea id="customer_message" name="customer_message" rows="4"><?= h($form['customer_message']); ?></textarea>
+                    </section>
+
+                    <section class="auth-panel">
+                        <h2>Adatlap adatai</h2>
+                        <label for="request_type">Munka típusa</label>
+                        <select id="request_type" name="request_type" data-request-type-select required>
+                            <?php foreach (connection_request_type_options() as $type => $label): ?>
+                                <option value="<?= h($type); ?>" <?= $requestForm['request_type'] === $type ? 'selected' : ''; ?>><?= h($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <label>Igény megnevezése</label><input name="project_name" value="<?= h($requestForm['project_name']); ?>">
+                        <label>Kivitelezés címe</label><input name="site_address" value="<?= h($requestForm['site_address']); ?>" placeholder="Település, utca, házszám" required>
+                        <label>Kivitelezés irányítószáma</label><input name="site_postal_code" value="<?= h($requestForm['site_postal_code']); ?>">
+                        <div class="form-grid two compact">
+                            <div><label>Helyrajzi szám</label><input name="hrsz" value="<?= h($requestForm['hrsz']); ?>"></div>
+                            <div><label>Saját mérő gyári száma</label><input name="meter_serial" value="<?= h($requestForm['meter_serial']); ?>"></div>
+                            <div><label>Meglévő teljesítmény</label><input name="existing_general_power" value="<?= h($requestForm['existing_general_power']); ?>"></div>
+                            <div><label>Igényelt teljesítmény</label><input name="requested_general_power" value="<?= h($requestForm['requested_general_power']); ?>"></div>
+                            <div><label>Meglévő H tarifa</label><input name="existing_h_tariff_power" value="<?= h($requestForm['existing_h_tariff_power']); ?>"></div>
+                            <div><label>Igényelt H tarifa</label><input name="requested_h_tariff_power" value="<?= h($requestForm['requested_h_tariff_power']); ?>"></div>
+                            <div><label>Meglévő vezérelt</label><input name="existing_controlled_power" value="<?= h($requestForm['existing_controlled_power']); ?>"></div>
+                            <div><label>Igényelt vezérelt</label><input name="requested_controlled_power" value="<?= h($requestForm['requested_controlled_power']); ?>"></div>
+                        </div>
+                        <label>Megjegyzés az adatlaphoz</label>
+                        <textarea name="notes" rows="3"><?= h($requestForm['notes']); ?></textarea>
+                    </section>
+                </div>
+
+                <?php foreach ($quoteSections as $category => $section): ?>
+                    <section class="auth-panel form-block quote-section-panel">
+                        <h2><?= h((string) $section['title']); ?></h2>
+                        <div class="quote-item-grid quote-item-head"><span>Tétel</span><span>Mennyiség</span></div>
+                        <?php foreach ($priceItemsBySection[$category] as $item): ?>
+                            <?php $selectedQuantity = $selectedQuantities[(int) $item['id']] ?? 0; ?>
+                            <div class="quote-item-grid">
+                                <div>
+                                    <strong><?= h((string) $item['name']); ?></strong>
+                                    <span><?= h(format_money((float) $item['unit_price'])); ?> bruttó / <?= h((string) $item['unit']); ?></span>
+                                </div>
+                                <select name="price_item_quantity[<?= (int) $item['id']; ?>]">
+                                    <?php foreach ($quantityOptions as $option): ?>
+                                        <option value="<?= (int) $option; ?>" <?= (int) $option === (int) $selectedQuantity ? 'selected' : ''; ?>><?= (int) $option; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        <?php endforeach; ?>
+                    </section>
+                <?php endforeach; ?>
+
+                <section class="auth-panel form-block">
+                    <h2>Egyedi tételek</h2>
+                    <?php foreach ($customRows as $line): ?>
+                        <div class="form-grid five compact custom-line">
+                            <?php $selectedCategory = quote_normalize_category((string) ($line['category'] ?? '')); ?>
+                            <select name="custom_category[]" aria-label="Kategória">
+                                <?php foreach ($quoteSections as $category => $section): ?>
+                                    <option value="<?= h($category); ?>" <?= $selectedCategory === $category ? 'selected' : ''; ?>><?= h($category); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <input name="custom_name[]" placeholder="Megnevezés" value="<?= h($line['name'] ?? ''); ?>">
+                            <input name="custom_unit[]" placeholder="Egység" value="<?= h($line['unit'] ?? 'db'); ?>">
+                            <?php $customQuantity = isset($line['quantity']) ? quote_quantity_value((string) (int) round((float) $line['quantity'])) : 0; ?>
+                            <select name="custom_quantity[]" aria-label="Mennyiség">
+                                <?php foreach ($quantityOptions as $option): ?>
+                                    <option value="<?= (int) $option; ?>" <?= (int) $option === (int) $customQuantity ? 'selected' : ''; ?>><?= (int) $option; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <input name="custom_unit_price[]" type="number" step="1" min="0" placeholder="Bruttó egységár" value="<?= h($line['unit_price'] ?? ''); ?>">
+                            <input name="custom_vat_rate[]" type="hidden" value="<?= h($line['vat_rate'] ?? '27'); ?>">
+                        </div>
+                    <?php endforeach; ?>
+                </section>
+
+                <div class="form-actions">
+                    <button class="button" name="quote_submit" value="save" type="submit">Árajánlat mentése</button>
+                    <button class="button button-secondary" name="quote_submit" value="send" type="submit">Mentés és email küldése</button>
+                </div>
+            </form>
+
             <?php if ($request !== null): ?>
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
                     <?= csrf_field(); ?>
@@ -441,7 +829,7 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                 </form>
             <?php endif; ?>
         <?php else: ?>
-            <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote')); ?>">
+            <form class="form" method="post" enctype="multipart/form-data" action="<?= h($quickQuoteCreateAction); ?>">
                 <?= csrf_field(); ?>
                 <input type="hidden" name="quick_action" value="save_quote">
 
@@ -480,7 +868,7 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                             </select>
                         </div>
                         <div><label>Igény megnevezése</label><input name="project_name" value="<?= h($requestForm['project_name']); ?>" placeholder="Példa: Szeged, Petőfi utca 12. - mérőhely szabványosítás"></div>
-                        <div><label>Kivitelezés címe</label><input name="site_address" value="<?= h($requestForm['site_address']); ?>" required></div>
+                        <div><label>Kivitelezés címe</label><input name="site_address" value="<?= h($requestForm['site_address']); ?>" placeholder="Település, utca, házszám" required></div>
                         <div><label>Kivitelezés irányítószáma</label><input name="site_postal_code" value="<?= h($requestForm['site_postal_code']); ?>"></div>
                         <div><label>Helyrajzi szám</label><input name="hrsz" value="<?= h($requestForm['hrsz']); ?>"></div>
                         <div><label>Saját mérő gyári száma</label><input name="meter_serial" value="<?= h($requestForm['meter_serial']); ?>"></div>
@@ -502,7 +890,7 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                     <textarea name="notes" rows="4"><?= h($requestForm['notes']); ?></textarea>
                 </section>
 
-                <?php quick_quote_render_connection_request_upload_panel(null, [], (string) $requestForm['request_type']); ?>
+                <?php quick_quote_render_connection_request_upload_panel($requestId, $existingFiles, (string) $requestForm['request_type']); ?>
 
                 <?php foreach ($quoteSections as $category => $section): ?>
                     <section class="auth-panel form-block quote-section-panel">

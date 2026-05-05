@@ -7,6 +7,28 @@ $quoteId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 $customerId = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
 $requestId = filter_input(INPUT_GET, 'request_id', FILTER_VALIDATE_INT);
 $minicrmItemId = filter_input(INPUT_GET, 'minicrm_item', FILTER_VALIDATE_INT);
+
+if (!is_post()) {
+    $quickQuoteUrl = url_path('/quick-quote');
+    $query = [];
+
+    if ($quoteId) {
+        $query['quote_id'] = (int) $quoteId;
+    } elseif ($requestId) {
+        $query['request_id'] = (int) $requestId;
+    } elseif ($minicrmItemId) {
+        $query['minicrm_item'] = (int) $minicrmItemId;
+    } elseif ($customerId) {
+        $query['customer_id'] = (int) $customerId;
+    }
+
+    if ($query !== []) {
+        $quickQuoteUrl .= '?' . http_build_query($query);
+    }
+
+    redirect($quickQuoteUrl);
+}
+
 $quote = $quoteId ? find_quote($quoteId) : null;
 $request = $requestId ? find_connection_request($requestId) : null;
 $minicrmItem = $minicrmItemId ? find_minicrm_work_item((int) $minicrmItemId) : null;

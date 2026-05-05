@@ -160,7 +160,7 @@ function quote_normalize_category(string $category): string
 
 function quote_effective_category(string $category, string $name = ''): string
 {
-    if (in_array($name, quote_fee_request_item_names(), true)) {
+    if (quote_fee_request_item_kind_by_name($name) !== null) {
         return 'Ügykezelési díjak';
     }
 
@@ -474,13 +474,16 @@ function ensure_storage_dir(string $path): void
 function normalize_quote_price_item(array $item): array
 {
     $name = (string) ($item['name'] ?? '');
+    $feeType = quote_fee_request_item_kind_by_name($name);
 
-    if ($name === 'Kiszállási díjak, ügyintézés, kezelési díjak') {
+    if ($feeType !== null) {
+        $option = service_fee_request_option($feeType);
         $item['category'] = 'Ügykezelési díjak';
-        $item['unit_price'] = 86000.0;
-    } elseif ($name === 'Egyszerű ügyintézési díj') {
-        $item['category'] = 'Ügykezelési díjak';
-        $item['unit_price'] = 50000.0;
+
+        if ($option !== null) {
+            $item['name'] = (string) $option['name'];
+            $item['unit_price'] = (float) $option['gross'];
+        }
     }
 
     return $item;
@@ -4091,15 +4094,109 @@ function quote_fee_request_item_names(): array
     ];
 }
 
+function quote_fee_request_text_key(string $value): string
+{
+    $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    $value = strtr($value, [
+        'á' => 'a',
+        'é' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ö' => 'o',
+        'ő' => 'o',
+        'ú' => 'u',
+        'ü' => 'u',
+        'ű' => 'u',
+        'Á' => 'a',
+        'É' => 'e',
+        'Í' => 'i',
+        'Ó' => 'o',
+        'Ö' => 'o',
+        'Ő' => 'o',
+        'Ú' => 'u',
+        'Ü' => 'u',
+        'Ű' => 'u',
+    ]);
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value);
+
+    return trim((string) $value);
+}
+
+function quote_fee_request_item_kind_by_name(string $name): ?string
+{
+    $key = quote_fee_request_text_key($name);
+
+    if ($key === quote_fee_request_text_key('Kiszállási díjak, ügyintézés, kezelési díjak')
+        || str_contains($key, 'kiszallasi dijak ugyintezes kezelesi dijak')
+        || str_contains($key, 'kezelesi dijak')) {
+        return 'full';
+    }
+
+    if ($key === quote_fee_request_text_key('Egyszerű ügyintézési díj')
+        || str_contains($key, 'egyszeru ugyintezesi dij')) {
+        return 'simple';
+    }
+
+    return null;
+}
+
+function quote_fee_request_line_kind(array $line): ?string
+{
+    $nameKind = quote_fee_request_item_kind_by_name((string) ($line['name'] ?? ''));
+
+    if ($nameKind !== null) {
+        return $nameKind;
+    }
+
+    $categoryKey = quote_fee_request_text_key((string) ($line['category'] ?? ''));
+    $nameKey = quote_fee_request_text_key((string) ($line['name'] ?? ''));
+    $gross = round((float) ($line['line_gross'] ?? 0));
+    $looksLikeFee = str_contains($categoryKey, 'ugykezelesi dij')
+        || str_contains($nameKey, 'ugykezelesi dij')
+        || str_contains($nameKey, 'ugyintezesi dij');
+
+    if (!$looksLikeFee) {
+        return null;
+    }
+
+    if ($gross === 50000) {
+        return 'simple';
+    }
+
+    if ($gross === 86000 || $gross === 86360) {
+        return 'full';
+    }
+
+    return null;
+}
+
+function quote_fee_request_line_for_kind(array $line, string $feeType): array
+{
+    $option = service_fee_request_option($feeType);
+
+    if ($option === null) {
+        return $line;
+    }
+
+    return quote_line_from_values(
+        isset($line['price_item_id']) ? (int) $line['price_item_id'] : null,
+        'Ügykezelési díjak',
+        (string) $option['name'],
+        (string) ($line['unit'] ?? 'db'),
+        1,
+        (float) $option['gross'],
+        (float) ($line['vat_rate'] ?? 27)
+    );
+}
+
 function quote_fee_request_selected_lines(array $lines): array
 {
-    $itemNames = quote_fee_request_item_names();
     $selectedLines = [];
 
     foreach ($lines as $line) {
-        $name = (string) ($line['name'] ?? '');
+        $feeType = quote_fee_request_line_kind($line);
 
-        if (!in_array($name, $itemNames, true)) {
+        if ($feeType === null) {
             continue;
         }
 
@@ -4107,29 +4204,7 @@ function quote_fee_request_selected_lines(array $lines): array
             continue;
         }
 
-        if ($name === 'Kiszállási díjak, ügyintézés, kezelési díjak') {
-            $line = quote_line_from_values(
-                isset($line['price_item_id']) ? (int) $line['price_item_id'] : null,
-                'Ügykezelési díjak',
-                $name,
-                (string) ($line['unit'] ?? 'db'),
-                1,
-                86000.0,
-                (float) ($line['vat_rate'] ?? 27)
-            );
-        } elseif ($name === 'Egyszerű ügyintézési díj') {
-            $line = quote_line_from_values(
-                isset($line['price_item_id']) ? (int) $line['price_item_id'] : null,
-                'Ügykezelési díjak',
-                $name,
-                (string) ($line['unit'] ?? 'db'),
-                1,
-                50000.0,
-                (float) ($line['vat_rate'] ?? 27)
-            );
-        }
-
-        $selectedLines[] = $line;
+        $selectedLines[] = quote_fee_request_line_for_kind($line, $feeType);
     }
 
     return $selectedLines;
@@ -4137,12 +4212,8 @@ function quote_fee_request_selected_lines(array $lines): array
 
 function quote_has_zero_fee_request_line(array $lines): bool
 {
-    $itemNames = quote_fee_request_item_names();
-
     foreach ($lines as $line) {
-        $name = (string) ($line['name'] ?? '');
-
-        if (!in_array($name, $itemNames, true)) {
+        if (quote_fee_request_line_kind($line) === null) {
             continue;
         }
 
@@ -4318,6 +4389,11 @@ function connection_request_service_fee_request_quote(int $requestId, string $fe
 
     $suffix = $feeType === 'simple' ? 'EGYSZERU' : 'TELJES';
     $baseNote = (string) $option['label'] . ' díjbekérője. Munkaazonosító: #' . $requestId;
+    $billingAddress = quote_billing_address_parts(
+        (string) (($request['postal_code'] ?? '') ?: ($request['site_postal_code'] ?? '')),
+        (string) (($request['postal_address'] ?? '') ?: ($request['site_address'] ?? '')),
+        (string) ($request['city'] ?? '')
+    );
 
     return [
         'id' => 'request-' . $requestId . '-' . $feeType,
@@ -4326,9 +4402,9 @@ function connection_request_service_fee_request_quote(int $requestId, string $fe
         'requester_name' => (string) ($request['requester_name'] ?? ''),
         'email' => (string) ($request['email'] ?? ''),
         'phone' => (string) ($request['phone'] ?? ''),
-        'postal_address' => (string) ($request['postal_address'] ?? ''),
-        'postal_code' => (string) ($request['postal_code'] ?? ''),
-        'city' => (string) ($request['city'] ?? ''),
+        'postal_address' => (string) $billingAddress['postal_address'],
+        'postal_code' => (string) $billingAddress['postal_code'],
+        'city' => (string) $billingAddress['city'],
         'fee_request_note' => fee_request_note_with_extra($baseNote, $note),
         'fee_request_email_text' => 'Tisztelt ' . (string) ($request['requester_name'] ?? '') . "!\n\nAz ügykezelési díjról elkészült díjbekérőt csatolva küldjük.",
     ];
@@ -4346,6 +4422,74 @@ function connection_request_service_fee_request_pdf_path(int $requestId, string 
     $quote = connection_request_service_fee_request_quote($requestId, $feeType);
 
     return $quote !== null ? quote_fee_request_pdf_path($quote) : null;
+}
+
+function quote_billing_address_parts(string $postalCode, string $address, string $city = ''): array
+{
+    $postalCode = trim($postalCode);
+    $address = trim(preg_replace('/\s+/', ' ', $address) ?? $address);
+    $city = trim($city);
+    $street = $address;
+
+    if ($address !== '' && str_contains($address, ',')) {
+        [$maybeCity, $maybeStreet] = array_map('trim', explode(',', $address, 2));
+
+        if ($city === '' && $maybeCity !== '') {
+            $city = $maybeCity;
+        }
+
+        if ($maybeStreet !== '') {
+            $street = $maybeStreet;
+        }
+    }
+
+    if ($city === '' && $address !== '') {
+        $city = $address;
+    }
+
+    if ($street === '') {
+        $street = $address;
+    }
+
+    return [
+        'postal_code' => $postalCode,
+        'city' => $city,
+        'postal_address' => $street,
+    ];
+}
+
+function quote_with_fee_request_billing_fallback(array $quote): array
+{
+    $hasMissingBillingData = trim((string) ($quote['postal_code'] ?? '')) === ''
+        || trim((string) ($quote['city'] ?? '')) === ''
+        || trim((string) ($quote['postal_address'] ?? '')) === '';
+
+    if (!$hasMissingBillingData || empty($quote['connection_request_id'])) {
+        return $quote;
+    }
+
+    $request = find_connection_request((int) $quote['connection_request_id']);
+
+    if ($request === null) {
+        return $quote;
+    }
+
+    $postalCode = trim((string) ($quote['postal_code'] ?? ''))
+        ?: trim((string) ($request['postal_code'] ?? ''))
+        ?: trim((string) ($request['site_postal_code'] ?? ''));
+    $city = trim((string) ($quote['city'] ?? '')) ?: trim((string) ($request['city'] ?? ''));
+    $address = trim((string) ($quote['postal_address'] ?? ''))
+        ?: trim((string) ($request['postal_address'] ?? ''))
+        ?: trim((string) ($request['site_address'] ?? ''));
+    $parts = quote_billing_address_parts($postalCode, $address, $city);
+
+    foreach ($parts as $key => $value) {
+        if (trim((string) ($quote[$key] ?? '')) === '' && $value !== '') {
+            $quote[$key] = $value;
+        }
+    }
+
+    return $quote;
 }
 
 function quote_fee_request_customer_errors(array $quote): array
@@ -4678,6 +4822,8 @@ function send_quote_fee_request_email(int $quoteId, string $note = '', bool $all
     if ((string) ($quote['status'] ?? '') !== 'accepted') {
         return ['ok' => false, 'message' => 'Díjbekérő csak elfogadott árajánlatból küldhető.'];
     }
+
+    $quote = quote_with_fee_request_billing_fallback($quote);
 
     if (quote_fee_request_file_is_available($quote)) {
         return [

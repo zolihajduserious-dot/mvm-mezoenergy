@@ -394,7 +394,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                             <h3>Gyors műveletek <span><?= $requestCount; ?></span></h3>
                                                             <div>
                                                                 <a href="<?= h(url_path('/admin/connection-requests/edit') . '?customer_id=' . $customerId); ?>">Új munka / igény<span>Igény</span></a>
-                                                                <a href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . $customerId . ($selectedRequest !== null ? '&request_id=' . (int) $selectedRequest['id'] : '')); ?>">Árajánlat minimális adatokkal<span>Ajánlat</span></a>
+                                                                <a href="<?= h($selectedRequest !== null ? url_path('/quick-quote') . '?request_id=' . (int) $selectedRequest['id'] : url_path('/quick-quote') . '?customer_id=' . $customerId); ?>">Gyors árajánlat<span>Ajánlat</span></a>
                                                                 <a href="<?= h(url_path('/admin/customers/edit') . '?id=' . $customerId); ?>">Régi ügyfél űrlap<span>Edit</span></a>
                                                             </div>
                                                         </section>
@@ -561,7 +561,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                     <p class="request-admin-empty">Ehhez az ügyfélhez még nincs mérőhelyi igény. Új regisztráció után innen indítható az első MiniCRM-szerű munkaadatlap.</p>
                                                                     <div class="customer-crm-actions">
                                                                         <a class="button" href="<?= h(url_path('/admin/connection-requests/edit') . '?customer_id=' . $customerId); ?>">Új munka / igény</a>
-                                                                        <a class="button button-secondary" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . $customerId); ?>">Árajánlat minimális adatokkal</a>
+                                                                        <a class="button button-secondary" href="<?= h(url_path('/quick-quote') . '?customer_id=' . $customerId); ?>">Gyors árajánlat</a>
                                                                     </div>
                                                                 </div>
                                                             <?php else: ?>
@@ -618,7 +618,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                             <?php endif; ?>
                                                                             <a class="button button-secondary" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a>
                                                                             <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . $requestId); ?>">Munka szerkesztése</a>
-                                                                            <a class="button" href="<?= h(url_path('/admin/quotes/create') . '?customer_id=' . $customerId . '&request_id=' . $requestId); ?>">Árajánlat készítése</a>
+                                                                            <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . $requestId); ?>">Gyors árajánlat</a>
                                                                             <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/quote-upload') . '?id=' . $requestId); ?>">Árajánlat feltöltése</a>
                                                                         </div>
 
@@ -738,8 +738,8 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                     <strong><?= h(quote_display_total($quote)); ?></strong>
                                                                                                 </div>
                                                                                                 <div class="inline-link-list">
-                                                                                                    <a href="<?= h(url_path('/admin/quotes/edit') . '?id=' . (int) $quote['id']); ?>">Szerkesztés</a>
-                                                                                                    <a href="<?= h(url_path('/admin/quotes/send') . '?id=' . (int) $quote['id']); ?>">PDF / email</a>
+                                                                                                    <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">Szerkesztés</a>
+                                                                                                    <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">PDF / email</a>
                                                                                                     <?php if (quote_file_is_available($quote)): ?>
                                                                                                         <a href="<?= h(url_path('/admin/quotes/file') . '?id=' . (int) $quote['id']); ?>" target="_blank">Megnyitás</a>
                                                                                                     <?php endif; ?>
