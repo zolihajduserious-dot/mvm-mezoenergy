@@ -31,34 +31,90 @@ function quick_quote_user_can_manage(array $quote): bool
     return $customer !== null && (int) ($customer['created_by_user_id'] ?? 0) === $userId;
 }
 
-function quick_quote_required_photo_types(): array
+function quick_quote_request_file_url(array $file): string
 {
-    return ['meter_close', 'meter_far', 'roof_hook', 'utility_pole'];
-}
+    $fileId = (int) ($file['id'] ?? 0);
 
-function quick_quote_missing_required_photo_types(?int $requestId): array
-{
-    $definitions = connection_request_upload_definitions();
-    $missing = [];
-
-    foreach (quick_quote_required_photo_types() as $type) {
-        if ($requestId === null || !connection_request_has_file_type($requestId, $type)) {
-            $missing[$type] = (string) ($definitions[$type]['label'] ?? $type);
-        }
+    if (is_staff_user()) {
+        return url_path('/admin/connection-requests/file') . '?id=' . $fileId;
     }
 
-    return $missing;
-}
-
-function quick_quote_uploaded_file_present(array $files, string $type): bool
-{
-    foreach (uploaded_files_for_key($files, 'file_' . $type) as $file) {
-        if (uploaded_file_is_present($file)) {
-            return true;
-        }
+    if (is_electrician_user()) {
+        return url_path('/electrician/work-requests/customer-file') . '?id=' . $fileId;
     }
 
-    return false;
+    if (is_general_contractor_user()) {
+        return url_path('/contractor/work-requests/file') . '?id=' . $fileId;
+    }
+
+    return '#';
+}
+
+function quick_quote_request_context_url(?array $request): string
+{
+    if ($request === null) {
+        return '';
+    }
+
+    $requestId = (int) ($request['id'] ?? 0);
+
+    if ($requestId <= 0) {
+        return '';
+    }
+
+    if (is_staff_user()) {
+        return url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+    }
+
+    if (is_electrician_user()) {
+        return url_path('/electrician/work-request') . '?id=' . $requestId;
+    }
+
+    if (is_general_contractor_user()) {
+        return url_path('/contractor/work-request') . '?id=' . $requestId;
+    }
+
+    return '';
+}
+
+function quick_quote_render_connection_request_upload_panel(?int $requestId, array $existingFiles, string $requestType): void
+{
+    ?>
+    <section class="auth-panel form-block">
+        <h2>Fotók és kitöltött dokumentumok</h2>
+        <p class="muted-text">Ugyanazokat a fotókat és dokumentumokat töltheted fel, mint az ügyfél saját adatlapján. Több fájl is feltölthető egy mezőhöz.</p>
+
+        <?php if ($existingFiles !== []): ?>
+            <div class="portal-card-files existing-file-panel">
+                <h3>Már feltöltött fájlok</h3>
+                <div class="inline-link-list">
+                    <?php foreach ($existingFiles as $file): ?>
+                        <a href="<?= h(quick_quote_request_file_url($file)); ?>" target="_blank">
+                            <?= h((string) ($file['label'] ?? 'Fájl')); ?>: <?= h((string) ($file['original_name'] ?? '-')); ?> - <?= h(portal_file_uploader_label($file)); ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <div class="file-upload-grid">
+            <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
+                <?php
+                $isImage = ($definition['kind'] ?? '') === 'image';
+                $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+                $hasExistingFile = connection_request_has_file_type($requestId, (string) $key);
+                $isHTariffRequired = !empty($definition['h_tariff_required']);
+                $hideHTariff = $isHTariffRequired && $requestType !== 'h_tariff';
+                ?>
+                <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?> <?= $hideHTariff ? 'hidden' : ''; ?>>
+                    <span><?= h((string) $definition['label']); ?><?= ($definition['required'] || $isHTariffRequired) ? ' *' : ''; ?></span>
+                    <small><?= $definition['required'] ? 'Lezáráskor mindig kötelező. Több fájl is feltölthető.' : ($isHTariffRequired ? 'H tarifa esetén tölthető fel.' : 'Opcionális. Több fájl is feltölthető.'); ?></small>
+                    <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> <?= $isHTariffRequired ? 'data-h-tariff-required="1" data-has-existing="' . ($hasExistingFile ? '1' : '0') . '"' : ''; ?>>
+                </label>
+            <?php endforeach; ?>
+        </div>
+    </section>
+    <?php
 }
 
 $user = current_user();
@@ -72,13 +128,7 @@ if ($quoteId && ($quote === null || !quick_quote_user_can_manage($quote))) {
 
 $requestId = $quote !== null && !empty($quote['connection_request_id']) ? (int) $quote['connection_request_id'] : null;
 $request = $requestId ? find_connection_request($requestId) : null;
-$requiredPhotoDefinitions = array_intersect_key(connection_request_upload_definitions(), array_flip(quick_quote_required_photo_types()));
 $existingFiles = $requestId ? connection_request_files($requestId) : [];
-$existingFilesByType = [];
-
-foreach ($existingFiles as $file) {
-    $existingFilesByType[(string) $file['file_type']][] = $file;
-}
 
 $priceItems = active_price_items();
 $quoteSections = quote_price_sections();
@@ -106,16 +156,21 @@ if ($quote !== null) {
 
 $form = [
     'requester_name' => '',
-    'site_address' => '',
     'email' => '',
     'phone' => '',
-    'request_type' => 'phase_upgrade',
     'subject' => APP_NAME . ' árajánlat',
     'customer_message' => '',
 ];
-$surveyForm = normalize_survey_data([
+$requestForm = normalize_connection_request_data($request ?? [
+    'request_type' => 'phase_upgrade',
+    'project_name' => '',
     'site_address' => '',
-    'work_type' => connection_request_type_label('phase_upgrade'),
+    'site_postal_code' => '',
+    'notes' => '',
+]);
+$surveyForm = normalize_survey_data([
+    'site_address' => trim((string) ($requestForm['site_postal_code'] ?? '') . ' ' . (string) ($requestForm['site_address'] ?? '')),
+    'work_type' => connection_request_type_label($requestForm['request_type'] ?? 'phase_upgrade'),
 ]);
 $selectedQuantities = [];
 $customRows = array_fill(0, 3, []);
@@ -136,29 +191,23 @@ if (is_post()) {
         redirect('/quick-quote?quote_id=' . (int) $quote['id']);
     }
 
-    if ($quote !== null && $action === 'upload_required_photos') {
-        if ($requestId === null) {
-            $errors[] = 'Ehhez az árajánlathoz nem tartozik munkacím, ezért nem lehet fotókat feltölteni.';
+    if ($quote !== null && $action === 'upload_request_files') {
+        if ($requestId === null || $request === null) {
+            $errors[] = 'Ehhez az árajánlathoz nem tartozik munkaadatlap, ezért nem lehet fájlokat feltölteni.';
         } else {
-            foreach (quick_quote_missing_required_photo_types($requestId) as $type => $label) {
-                if (!quick_quote_uploaded_file_present($_FILES, (string) $type)) {
-                    $errors[] = $label . ' feltöltése kötelező.';
-                }
-            }
+            $requestForm = normalize_connection_request_data($request);
+            $errors = validate_connection_request_data($requestForm, $_FILES, false, $requestId);
 
             if ($errors === []) {
-                $uploadMessages = handle_connection_request_uploads($requestId, $_FILES, false);
+                $uploadMessages = handle_connection_request_uploads($requestId, $_FILES, false, 'Gyors árajánlat');
 
-                foreach ($uploadMessages as $uploadMessage) {
-                    $errors[] = $uploadMessage;
-                }
-
-                if ($errors === [] && quick_quote_missing_required_photo_types($requestId) === []) {
-                    set_flash('success', 'A kötelező helyszíni fotók feltöltve.');
-                    redirect('/quick-quote?quote_id=' . (int) $quote['id']);
-                } elseif ($errors === []) {
-                    $errors[] = 'Nem érkezett meg minden kötelező helyszíni fotó.';
-                }
+                set_flash(
+                    $uploadMessages === [] ? 'success' : 'error',
+                    $uploadMessages === []
+                        ? 'A fotókat és dokumentumokat mentettük az adatlaphoz.'
+                        : 'Az adatlap megmaradt, de néhány fájlt nem sikerült feltölteni: ' . implode(' ', $uploadMessages)
+                );
+                redirect('/quick-quote?quote_id=' . (int) $quote['id']);
             }
         }
     }
@@ -166,16 +215,26 @@ if (is_post()) {
     if ($quote === null && $action === 'save_quote') {
         $form = [
             'requester_name' => trim((string) ($_POST['requester_name'] ?? '')),
-            'site_address' => trim((string) ($_POST['site_address'] ?? '')),
             'email' => trim((string) ($_POST['email'] ?? '')),
             'phone' => trim((string) ($_POST['phone'] ?? '')),
-            'request_type' => trim((string) ($_POST['request_type'] ?? '')),
             'subject' => trim((string) ($_POST['subject'] ?? '')),
             'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
         ];
+        $requestForm = normalize_connection_request_data($_POST);
+
+        if ($requestForm['project_name'] === '' && $form['requester_name'] !== '') {
+            $requestForm['project_name'] = 'Gyors árajánlat - ' . $form['requester_name'];
+        }
+
         $surveyForm = normalize_survey_data([
-            'site_address' => $form['site_address'],
-            'work_type' => connection_request_type_label($form['request_type']),
+            'site_address' => trim((string) $requestForm['site_postal_code'] . ' ' . (string) $requestForm['site_address']),
+            'work_type' => connection_request_type_label($requestForm['request_type']),
+            'hrsz' => $requestForm['hrsz'],
+            'meter_serial' => $requestForm['meter_serial'],
+            'current_ampere' => $requestForm['existing_general_power'],
+            'requested_ampere' => $requestForm['requested_general_power'],
+            'survey_notes' => $requestForm['notes'],
+            'has_h_tariff' => $requestForm['request_type'] === 'h_tariff' ? 1 : 0,
         ]);
         $lines = collect_quote_lines($_POST);
 
@@ -183,7 +242,7 @@ if (is_post()) {
             $errors[] = 'A név megadása kötelező.';
         }
 
-        if ($form['site_address'] === '') {
+        if ($requestForm['site_address'] === '') {
             $errors[] = 'A cím megadása kötelező.';
         }
 
@@ -195,7 +254,7 @@ if (is_post()) {
             $errors[] = 'A telefonszám megadása kötelező.';
         }
 
-        if (!isset(connection_request_type_options()[$form['request_type']])) {
+        if (!isset(connection_request_type_options()[$requestForm['request_type']])) {
             $errors[] = 'A munka típusának kiválasztása kötelező.';
         }
 
@@ -207,6 +266,8 @@ if (is_post()) {
             $errors[] = 'Legalább egy ajánlati tételt adj meg.';
         }
 
+        $errors = array_merge($errors, validate_connection_request_data($requestForm, $_FILES, false, null));
+
         if ($errors === []) {
             $customerForm = [
                 'is_legal_entity' => 0,
@@ -216,8 +277,8 @@ if (is_post()) {
                 'tax_number' => '',
                 'phone' => $form['phone'],
                 'email' => $form['email'],
-                'postal_address' => $form['site_address'],
-                'postal_code' => '',
+                'postal_address' => $requestForm['site_address'],
+                'postal_code' => $requestForm['site_postal_code'],
                 'city' => '',
                 'mailing_address' => '',
                 'mother_name' => '',
@@ -228,14 +289,9 @@ if (is_post()) {
                 'status' => 'Árajánlat',
                 'notes' => 'Gyors árajánlat miatt csak a feltétlenül szükséges adatok lettek rögzítve.',
             ];
-            $requestForm = normalize_connection_request_data([
-                'request_type' => $form['request_type'],
-                'project_name' => 'Gyors árajánlat - ' . $form['requester_name'],
-                'site_address' => $form['site_address'],
-                'site_postal_code' => '',
-                'existing_general_power' => '',
-                'notes' => 'Gyors árajánlat helyszíni vagy telefonos egyeztetéshez.',
-            ]);
+            if ($requestForm['notes'] === '') {
+                $requestForm['notes'] = 'Gyors árajánlat helyszíni vagy telefonos egyeztetéshez.';
+            }
             $quoteForm = [
                 'subject' => $form['subject'],
                 'customer_message' => $form['customer_message'],
@@ -244,10 +300,16 @@ if (is_post()) {
             try {
                 $customerId = create_customer($customerForm, null, is_array($user) ? (int) $user['id'] : null);
                 $savedRequestId = save_connection_request($customerId, $requestForm, null, is_array($user) ? (int) $user['id'] : null);
+                $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false, 'Gyors árajánlat');
                 $savedQuoteId = save_quote($customerId, $quoteForm, $surveyForm, $lines, null, $savedRequestId);
                 ensure_quote_public_token($savedQuoteId);
 
-                set_flash('success', 'A gyors árajánlat elkészült. Innen megnyitható, PDF-be menthető vagy emailben kiküldhető.');
+                set_flash(
+                    $uploadMessages === [] ? 'success' : 'error',
+                    $uploadMessages === []
+                        ? 'A gyors árajánlat és a hozzá tartozó adatlap elkészült. Innen megnyitható, PDF-be menthető vagy emailben kiküldhető.'
+                        : 'A gyors árajánlat és az adatlap elkészült, de néhány fájlt nem sikerült feltölteni: ' . implode(' ', $uploadMessages)
+                );
                 redirect('/quick-quote?quote_id=' . $savedQuoteId);
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'A gyors árajánlat mentése sikertelen.';
@@ -281,7 +343,7 @@ if (is_post()) {
     }
 }
 
-$missingRequiredPhotos = quick_quote_missing_required_photo_types($requestId);
+$requestContextUrl = quick_quote_request_context_url($request);
 $quoteLines = $quote !== null ? quote_lines((int) $quote['id']) : [];
 $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
 ?>
@@ -320,6 +382,7 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
 
                 <div class="admin-actions">
                     <?php if ($publicQuoteUrl !== null): ?><a class="button" href="<?= h($publicQuoteUrl); ?>" target="_blank">Árajánlat megnyitása</a><?php endif; ?>
+                    <?php if ($requestContextUrl !== ''): ?><a class="button button-secondary" href="<?= h($requestContextUrl); ?>">Adatlap megnyitása</a><?php endif; ?>
                     <?php if ($request !== null): ?><a class="button button-secondary" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
                     <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
                         <?= csrf_field(); ?>
@@ -350,61 +413,36 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                 <?php endif; ?>
             </section>
 
-            <section class="auth-panel form-block">
-                <h2>Kötelező fotók szóbeli elfogadás után</h2>
-                <p>Ha az ügyfélnek a helyszínen megfelel az ajánlat, töltsd fel ezt a 4 fotót: mérő közelről, mérő távolról, tetőtartó/falihorog és villanyoszlop.</p>
-
-                <?php if ($missingRequiredPhotos === []): ?>
-                    <div class="alert alert-success"><p>Mind a négy kötelező helyszíni fotó fel van töltve.</p></div>
-                <?php else: ?>
-                    <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
-                        <?= csrf_field(); ?>
-                        <input type="hidden" name="quick_action" value="upload_required_photos">
-                        <div class="form-grid two">
-                            <?php foreach ($requiredPhotoDefinitions as $type => $definition): ?>
-                                <div>
-                                    <label for="file_<?= h((string) $type); ?>"><?= h((string) $definition['label']); ?><?= isset($missingRequiredPhotos[$type]) ? ' *' : ''; ?></label>
-                                    <input id="file_<?= h((string) $type); ?>" name="file_<?= h((string) $type); ?>[]" type="file" accept="image/jpeg,image/png,image/webp" <?= isset($missingRequiredPhotos[$type]) ? 'required' : ''; ?>>
-                                    <?php if (!empty($existingFilesByType[$type])): ?>
-                                        <small>Már feltöltve: <?= h((string) $existingFilesByType[$type][0]['original_name']); ?></small>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                        <button class="button" type="submit">Fotók feltöltése</button>
-                    </form>
-                <?php endif; ?>
-            </section>
+            <?php if ($request !== null): ?>
+                <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="quick_action" value="upload_request_files">
+                    <?php quick_quote_render_connection_request_upload_panel($requestId, $existingFiles, (string) ($request['request_type'] ?? '')); ?>
+                    <div class="form-actions">
+                        <button class="button" type="submit">Fotók és dokumentumok feltöltése</button>
+                    </div>
+                </form>
+            <?php endif; ?>
         <?php else: ?>
-            <form class="form" method="post" action="<?= h(url_path('/quick-quote')); ?>">
+            <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/quick-quote')); ?>">
                 <?= csrf_field(); ?>
                 <input type="hidden" name="quick_action" value="save_quote">
 
                 <div class="form-grid two">
                     <section class="auth-panel">
-                        <h2>Minimális ügyféladatok</h2>
+                        <h2>Ügyfél alapadatai</h2>
                         <label for="requester_name">Név</label>
                         <input id="requester_name" name="requester_name" value="<?= h($form['requester_name']); ?>" required>
-
-                        <label for="site_address">Cím</label>
-                        <input id="site_address" name="site_address" value="<?= h($form['site_address']); ?>" required>
 
                         <label for="email">Email cím</label>
                         <input id="email" name="email" type="email" value="<?= h($form['email']); ?>" required>
 
                         <label for="phone">Telefonszám</label>
                         <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
-
-                        <label for="request_type">Munka típusa</label>
-                        <select id="request_type" name="request_type" required>
-                            <?php foreach (connection_request_type_options() as $type => $label): ?>
-                                <option value="<?= h($type); ?>" <?= $form['request_type'] === $type ? 'selected' : ''; ?>><?= h($label); ?></option>
-                            <?php endforeach; ?>
-                        </select>
                     </section>
 
                     <section class="auth-panel">
-                        <h2>Ajánlat alapadatok</h2>
+                        <h2>Ajánlat alapadatai</h2>
                         <label for="subject">Tárgy</label>
                         <input id="subject" name="subject" value="<?= h($form['subject']); ?>" required>
 
@@ -412,6 +450,42 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
                         <textarea id="customer_message" name="customer_message" rows="8"><?= h($form['customer_message']); ?></textarea>
                     </section>
                 </div>
+
+                <section class="auth-panel form-block">
+                    <h2>Adatlap adatai</h2>
+                    <div class="form-grid two compact">
+                        <div>
+                            <label for="request_type">Munka típusa</label>
+                            <select id="request_type" name="request_type" data-request-type-select required>
+                                <?php foreach (connection_request_type_options() as $type => $label): ?>
+                                    <option value="<?= h($type); ?>" <?= $requestForm['request_type'] === $type ? 'selected' : ''; ?>><?= h($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div><label>Igény megnevezése</label><input name="project_name" value="<?= h($requestForm['project_name']); ?>" placeholder="Példa: Szeged, Petőfi utca 12. - mérőhely szabványosítás"></div>
+                        <div><label>Kivitelezés címe</label><input name="site_address" value="<?= h($requestForm['site_address']); ?>" required></div>
+                        <div><label>Kivitelezés irányítószáma</label><input name="site_postal_code" value="<?= h($requestForm['site_postal_code']); ?>"></div>
+                        <div><label>Helyrajzi szám</label><input name="hrsz" value="<?= h($requestForm['hrsz']); ?>"></div>
+                        <div><label>Saját mérő gyári száma</label><input name="meter_serial" value="<?= h($requestForm['meter_serial']); ?>"></div>
+                        <div><label>Fogyasztási hely azonosító</label><input name="consumption_place_id" value="<?= h($requestForm['consumption_place_id']); ?>"></div>
+                    </div>
+                </section>
+
+                <section class="auth-panel form-block">
+                    <h2>Teljesítmény adatok</h2>
+                    <div class="form-grid two compact">
+                        <div><label>Meglévő teljesítmény mindennapszaki</label><input name="existing_general_power" value="<?= h($requestForm['existing_general_power']); ?>"></div>
+                        <div><label>Igényelt teljesítmény mindennapszaki</label><input name="requested_general_power" value="<?= h($requestForm['requested_general_power']); ?>"></div>
+                        <div><label>Meglévő teljesítmény H tarifa</label><input name="existing_h_tariff_power" value="<?= h($requestForm['existing_h_tariff_power']); ?>"></div>
+                        <div><label>Igényelt teljesítmény H tarifa</label><input name="requested_h_tariff_power" value="<?= h($requestForm['requested_h_tariff_power']); ?>"></div>
+                        <div><label>Meglévő teljesítmény vezérelt</label><input name="existing_controlled_power" value="<?= h($requestForm['existing_controlled_power']); ?>"></div>
+                        <div><label>Igényelt teljesítmény vezérelt</label><input name="requested_controlled_power" value="<?= h($requestForm['requested_controlled_power']); ?>"></div>
+                    </div>
+                    <label>Megjegyzés az adatlaphoz</label>
+                    <textarea name="notes" rows="4"><?= h($requestForm['notes']); ?></textarea>
+                </section>
+
+                <?php quick_quote_render_connection_request_upload_panel(null, [], (string) $requestForm['request_type']); ?>
 
                 <?php foreach ($quoteSections as $category => $section): ?>
                     <section class="auth-panel form-block quote-section-panel">
@@ -465,3 +539,29 @@ $quoteTotal = $quote !== null ? quote_display_total($quote) : null;
         <?php endif; ?>
     </div>
 </section>
+<script>
+(() => {
+    const select = document.querySelector('[data-request-type-select]');
+    const tariffItems = document.querySelectorAll('[data-h-tariff-upload]');
+    const tariffInputs = document.querySelectorAll('[data-h-tariff-required]');
+
+    if (!select) {
+        return;
+    }
+
+    const syncHTariffFields = () => {
+        const isHTariff = select.value === 'h_tariff';
+
+        tariffItems.forEach((item) => {
+            item.hidden = !isHTariff;
+        });
+
+        tariffInputs.forEach((input) => {
+            input.required = false;
+        });
+    };
+
+    select.addEventListener('change', syncHTariffFields);
+    syncHTariffFields();
+})();
+</script>
