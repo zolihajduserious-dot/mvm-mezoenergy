@@ -9,7 +9,6 @@ $canManageMvmDocuments = can_manage_mvm_documents();
 $canManagePriceItems = can_manage_price_items();
 $canManageAdminUsers = can_manage_admin_users();
 $customerCount = null;
-$quoteCount = null;
 $connectionRequestCount = null;
 $priceItemCount = null;
 $documentCount = null;
@@ -23,7 +22,6 @@ $showDashboardWorkflow = false;
 
 try {
     $customerCount = db_table_exists('customers') ? (int) db_query('SELECT COUNT(*) FROM `customers`')->fetchColumn() : 0;
-    $quoteCount = db_table_exists('quotes') ? (int) db_query('SELECT COUNT(*) FROM `quotes`')->fetchColumn() : 0;
     $connectionRequestCount = db_table_exists('connection_requests') ? (int) db_query('SELECT COUNT(*) FROM `connection_requests`')->fetchColumn() : 0;
     $priceItemCount = db_table_exists('quote_price_items') ? (int) db_query('SELECT COUNT(*) FROM `quote_price_items`')->fetchColumn() : 0;
     $documentCount = db_table_exists('download_documents') ? (int) db_query('SELECT COUNT(*) FROM `download_documents`')->fetchColumn() : 0;
@@ -102,13 +100,6 @@ $dashboardCards = [
         'variant' => 'system',
     ],
     [
-        'label' => 'Ajánlatok',
-        'value' => $quoteCount ?? '-',
-        'description' => 'Ajánlatok készítése, szerkesztése, PDF generálása és kiküldése.',
-        'href' => '/admin/quotes',
-        'variant' => 'primary',
-    ],
-    [
         'label' => 'Árlista tételek',
         'value' => $priceItemCount ?? '-',
         'description' => 'Díjtétel nevek, egységárak, ÁFA és aktív árlista elemek kezelése.',
@@ -138,13 +129,6 @@ $dashboardCards = [
         'description' => 'Letölthető meghatalmazások, nyilatkozatok és ügyintézési dokumentumok.',
         'href' => '/admin/documents',
         'variant' => 'accent',
-    ],
-    [
-        'label' => 'Ajánlatok',
-        'value' => $quoteCount ?? '-',
-        'description' => 'Ajánlatok készítése, szerkesztése, PDF generálása és kiküldése.',
-        'href' => '/admin/quotes',
-        'variant' => 'primary',
     ],
     [
         'label' => 'Árlista tételek',

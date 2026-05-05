@@ -2227,8 +2227,13 @@ function notify_admin_quote_response(int $quoteId, string $response, string $mes
         ];
     }
 
+    $quoteRequestId = (int) ($quote['connection_request_id'] ?? 0);
+    $quoteCustomerId = (int) ($quote['customer_id'] ?? 0);
+    $quoteContextPath = $quoteRequestId > 0
+        ? '/admin/minicrm-import?request=' . $quoteRequestId . '#portal-work-' . $quoteRequestId
+        : '/admin/customers' . ($quoteCustomerId > 0 ? '?customer=' . $quoteCustomerId . '#customer-' . $quoteCustomerId : '');
     $emailActions = [
-        ['label' => 'Ajánlatok megnyitása', 'url' => absolute_url('/admin/quotes')],
+        ['label' => 'Ügyfél adatlap megnyitása', 'url' => absolute_url($quoteContextPath)],
         ['label' => 'Ajánlat szerkesztése', 'url' => absolute_url('/admin/quotes/edit?id=' . (int) $quote['id'])],
     ];
 

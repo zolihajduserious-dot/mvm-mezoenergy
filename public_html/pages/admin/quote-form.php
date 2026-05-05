@@ -13,7 +13,7 @@ $minicrmItem = $minicrmItemId ? find_minicrm_work_item((int) $minicrmItemId) : n
 
 if ($quoteId && $quote === null) {
     set_flash('error', 'Az ajánlat nem található.');
-    redirect('/admin/quotes');
+    redirect('/admin/customers');
 }
 
 if ($quote !== null) {
@@ -42,12 +42,13 @@ if ($customer === null) {
     redirect('/admin/customers');
 }
 
+$customerBackUrl = url_path('/admin/customers') . '?customer=' . (int) $customer['id'] . '#customer-' . (int) $customer['id'];
 $backUrl = $minicrmItemId
     ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
-    : ($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/quotes'));
+    : ($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : $customerBackUrl);
 $backLabel = $minicrmItemId
     ? 'Vissza a MiniCRM munkához'
-    : ($request !== null ? 'Vissza a munkához' : 'Ajánlatlista');
+    : ($request !== null ? 'Vissza a munkához' : 'Vissza az ügyfél adatlapjához');
 
 $customerRequests = connection_requests_for_customer((int) $customer['id']);
 
