@@ -6200,6 +6200,159 @@ a.metric-card {
         border-top: 1px solid rgba(0, 140, 115, 0.16);
         border-left: 0;
     }
+
+    .minicrm-import-page {
+        overflow-x: hidden;
+    }
+
+    .minicrm-import-page .container,
+    .minicrm-import-page .admin-requests-container,
+    .minicrm-workspace,
+    .minicrm-workspace .admin-workflow-stage,
+    .minicrm-status-group,
+    .minicrm-work-row,
+    .minicrm-work-card,
+    .minicrm-work-main,
+    .minicrm-work-facts,
+    .communication-panel,
+    .portal-message-form,
+    .mvm-mail-panel,
+    .mvm-mail-thread,
+    .mvm-send-form,
+    .minicrm-timeline-panel,
+    .minicrm-document-preview-panel {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .minicrm-import-page .admin-header {
+        gap: 14px;
+        padding: 18px;
+    }
+
+    .minicrm-import-page .admin-header h1 {
+        font-size: 1.9rem;
+        line-height: 1.08;
+    }
+
+    .minicrm-module-tabs,
+    .minicrm-status-nav {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .minicrm-module-tabs a,
+    .minicrm-status-nav a {
+        justify-content: center;
+        width: 100%;
+        min-width: 0;
+        text-align: center;
+        white-space: normal;
+    }
+
+    .minicrm-list-tools {
+        grid-template-columns: 1fr;
+        padding: 0 12px 14px;
+    }
+
+    .minicrm-workspace .minicrm-list-tools {
+        padding-top: 14px;
+    }
+
+    .minicrm-list-tools span {
+        justify-self: stretch;
+        text-align: center;
+        white-space: normal;
+    }
+
+    .minicrm-status-group-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .minicrm-status-group-head div {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .minicrm-work-row > .minicrm-work-row-summary {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .minicrm-work-row > .minicrm-work-row-summary > * {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .minicrm-work-card .request-admin-card-head {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+        padding: 14px;
+    }
+
+    .minicrm-work-card .request-admin-card-head h2 {
+        font-size: 1.35rem;
+    }
+
+    .request-admin-status {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+        max-width: none;
+        justify-content: stretch;
+    }
+
+    .request-admin-status .status-badge,
+    .request-admin-status .button {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+        white-space: normal;
+    }
+
+    .minicrm-work-detail-layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+        padding: 0 10px 12px;
+    }
+
+    .minicrm-timeline-panel,
+    .minicrm-document-preview-panel {
+        padding: 12px;
+    }
+
+    .portal-message-form .form-grid.two,
+    .minicrm-readable-grid,
+    .minicrm-field-group .minicrm-readable-grid,
+    .minicrm-manual-upload-form > div {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .quote-mini-card .inline-link-list,
+    .mvm-mail-thread-head,
+    .admin-request-doc-meta {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .quote-mini-card .inline-link-list a,
+    .admin-request-doc-meta a,
+    .admin-request-doc-meta .table-action-button {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .mvm-mail-thread-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+    }
 }
 
 @media (max-width: 560px) {
@@ -6260,5 +6413,45 @@ a.metric-card {
 
     .admin-request-doc-thumb {
         height: 96px;
+    }
+
+    .minicrm-import-page .admin-requests-container {
+        width: min(100% - 12px, 1120px);
+    }
+
+    .minicrm-import-page .admin-header {
+        padding: 14px;
+    }
+
+    .minicrm-import-page .admin-header h1 {
+        font-size: 1.65rem;
+    }
+
+    .minicrm-module-tabs,
+    .minicrm-status-nav,
+    .minicrm-document-preview-panel .admin-request-doc-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .minicrm-status-groups,
+    .minicrm-status-nav,
+    .minicrm-list-tools {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+
+    .minicrm-work-row > .minicrm-work-row-summary,
+    .minicrm-work-card .request-admin-card-head,
+    .minicrm-work-detail-layout {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .minicrm-document-preview-panel .admin-request-doc-card {
+        min-height: auto;
+    }
+
+    .minicrm-document-preview-panel .admin-request-doc-thumb {
+        height: 120px;
     }
 }
