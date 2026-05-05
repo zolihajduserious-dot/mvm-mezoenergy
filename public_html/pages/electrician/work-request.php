@@ -128,6 +128,25 @@ if (is_post() && $schemaErrors === []) {
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'send_customer_message') {
+        $result = send_connection_request_manual_message(
+            (int) $request['id'],
+            'customer',
+            trim((string) ($_POST['message_subject'] ?? '')),
+            trim((string) ($_POST['message_body'] ?? '')),
+            trim((string) ($_POST['customer_recipient_email'] ?? '')),
+            trim((string) ($_POST['customer_recipient_name'] ?? ''))
+        );
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ügyfélüzenet küldése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id'] . '#electrician-communication');
+    }
+
+    if ($request !== null && $action === 'sync_customer_mailbox') {
+        $result = sync_mvm_mailbox_replies();
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A válaszok frissítése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id'] . '#electrician-communication');
+    }
+
     if ($action === 'create_survey') {
         $customerForm = normalize_customer_data($_POST);
         $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Szerelői felmérés';
@@ -461,7 +480,20 @@ $minicrmPhone = is_array($minicrmProfile) ? minicrm_customer_profile_display_val
 $displayCustomerName = $request !== null ? (trim((string) ($request['requester_name'] ?? '')) ?: $minicrmName) : '';
 $displayCustomerEmail = $request !== null ? (trim((string) ($request['email'] ?? '')) ?: $minicrmEmail) : '';
 $displayCustomerPhone = $request !== null ? (trim((string) ($request['phone'] ?? '')) ?: $minicrmPhone) : '';
+if ($request !== null) {
+    maybe_sync_mvm_mailbox_replies(40, 60);
+}
+
 $mvmEmailThreads = $request !== null ? mvm_email_threads_with_messages((int) $request['id']) : [];
+$customerCommunicationThreads = array_values(array_filter(
+    $mvmEmailThreads,
+    static fn (array $thread): bool => empty($thread['connection_request_document_id'])
+));
+$mvmEmailMessageCount = array_reduce(
+    $customerCommunicationThreads,
+    static fn (int $count, array $thread): int => $count + count(is_array($thread['messages'] ?? null) ? $thread['messages'] : []),
+    0
+);
 $mvmThreadStatusLabels = mvm_email_thread_status_labels();
 $scheduleSchemaErrors = connection_request_schedule_schema_errors();
 $scheduleSlots = $request !== null && $scheduleSchemaErrors === [] ? connection_request_schedule_slots((int) $request['id']) : [];
@@ -948,28 +980,85 @@ $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData,
                         <?php endif; ?>
                     </section>
 
-                    <?php if ($mvmEmailThreads !== []): ?>
-                        <section class="admin-request-panel admin-request-documents">
-                            <div class="admin-request-section-title">
-                                <h3>Üzenetek</h3>
-                                <span><?= count($mvmEmailThreads); ?> db</span>
+                    <section id="electrician-communication" class="admin-request-panel admin-request-documents communication-panel">
+                        <div class="admin-request-section-title">
+                            <h3>Ügyfélkommunikáció</h3>
+                            <span><?= $mvmEmailMessageCount; ?> üzenet</span>
+                        </div>
+                        <p class="muted-text">Itt ugyanaz az ügyféllel folytatott levelezés látszik, amit az admin is lát. Ha az ügyfél válaszol, a válasz az azonosító alapján ehhez az adatlaphoz kerül.</p>
+                        <dl class="admin-request-data-list admin-request-data-list-compact">
+                            <div><dt>Ügy állása</dt><dd><?= h($workflowDefinition !== null ? (string) $workflowDefinition['title'] : admin_workflow_stage_label($workflowStage)); ?></dd></div>
+                            <div><dt>Ajánlat</dt><dd><?= h($quoteSummaryLabel . ' · ' . $quoteSummaryAmount); ?></dd></div>
+                            <div><dt>Ügyfél email</dt><dd><?= h($displayCustomerEmail !== '' ? $displayCustomerEmail : '-'); ?></dd></div>
+                        </dl>
+                        <form class="portal-message-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id'] . '#electrician-communication'); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="send_customer_message">
+                            <div class="form-grid two compact">
+                                <div>
+                                    <label for="electrician_message_subject_<?= (int) $request['id']; ?>">Tárgy</label>
+                                    <input id="electrician_message_subject_<?= (int) $request['id']; ?>" name="message_subject" value="<?= h(APP_NAME . ' üzenet - ' . (string) $request['project_name']); ?>">
+                                </div>
+                                <div>
+                                    <label for="electrician_customer_recipient_email_<?= (int) $request['id']; ?>">Ügyfél email címzett</label>
+                                    <input id="electrician_customer_recipient_email_<?= (int) $request['id']; ?>" name="customer_recipient_email" type="email" inputmode="email" autocomplete="email" value="<?= h($displayCustomerEmail); ?>" required>
+                                </div>
                             </div>
+                            <label for="electrician_customer_recipient_name_<?= (int) $request['id']; ?>">Ügyfél címzett neve</label>
+                            <input id="electrician_customer_recipient_name_<?= (int) $request['id']; ?>" name="customer_recipient_name" value="<?= h($displayCustomerName); ?>">
+                            <label for="electrician_message_body_<?= (int) $request['id']; ?>">Üzenet</label>
+                            <textarea id="electrician_message_body_<?= (int) $request['id']; ?>" name="message_body" rows="4" required></textarea>
+                            <div class="form-actions">
+                                <button class="button" type="submit">Üzenet küldése az ügyfélnek</button>
+                            </div>
+                        </form>
+                        <div class="portal-mail-auto-sync-note">
+                            <strong>Válaszok automatikusan</strong>
+                            <span>Az ügyfél válasza a <?= h(mvm_mail_reply_address()); ?> postafiókra érkezik, és az emailben lévő azonosító alapján erre az adatlapra kerül.</span>
+                        </div>
+                        <form class="inline-form portal-mail-sync-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id'] . '#electrician-communication'); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="sync_customer_mailbox">
+                            <button class="button button-secondary" type="submit">Válaszok frissítése most</button>
+                        </form>
+                        <?php if (!mvm_mailbox_sync_can_run()): ?>
+                            <div class="alert alert-info"><p><?= h(mvm_mailbox_sync_setup_message()); ?></p></div>
+                        <?php endif; ?>
+                        <?php if ($customerCommunicationThreads === []): ?>
+                            <p class="request-admin-empty">Ehhez az adatlaphoz még nincs ügyfélkommunikáció.</p>
+                        <?php else: ?>
                             <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
-                                <?php foreach ($mvmEmailThreads as $thread): ?>
+                                <?php foreach ($customerCommunicationThreads as $thread): ?>
+                                    <?php $messages = is_array($thread['messages'] ?? null) ? $thread['messages'] : []; ?>
                                     <article class="mvm-mail-thread">
                                         <div class="mvm-mail-thread-head">
                                             <div>
-                                                <span class="portal-kicker"><?= h((string) $thread['document_label']); ?></span>
-                                                <strong><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></strong>
+                                                <span class="portal-kicker"><?= h((string) $thread['token']); ?></span>
+                                                <strong><?= h((string) $thread['document_label']); ?></strong>
+                                                <p><?= h((string) $thread['subject']); ?></p>
                                             </div>
-                                            <span><?= h((string) ($thread['last_message_at'] ?: $thread['created_at'])); ?></span>
+                                            <span class="status-badge status-badge-<?= h((string) $thread['status']); ?>"><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></span>
                                         </div>
-                                        <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
+                                        <?php if ($messages === []): ?>
+                                            <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
+                                        <?php else: ?>
+                                            <div class="mvm-mail-message-list">
+                                                <?php foreach ($messages as $message): ?>
+                                                    <article class="mvm-mail-message mvm-mail-message-<?= h((string) $message['direction']); ?>">
+                                                        <div>
+                                                            <strong><?= h((string) $message['subject']); ?></strong>
+                                                            <span><?= h((string) ($message['sender_name'] ?: $message['sender_email'] ?: '-')); ?> · <?= h((string) ($message['received_at'] ?: $message['created_at'])); ?></span>
+                                                        </div>
+                                                        <p><?= nl2br(h(latest_mvm_email_message_preview(['messages' => [$message]]))); ?></p>
+                                                    </article>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
                                     </article>
                                 <?php endforeach; ?>
                             </div>
-                        </section>
-                    <?php endif; ?>
+                        <?php endif; ?>
+                    </section>
 
             <?php foreach (['before' => 'Kivitelezés előtti kötelező fotók', 'after' => 'Kivitelezés utáni kötelező fotók'] as $stage => $stageTitle): ?>
                 <?php
