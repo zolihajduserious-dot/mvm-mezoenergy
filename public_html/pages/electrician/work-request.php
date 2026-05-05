@@ -595,7 +595,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
     $requestId = (int) $request['id'];
     ?>
     <?php if ($stageLocked): ?>
-        <div class="alert alert-info"><p>Az utána fotókat az induló fotók lezárása után lehet feltölteni.</p></div>
+        <div class="alert alert-info"><p>A befejezés csak azután menthető, hogy a kivitelezés előtti fotókat feltöltötted és a munkakezdést lezártad.</p></div>
     <?php endif; ?>
     <form class="form electrician-work-photo-form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request') . '?id=' . $requestId); ?>">
         <?= csrf_field(); ?>
@@ -638,7 +638,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                 <?php if ($request !== null): ?>
                     <?php $topAfterLocked = empty($request['before_photos_completed_at']); ?>
                     <button class="button" type="button" data-work-dialog-open="before">Megkezdem a kivitelezést</button>
-                    <button class="button button-secondary" type="button" data-work-dialog-open="after" <?= $topAfterLocked ? 'disabled title="Előbb a kivitelezés előtti fotókat kell menteni."' : ''; ?>>Befejezem a kivitelezést</button>
+                    <button class="button button-secondary" type="button" data-work-dialog-open="after" <?= $topAfterLocked ? 'title="Előbb a kivitelezés előtti fotókat kell menteni."' : ''; ?>>Befejezem a kivitelezést</button>
                 <?php endif; ?>
                 <?php if ($request !== null): ?><a class="button" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
                 <?php if ($request !== null): ?>
@@ -1167,7 +1167,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             class="button"
                             type="button"
                             data-work-dialog-open="<?= h($stage); ?>"
-                            <?= $stageLocked ? 'disabled title="Előbb az induló fotókat kell lezárni."' : ''; ?>
+                            <?= $stageLocked ? 'title="Előbb az induló fotókat kell lezárni."' : ''; ?>
                         ><?= $stage === 'before' ? 'Induló fotók feltöltése' : 'Kész munka fotóinak feltöltése'; ?></button>
                     </div>
                 </section>
