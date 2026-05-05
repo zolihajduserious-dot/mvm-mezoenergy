@@ -404,6 +404,17 @@ function connection_request_schedule_upsert_slot(int $requestId, string $date, s
             `created_by_user_id` = COALESCE(VALUES(`created_by_user_id`), `created_by_user_id`)',
         [$requestId, $date, $status, $source, trim($note) !== '' ? trim($note) : null, $userId]
     );
+    $statusLabel = match ($status) {
+        'booked' => 'lefoglalva',
+        'closed' => 'lezárva',
+        default => 'szabadra nyitva',
+    };
+    record_connection_request_activity(
+        $requestId,
+        'schedule',
+        'Kivitelezési naptár módosítva',
+        connection_request_schedule_day_label($date) . ' - ' . $statusLabel . '.'
+    );
 
     return ['ok' => true, 'message' => 'A kivitelezési naptár frissült.'];
 }
@@ -1301,6 +1312,10 @@ function delete_customer_with_related_data(int $customerId): array
                 db_query('DELETE FROM `mvm_email_threads` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
             }
 
+            if (db_table_exists('connection_request_activity_logs')) {
+                db_query('DELETE FROM `connection_request_activity_logs` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
+
             if (db_table_exists('connection_request_mvm_forms')) {
                 db_query('DELETE FROM `connection_request_mvm_forms` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
             }
@@ -1470,6 +1485,85 @@ function actor_snapshot_label(array $actor): string
         (string) ($actor['email'] ?? ''),
         isset($actor['user_id']) ? (int) $actor['user_id'] : null
     );
+}
+
+function connection_request_activity_schema_errors(): array
+{
+    try {
+        if (!db_table_exists('connection_request_activity_logs')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `connection_request_activity_logs` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `connection_request_id` INT UNSIGNED NOT NULL,
+                    `event_type` VARCHAR(80) NOT NULL,
+                    `title` VARCHAR(190) NOT NULL,
+                    `body` TEXT DEFAULT NULL,
+                    `actor_user_id` INT UNSIGNED NULL,
+                    `actor_label` VARCHAR(255) DEFAULT NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    KEY `idx_connection_request_activity_request` (`connection_request_id`, `created_at`),
+                    KEY `idx_connection_request_activity_type` (`event_type`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'Az adatlap előzmény tábla létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'Az adatlap előzmény tábla létrehozása szükséges.',
+        ];
+    }
+
+    return [];
+}
+
+function connection_request_activity_is_ready(): bool
+{
+    return connection_request_activity_schema_errors() === [];
+}
+
+function record_connection_request_activity(int $requestId, string $eventType, string $title, string $body = '', ?int $actorUserId = null, ?string $actorLabel = null): void
+{
+    if ($requestId <= 0 || !connection_request_activity_is_ready()) {
+        return;
+    }
+
+    $actor = current_actor_snapshot();
+    $resolvedActorUserId = $actorUserId ?? (isset($actor['user_id']) ? (int) $actor['user_id'] : null);
+    $resolvedActorLabel = trim((string) ($actorLabel ?? '')) ?: actor_snapshot_label($actor);
+
+    try {
+        db_query(
+            'INSERT INTO `connection_request_activity_logs`
+                (`connection_request_id`, `event_type`, `title`, `body`, `actor_user_id`, `actor_label`)
+             VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                $requestId,
+                trim($eventType) !== '' ? trim($eventType) : 'note',
+                trim($title) !== '' ? trim($title) : 'Adatlap esemény',
+                trim($body) !== '' ? trim($body) : null,
+                $resolvedActorUserId !== null && $resolvedActorUserId > 0 ? $resolvedActorUserId : null,
+                $resolvedActorLabel !== '' ? $resolvedActorLabel : null,
+            ]
+        );
+    } catch (Throwable) {
+        // Az üzleti művelet ne bukjon el attól, ha az előzmény napló átmenetileg nem írható.
+    }
+}
+
+function connection_request_activity_logs(int $requestId): array
+{
+    if ($requestId <= 0 || !connection_request_activity_is_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `connection_request_activity_logs`
+         WHERE `connection_request_id` = ?
+         ORDER BY `created_at` DESC, `id` DESC',
+        [$requestId]
+    )->fetchAll();
 }
 
 function customer_owner_label(array $customer): string
@@ -2921,6 +3015,12 @@ function close_connection_request_workflow_stage(int $requestId): array
     }
 
     update_connection_request_admin_workflow_stage($requestId, $nextStage);
+    record_connection_request_activity(
+        $requestId,
+        'workflow',
+        'Munkafolyamat státusza módosítva',
+        admin_workflow_stage_label($currentStage) . ' -> ' . admin_workflow_stage_label($nextStage)
+    );
     $notification = send_connection_request_status_change_email($requestId, $currentStage, $nextStage);
     $message = 'A munkafolyamat lezárva. Új státusz: ' . admin_workflow_stage_label($nextStage) . '.';
 
@@ -4548,6 +4648,12 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
                 $requestId,
             ]
         );
+        record_connection_request_activity(
+            $requestId,
+            'request_update',
+            'Adatlap adatai módosítva',
+            'Az adatlap alapadatai vagy teljesítményadatai frissültek.'
+        );
 
         return $requestId;
     }
@@ -4579,7 +4685,15 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
         ]
     );
 
-    return (int) db()->lastInsertId();
+    $savedRequestId = (int) db()->lastInsertId();
+    record_connection_request_activity(
+        $savedRequestId,
+        'request_created',
+        'Adatlap létrehozva',
+        trim((string) $data['project_name']) !== '' ? (string) $data['project_name'] : 'Új mérőhelyi igény.'
+    );
+
+    return $savedRequestId;
 }
 
 function create_connection_request(int $customerId, array $data, ?int $submittedByUserId = null): int
@@ -4741,6 +4855,19 @@ function handle_connection_request_uploads(int $requestId, array $files, bool $n
         send_connection_request_file_upload_notification($requestId, $savedFiles);
     }
 
+    if ($savedFiles !== []) {
+        $labels = array_values(array_filter(array_map(
+            static fn (array $file): string => trim((string) ($file['label'] ?? $file['original_name'] ?? '')),
+            $savedFiles
+        )));
+        record_connection_request_activity(
+            $requestId,
+            'file_upload',
+            count($savedFiles) . ' fájl feltöltve',
+            $labels !== [] ? implode(', ', array_slice($labels, 0, 8)) : ''
+        );
+    }
+
     return $messages;
 }
 
@@ -4771,6 +4898,20 @@ function assign_connection_request_to_electrician(int $requestId, ?int $electric
          SET `assigned_electrician_user_id` = ?, `electrician_status` = ?
          WHERE `id` = ?',
         [$electricianUserId, $status, $requestId]
+    );
+
+    $electricianLabel = 'Nincs szerelőnek kiadva';
+
+    if ($electricianUserId !== null) {
+        $electrician = find_electrician_by_user($electricianUserId);
+        $electricianLabel = trim((string) ($electrician['name'] ?? $electrician['email'] ?? '')) ?: ('Szerelő #' . $electricianUserId);
+    }
+
+    record_connection_request_activity(
+        $requestId,
+        'assignment',
+        'Adatlap felelőse módosítva',
+        $electricianLabel
     );
 }
 
@@ -5862,6 +6003,12 @@ function delete_connection_request_work_file(int $fileId, int $requestId): array
 
     db_query('DELETE FROM `connection_request_work_files` WHERE `id` = ?', [$fileId]);
     delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+    record_connection_request_activity(
+        $requestId,
+        'file_delete',
+        'Szerelői munkafájl törölve',
+        (string) ($file['original_name'] ?? $file['label'] ?? '')
+    );
 
     return ['ok' => true, 'message' => 'A munka fájl törölve.'];
 }
@@ -5969,6 +6116,12 @@ function delete_connection_request_file(int $fileId, int $requestId): array
 
     db_query('DELETE FROM `connection_request_files` WHERE `id` = ?', [$fileId]);
     delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+    record_connection_request_activity(
+        $requestId,
+        'file_delete',
+        'Ügyfél/adatlap fájl törölve',
+        (string) ($file['original_name'] ?? $file['label'] ?? '')
+    );
 
     return ['ok' => true, 'message' => 'A fájl törölve.'];
 }
@@ -6550,6 +6703,263 @@ function latest_mvm_email_message_preview(array $thread): string
     }
 
     return substr($body, 0, 240);
+}
+
+function connection_request_message_recipient(array $request, string $recipient): ?array
+{
+    $recipient = trim($recipient);
+
+    if ($recipient === 'customer') {
+        $email = trim((string) ($request['email'] ?? ''));
+
+        return $email !== '' ? [
+            'email' => $email,
+            'name' => email_recipient_name($request['requester_name'] ?? ''),
+            'label' => 'ügyfél',
+            'purpose' => 'customer-message',
+            'thread_label' => 'Ügyfél kommunikáció',
+        ] : null;
+    }
+
+    if ($recipient === 'responsible') {
+        $electricianUserId = (int) ($request['assigned_electrician_user_id'] ?? 0);
+        $electrician = $electricianUserId > 0 ? find_electrician_by_user($electricianUserId) : null;
+        $user = $electricianUserId > 0 ? find_user_by_id($electricianUserId) : null;
+        $email = trim((string) ($electrician['email'] ?? $user['email'] ?? ''));
+        $name = trim((string) ($electrician['name'] ?? $user['name'] ?? ''));
+
+        return $email !== '' ? [
+            'email' => $email,
+            'name' => $name,
+            'label' => 'adatlap felelős',
+            'purpose' => 'responsible-message',
+            'thread_label' => 'Adatlap felelős kommunikáció',
+        ] : null;
+    }
+
+    return null;
+}
+
+function send_connection_request_manual_message(int $requestId, string $recipient, string $subject, string $message): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $message = trim($message);
+
+    if ($message === '') {
+        return ['ok' => false, 'message' => 'Az üzenet szövege kötelező.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $recipientData = connection_request_message_recipient($request, $recipient);
+
+    if ($recipientData === null) {
+        return ['ok' => false, 'message' => $recipient === 'responsible'
+            ? 'Az adatlap felelősének nincs elérhető email címe, vagy nincs szerelőhöz rendelve.'
+            : 'Az ügyfél email címe hiányzik.'];
+    }
+
+    $token = customer_email_thread_token($requestId, (string) $recipientData['purpose']);
+    $subject = trim($subject) !== ''
+        ? trim($subject)
+        : APP_NAME . ' üzenet - ' . (string) ($request['project_name'] ?? ('Munka #' . $requestId));
+    $subject = customer_email_thread_subject($subject, $token);
+    $replyAddress = mvm_mail_reply_address();
+    $recipientName = email_recipient_name($recipientData['name'] ?? '');
+    $actor = current_actor_snapshot();
+    $actorLabel = actor_snapshot_label($actor);
+    $sections = [
+        [
+            'title' => 'Adatlap',
+            'rows' => [
+                ['label' => 'Munka', 'value' => $request['project_name'] ?? '-'],
+                ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                ['label' => 'Küldő', 'value' => $actorLabel],
+                ['label' => 'Válaszazonosító', 'value' => $token],
+            ],
+        ],
+        [
+            'title' => 'Üzenet',
+            'lead' => $message,
+        ],
+    ];
+    $actions = $recipient === 'customer'
+        ? [['label' => 'Ügyfélportál megnyitása', 'url' => absolute_url('/customer/work-requests')]]
+        : [['label' => 'Adatlap megnyitása', 'url' => absolute_url('/electrician/work-request?id=' . $requestId)]];
+    $emailTitle = 'Új üzenet érkezett';
+    $emailLead = 'Az adatlapról küldött üzenetet alább találod. Ha erre az emailre válasz érkezik a központi postafiókba, a válaszazonosító alapján ehhez az adatlaphoz kapcsolható.';
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress((string) $recipientData['email'], $recipientName);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
+        $mail->Subject = $subject;
+        apply_branded_email($mail, $emailTitle, $emailLead, $sections, $actions, $recipientName);
+        $mail->send();
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+
+        record_customer_email_thread(
+            $requestId,
+            $token,
+            (string) $recipientData['email'],
+            $subject,
+            (string) $recipientData['thread_label'],
+            branded_email_text($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            branded_email_html($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            $messageId !== '' ? $messageId : null
+        );
+        record_connection_request_activity(
+            $requestId,
+            'message',
+            'Üzenet küldve: ' . (string) $recipientData['label'],
+            $message
+        );
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, (string) $recipientData['email'], $subject, 'sent']);
+
+        return ['ok' => true, 'message' => 'Az üzenetet elküldtük a címzettnek, és bekerült az adatlap előzményei közé.'];
+    } catch (Throwable $exception) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [null, (string) $recipientData['email'], $subject, 'failed', $exception->getMessage()]
+        );
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'Az üzenet küldése sikertelen.'];
+    }
+}
+
+function record_connection_request_manual_inbound_message(int $requestId, string $senderName, string $senderEmail, string $subject, string $body): array
+{
+    if (!mvm_email_schema_is_ready()) {
+        return ['ok' => false, 'message' => 'A levelezési napló tábla nem elérhető.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $body = trim($body);
+
+    if ($body === '') {
+        return ['ok' => false, 'message' => 'A bejövő üzenet szövege kötelező.'];
+    }
+
+    $token = customer_email_thread_token($requestId, 'manual-inbound');
+    $subject = customer_email_thread_subject(trim($subject) !== '' ? trim($subject) : 'Bejövő ügyfélüzenet', $token);
+
+    try {
+        db_query(
+            'INSERT INTO `mvm_email_threads`
+                (`connection_request_id`, `connection_request_document_id`, `token`, `mvm_recipient`, `subject`, `document_label`, `status`, `last_message_at`, `created_by_user_id`)
+             VALUES (?, NULL, ?, ?, ?, ?, ?, NOW(), ?)
+             ON DUPLICATE KEY UPDATE
+                `subject` = VALUES(`subject`),
+                `status` = ?,
+                `last_message_at` = NOW()',
+            [
+                $requestId,
+                $token,
+                trim($senderEmail) !== '' ? trim($senderEmail) : mvm_mail_reply_address(),
+                $subject,
+                'Kézzel rögzített ügyfélkommunikáció',
+                'replied',
+                is_array(current_user()) ? (int) current_user()['id'] : null,
+                'replied',
+            ]
+        );
+        $thread = db_query('SELECT * FROM `mvm_email_threads` WHERE `token` = ? LIMIT 1', [$token])->fetch();
+
+        if (!is_array($thread)) {
+            return ['ok' => false, 'message' => 'A bejövő üzenet szálát nem sikerült létrehozni.'];
+        }
+
+        db_query(
+            'INSERT INTO `mvm_email_messages`
+                (`thread_id`, `connection_request_id`, `direction`, `sender_email`, `sender_name`, `recipient_email`, `subject`, `body_text`, `received_at`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+            [
+                (int) $thread['id'],
+                $requestId,
+                'inbound',
+                trim($senderEmail) !== '' ? trim($senderEmail) : null,
+                trim($senderName) !== '' ? trim($senderName) : null,
+                mvm_mail_reply_address(),
+                $subject,
+                $body,
+            ]
+        );
+        record_connection_request_activity($requestId, 'message_inbound', 'Bejövő üzenet rögzítve', $body);
+
+        return ['ok' => true, 'message' => 'A bejövő üzenet bekerült az adatlap előzményei közé.'];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A bejövő üzenet rögzítése sikertelen.'];
+    }
+}
+
+function connection_request_timeline_events(array $request): array
+{
+    $requestId = (int) ($request['id'] ?? 0);
+    $events = [];
+    $createdAt = trim((string) ($request['created_at'] ?? ''));
+
+    if ($createdAt !== '') {
+        $events[] = [
+            'kind' => 'system',
+            'date' => $createdAt,
+            'title' => 'Adatlap létrejött',
+            'actor' => connection_request_submitter_label($request),
+            'body' => (string) ($request['project_name'] ?? 'Mérőhelyi igény'),
+            'sort' => strtotime($createdAt) ?: 0,
+        ];
+    }
+
+    foreach (connection_request_activity_logs($requestId) as $log) {
+        $date = (string) ($log['created_at'] ?? '');
+        $events[] = [
+            'kind' => (string) ($log['event_type'] ?? 'activity'),
+            'date' => $date,
+            'title' => (string) ($log['title'] ?? 'Adatlap esemény'),
+            'actor' => (string) ($log['actor_label'] ?? 'Rendszer'),
+            'body' => (string) ($log['body'] ?? ''),
+            'sort' => strtotime($date) ?: 0,
+        ];
+    }
+
+    foreach (mvm_email_threads_with_messages($requestId) as $thread) {
+        foreach (($thread['messages'] ?? []) as $message) {
+            $date = (string) (($message['received_at'] ?? '') ?: ($message['created_at'] ?? ''));
+            $direction = (string) ($message['direction'] ?? '');
+            $sender = trim((string) (($message['sender_name'] ?? '') ?: ($message['sender_email'] ?? '')));
+            $recipient = trim((string) ($message['recipient_email'] ?? ''));
+            $body = latest_mvm_email_message_preview(['messages' => [$message]]);
+            $events[] = [
+                'kind' => $direction === 'inbound' ? 'message-inbound' : 'message-outbound',
+                'date' => $date,
+                'title' => $direction === 'inbound' ? 'Bejövő email' : (string) ($thread['document_label'] ?? 'Kimenő email'),
+                'actor' => $direction === 'inbound'
+                    ? ($sender !== '' ? $sender : 'Bejövő levél')
+                    : ($recipient !== '' ? 'Címzett: ' . $recipient : 'Kimenő levél'),
+                'body' => $body,
+                'sort' => strtotime($date) ?: 0,
+            ];
+        }
+    }
+
+    usort($events, static fn (array $a, array $b): int => ((int) ($b['sort'] ?? 0)) <=> ((int) ($a['sort'] ?? 0)));
+
+    return $events;
 }
 
 function send_connection_request_document_to_mvm(int $documentId, string $recipientEmail, string $note = ''): array
@@ -11281,6 +11691,12 @@ function delete_connection_request_document(int $documentId, int $requestId): ar
 
     db_query('DELETE FROM `connection_request_documents` WHERE `id` = ?', [$documentId]);
     delete_storage_files([(string) ($document['storage_path'] ?? '')]);
+    record_connection_request_activity(
+        $requestId,
+        'file_delete',
+        'MVM dokumentum törölve',
+        (string) ($document['original_name'] ?? $document['title'] ?? '')
+    );
 
     return ['ok' => true, 'message' => 'A dokumentum törölve.'];
 }
@@ -14090,6 +14506,13 @@ function minicrm_set_request_electrician_assignment(int $requestId, int $electri
          SET `assigned_electrician_user_id` = ?, `electrician_status` = ?
          WHERE `id` = ?',
         [$electricianUserId, $status, $requestId]
+    );
+    $electrician = find_electrician_by_user($electricianUserId);
+    record_connection_request_activity(
+        $requestId,
+        'assignment',
+        'Adatlap felelőse módosítva',
+        trim((string) ($electrician['name'] ?? $electrician['email'] ?? '')) ?: ('Szerelő #' . $electricianUserId)
     );
 }
 

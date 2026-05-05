@@ -141,6 +141,58 @@ if (is_post() && ($_POST['action'] ?? '') === 'close_portal_workflow_stage') {
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $recipient = (string) ($_POST['message_recipient'] ?? '');
+    $subject = trim((string) ($_POST['message_subject'] ?? ''));
+    $body = trim((string) ($_POST['message_body'] ?? ''));
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó munka azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $result = send_connection_request_manual_message($requestId, $recipient, $subject, $body);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az üzenet küldése sikertelen.'));
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'log_portal_work_inbound_message') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó munka azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $result = record_connection_request_manual_inbound_message(
+        $requestId,
+        trim((string) ($_POST['sender_name'] ?? '')),
+        trim((string) ($_POST['sender_email'] ?? '')),
+        trim((string) ($_POST['inbound_subject'] ?? '')),
+        trim((string) ($_POST['inbound_body'] ?? ''))
+    );
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A bejövő üzenet rögzítése sikertelen.'));
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'sync_portal_work_mailbox') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+    $result = sync_mvm_mailbox_replies();
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A központi postafiók szinkronizálása sikertelen.'));
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : ($requestId > 0 ? '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId : '/admin/minicrm-import#portal-works'));
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     require_valid_csrf_token();
 
@@ -332,6 +384,7 @@ $customerProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by
 $quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
 $requestStatusLabels = $schemaErrors === [] ? connection_request_status_labels() : [];
 $electricianStatusLabels = $schemaErrors === [] ? electrician_work_status_labels() : [];
+$mvmThreadStatusLabels = mvm_email_thread_status_labels();
 $workflowStages = admin_workflow_stage_definitions();
 $totalItems = count($items);
 $totalUnifiedItems = $totalItems + count($standaloneRequests);
@@ -762,6 +815,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $linkedMvmRequestId = $isSelectedItem ? minicrm_work_item_connection_request_id($itemId) : null;
                             $linkedMvmRequest = $linkedMvmRequestId !== null ? find_connection_request((int) $linkedMvmRequestId) : null;
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
+                            $linkedRequestEmailThreads = is_array($linkedMvmRequest) ? mvm_email_threads_with_messages((int) $linkedMvmRequest['id']) : [];
+                            $linkedRequestTimelineEvents = is_array($linkedMvmRequest) ? connection_request_timeline_events($linkedMvmRequest) : [];
                             $mvmGeneratorUrl = url_path('/admin/minicrm-import/mvm-documents') . '?minicrm_item=' . $itemId;
                             $linkedMiniCrmQuotes = $linkedMvmRequestId !== null ? quotes_for_connection_request($linkedMvmRequestId) : [];
                             $linkedAcceptedQuote = $linkedMvmRequestId !== null ? accepted_quote_for_connection_request($linkedMvmRequestId) : null;
@@ -939,6 +994,108 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                     <?php endforeach; ?>
                                                 </ol>
                                             </section>
+
+                                            <?php if (is_array($linkedMvmRequest)): ?>
+                                                <?php
+                                                $linkedRequestId = (int) $linkedMvmRequest['id'];
+                                                $linkedRequestTitle = trim((string) ($linkedMvmRequest['project_name'] ?? '')) ?: (string) ($item['card_name'] ?? 'Munka');
+                                                ?>
+                                                <section class="minicrm-document-preview-panel communication-panel">
+                                                    <div class="admin-request-section-title">
+                                                        <h3>Kommunikáció</h3>
+                                                        <span><?= count($linkedRequestEmailThreads); ?> email szál</span>
+                                                    </div>
+                                                    <p class="muted-text">A normál adatlaphoz tartozó ügyfél és felelős levelezés. A válaszazonosító alapján a központi postafiókból beolvasott válaszok ide kerülnek.</p>
+                                                    <form class="portal-message-form" method="post" action="<?= h($detailUrl); ?>">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="send_portal_work_message">
+                                                        <input type="hidden" name="request_id" value="<?= $linkedRequestId; ?>">
+                                                        <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                        <div class="form-grid two compact">
+                                                            <div>
+                                                                <label for="minicrm_message_recipient_<?= $itemId; ?>">Címzett</label>
+                                                                <select id="minicrm_message_recipient_<?= $itemId; ?>" name="message_recipient" required>
+                                                                    <option value="responsible">Adatlap felelőse<?= !empty($linkedMvmRequest['electrician_name']) ? ' - ' . h((string) $linkedMvmRequest['electrician_name']) : ''; ?></option>
+                                                                    <option value="customer">Ügyfél<?= $profileEmail !== '' ? ' - ' . h($profileEmail) : ''; ?></option>
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label for="minicrm_message_subject_<?= $itemId; ?>">Tárgy</label>
+                                                                <input id="minicrm_message_subject_<?= $itemId; ?>" name="message_subject" value="<?= h(APP_NAME . ' üzenet - ' . $linkedRequestTitle); ?>">
+                                                            </div>
+                                                        </div>
+                                                        <label for="minicrm_message_body_<?= $itemId; ?>">Üzenet</label>
+                                                        <textarea id="minicrm_message_body_<?= $itemId; ?>" name="message_body" rows="4" required></textarea>
+                                                        <div class="form-actions"><button class="button" type="submit">Üzenet küldése</button></div>
+                                                    </form>
+                                                    <details class="portal-message-manual-log">
+                                                        <summary>Bejövő email kézi rögzítése</summary>
+                                                        <form class="portal-message-form" method="post" action="<?= h($detailUrl); ?>">
+                                                            <?= csrf_field(); ?>
+                                                            <input type="hidden" name="action" value="log_portal_work_inbound_message">
+                                                            <input type="hidden" name="request_id" value="<?= $linkedRequestId; ?>">
+                                                            <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                            <div class="form-grid two compact">
+                                                                <div><label>Küldő neve</label><input name="sender_name" value="<?= h($profileName !== '' ? $profileName : (string) ($item['customer_name'] ?: $item['card_name'] ?: '')); ?>"></div>
+                                                                <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($profileEmail); ?>"></div>
+                                                            </div>
+                                                            <label>Tárgy</label><input name="inbound_subject" value="Bejövő ügyfélüzenet">
+                                                            <label>Üzenet szövege</label><textarea name="inbound_body" rows="4" required></textarea>
+                                                            <div class="form-actions"><button class="button button-secondary" type="submit">Bejövő üzenet rögzítése</button></div>
+                                                        </form>
+                                                    </details>
+                                                    <form class="inline-form portal-mail-sync-form" method="post" action="<?= h($detailUrl); ?>">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="sync_portal_work_mailbox">
+                                                        <input type="hidden" name="request_id" value="<?= $linkedRequestId; ?>">
+                                                        <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                        <button class="button button-secondary" type="submit">Központi postafiók szinkronizálása</button>
+                                                    </form>
+                                                    <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
+                                                        <div class="alert alert-info"><p>Az automatikus beolvasáshoz az IMAP jelszót a <strong>storage/config/local.secret.php</strong> fájlban kell megadni. Addig a bejövő email kézzel is rögzíthető.</p></div>
+                                                    <?php endif; ?>
+                                                    <?php if ($linkedRequestEmailThreads !== []): ?>
+                                                        <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
+                                                            <?php foreach ($linkedRequestEmailThreads as $thread): ?>
+                                                                <article class="mvm-mail-thread">
+                                                                    <div class="mvm-mail-thread-head">
+                                                                        <div>
+                                                                            <span class="portal-kicker"><?= h((string) $thread['token']); ?></span>
+                                                                            <strong><?= h((string) $thread['document_label']); ?></strong>
+                                                                            <p><?= h((string) $thread['subject']); ?></p>
+                                                                        </div>
+                                                                        <span class="status-badge status-badge-<?= h((string) $thread['status']); ?>"><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></span>
+                                                                    </div>
+                                                                    <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
+                                                                </article>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </section>
+
+                                                <section class="minicrm-timeline-panel">
+                                                    <div class="admin-request-section-title">
+                                                        <h3>Adatlap idővonal</h3>
+                                                        <span><?= count($linkedRequestTimelineEvents); ?> esemény</span>
+                                                    </div>
+                                                    <?php if ($linkedRequestTimelineEvents === []): ?>
+                                                        <p class="request-admin-empty">Ehhez az adatlaphoz még nincs naplózott esemény.</p>
+                                                    <?php else: ?>
+                                                        <ol class="minicrm-timeline">
+                                                            <?php foreach ($linkedRequestTimelineEvents as $event): ?>
+                                                                <li class="minicrm-timeline-event minicrm-timeline-<?= h((string) $event['kind']); ?>">
+                                                                    <time><?= h((string) $event['date']); ?></time>
+                                                                    <div>
+                                                                        <strong><?= h((string) $event['title']); ?></strong>
+                                                                        <span><?= h((string) $event['actor']); ?></span>
+                                                                        <p><?= h((string) $event['body']); ?></p>
+                                                                    </div>
+                                                                </li>
+                                                            <?php endforeach; ?>
+                                                        </ol>
+                                                    <?php endif; ?>
+                                                </section>
+                                            <?php endif; ?>
 
                                             <section class="minicrm-document-preview-panel">
                                                 <div class="admin-request-section-title">
@@ -1267,6 +1424,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $requestFiles = $isSelectedRequest ? connection_request_files($requestId) : [];
                                         $requestWorkFiles = $isSelectedRequest ? connection_request_work_files($requestId) : [];
                                         $requestDocuments = $isSelectedRequest ? connection_request_documents($requestId) : [];
+                                        $requestEmailThreads = $isSelectedRequest ? mvm_email_threads_with_messages($requestId) : [];
+                                        $requestTimelineEvents = $isSelectedRequest ? connection_request_timeline_events($request) : [];
                                         $requestAcceptedQuote = $isSelectedRequest ? accepted_quote_for_connection_request($requestId) : null;
                                         $requestWorkflowStage = $isSelectedRequest
                                             ? connection_request_admin_workflow_stage($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
@@ -1400,6 +1559,110 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         </aside>
 
                                                         <div class="minicrm-work-main">
+                                                            <section class="minicrm-document-preview-panel communication-panel">
+                                                                <div class="admin-request-section-title">
+                                                                    <h3>Kommunikáció</h3>
+                                                                    <span><?= count($requestEmailThreads); ?> email szál</span>
+                                                                </div>
+                                                                <p class="muted-text">A kiküldött ügyfél és felelős üzenetek tárgyában válaszazonosító van. Ha a központi postafiókra válasz érkezik, a szinkron ehhez az adatlaphoz kapcsolja.</p>
+
+                                                                <form class="portal-message-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                    <?= csrf_field(); ?>
+                                                                    <input type="hidden" name="action" value="send_portal_work_message">
+                                                                    <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                    <div class="form-grid two compact">
+                                                                        <div>
+                                                                            <label for="message_recipient_<?= $requestId; ?>">Címzett</label>
+                                                                            <select id="message_recipient_<?= $requestId; ?>" name="message_recipient" required>
+                                                                                <option value="responsible">Adatlap felelőse<?= !empty($request['electrician_name']) ? ' - ' . h((string) $request['electrician_name']) : ''; ?></option>
+                                                                                <option value="customer">Ügyfél<?= $displayEmail !== '' ? ' - ' . h($displayEmail) : ''; ?></option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label for="message_subject_<?= $requestId; ?>">Tárgy</label>
+                                                                            <input id="message_subject_<?= $requestId; ?>" name="message_subject" value="<?= h(APP_NAME . ' üzenet - ' . $requestTitle); ?>">
+                                                                        </div>
+                                                                    </div>
+                                                                    <label for="message_body_<?= $requestId; ?>">Üzenet</label>
+                                                                    <textarea id="message_body_<?= $requestId; ?>" name="message_body" rows="4" required></textarea>
+                                                                    <div class="form-actions">
+                                                                        <button class="button" type="submit">Üzenet küldése</button>
+                                                                    </div>
+                                                                </form>
+
+                                                                <details class="portal-message-manual-log">
+                                                                    <summary>Bejövő email kézi rögzítése</summary>
+                                                                    <form class="portal-message-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                        <?= csrf_field(); ?>
+                                                                        <input type="hidden" name="action" value="log_portal_work_inbound_message">
+                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                        <div class="form-grid two compact">
+                                                                            <div><label>Küldő neve</label><input name="sender_name" value="<?= h($requestCustomerName); ?>"></div>
+                                                                            <div><label>Küldő email címe</label><input name="sender_email" type="email" value="<?= h($displayEmail); ?>"></div>
+                                                                        </div>
+                                                                        <label>Tárgy</label>
+                                                                        <input name="inbound_subject" value="Bejövő ügyfélüzenet">
+                                                                        <label>Üzenet szövege</label>
+                                                                        <textarea name="inbound_body" rows="4" required></textarea>
+                                                                        <div class="form-actions">
+                                                                            <button class="button button-secondary" type="submit">Bejövő üzenet rögzítése</button>
+                                                                        </div>
+                                                                    </form>
+                                                                </details>
+
+                                                                <form class="inline-form portal-mail-sync-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                    <?= csrf_field(); ?>
+                                                                    <input type="hidden" name="action" value="sync_portal_work_mailbox">
+                                                                    <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                    <button class="button button-secondary" type="submit">Központi postafiók szinkronizálása</button>
+                                                                </form>
+
+                                                                <?php if (trim(mvm_config_value('MVM_IMAP_PASS', '')) === ''): ?>
+                                                                    <div class="alert alert-info"><p>Az automatikus beolvasáshoz az IMAP jelszót a <strong>storage/config/local.secret.php</strong> fájlban kell megadni. Addig a bejövő email kézzel is rögzíthető.</p></div>
+                                                                <?php endif; ?>
+
+                                                                <?php if ($requestEmailThreads !== []): ?>
+                                                                    <div class="mvm-mail-thread-list mvm-mail-thread-list-compact">
+                                                                        <?php foreach ($requestEmailThreads as $thread): ?>
+                                                                            <article class="mvm-mail-thread">
+                                                                                <div class="mvm-mail-thread-head">
+                                                                                    <div>
+                                                                                        <span class="portal-kicker"><?= h((string) $thread['token']); ?></span>
+                                                                                        <strong><?= h((string) $thread['document_label']); ?></strong>
+                                                                                        <p><?= h((string) $thread['subject']); ?></p>
+                                                                                    </div>
+                                                                                    <span class="status-badge status-badge-<?= h((string) $thread['status']); ?>"><?= h($mvmThreadStatusLabels[$thread['status']] ?? (string) $thread['status']); ?></span>
+                                                                                </div>
+                                                                                <p><?= h(latest_mvm_email_message_preview($thread)); ?></p>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                <?php endif; ?>
+                                                            </section>
+
+                                                            <section class="minicrm-timeline-panel">
+                                                                <div class="admin-request-section-title">
+                                                                    <h3>Adatlap idővonal</h3>
+                                                                    <span><?= count($requestTimelineEvents); ?> esemény</span>
+                                                                </div>
+                                                                <?php if ($requestTimelineEvents === []): ?>
+                                                                    <p class="request-admin-empty">Ehhez az adatlaphoz még nincs naplózott esemény.</p>
+                                                                <?php else: ?>
+                                                                    <ol class="minicrm-timeline">
+                                                                        <?php foreach ($requestTimelineEvents as $event): ?>
+                                                                            <li class="minicrm-timeline-event minicrm-timeline-<?= h((string) $event['kind']); ?>">
+                                                                                <time><?= h((string) $event['date']); ?></time>
+                                                                                <div>
+                                                                                    <strong><?= h((string) $event['title']); ?></strong>
+                                                                                    <span><?= h((string) $event['actor']); ?></span>
+                                                                                    <p><?= h((string) $event['body']); ?></p>
+                                                                                </div>
+                                                                            </li>
+                                                                        <?php endforeach; ?>
+                                                                    </ol>
+                                                                <?php endif; ?>
+                                                            </section>
+
                                                             <section class="minicrm-document-preview-panel minicrm-quote-panel">
                                                                 <div class="admin-request-section-title">
                                                                     <h3>Aj&#225;nlatok</h3>
