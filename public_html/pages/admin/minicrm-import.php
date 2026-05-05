@@ -148,6 +148,8 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
     $recipient = (string) ($_POST['message_recipient'] ?? '');
     $subject = trim((string) ($_POST['message_subject'] ?? ''));
     $body = trim((string) ($_POST['message_body'] ?? ''));
+    $customerEmail = trim((string) ($_POST['customer_recipient_email'] ?? ''));
+    $customerName = trim((string) ($_POST['customer_recipient_name'] ?? ''));
     $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
 
     if ($requestId <= 0) {
@@ -155,7 +157,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
         redirect('/admin/minicrm-import#portal-works');
     }
 
-    $result = send_connection_request_manual_message($requestId, $recipient, $subject, $body);
+    $result = send_connection_request_manual_message($requestId, $recipient, $subject, $body, $customerEmail, $customerName);
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az üzenet küldése sikertelen.'));
     redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
@@ -1024,6 +1026,16 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <input id="minicrm_message_subject_<?= $itemId; ?>" name="message_subject" value="<?= h(APP_NAME . ' üzenet - ' . $linkedRequestTitle); ?>">
                                                             </div>
                                                         </div>
+                                                        <div class="form-grid two compact">
+                                                            <div>
+                                                                <label for="minicrm_customer_recipient_email_<?= $itemId; ?>">Ügyfél email címzett</label>
+                                                                <input id="minicrm_customer_recipient_email_<?= $itemId; ?>" name="customer_recipient_email" type="text" inputmode="email" autocomplete="email" value="<?= h($profileEmail !== '' ? $profileEmail : (string) ($linkedMvmRequest['email'] ?? '')); ?>">
+                                                            </div>
+                                                            <div>
+                                                                <label for="minicrm_customer_recipient_name_<?= $itemId; ?>">Ügyfél címzett neve</label>
+                                                                <input id="minicrm_customer_recipient_name_<?= $itemId; ?>" name="customer_recipient_name" value="<?= h($profileName !== '' ? $profileName : (string) ($item['customer_name'] ?: $item['card_name'] ?: '')); ?>">
+                                                            </div>
+                                                        </div>
                                                         <label for="minicrm_message_body_<?= $itemId; ?>">Üzenet</label>
                                                         <textarea id="minicrm_message_body_<?= $itemId; ?>" name="message_body" rows="4" required></textarea>
                                                         <div class="form-actions"><button class="button" type="submit">Üzenet küldése</button></div>
@@ -1581,6 +1593,16 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                         <div>
                                                                             <label for="message_subject_<?= $requestId; ?>">Tárgy</label>
                                                                             <input id="message_subject_<?= $requestId; ?>" name="message_subject" value="<?= h(APP_NAME . ' üzenet - ' . $requestTitle); ?>">
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="form-grid two compact">
+                                                                        <div>
+                                                                            <label for="customer_recipient_email_<?= $requestId; ?>">Ügyfél email címzett</label>
+                                                                            <input id="customer_recipient_email_<?= $requestId; ?>" name="customer_recipient_email" type="text" inputmode="email" autocomplete="email" value="<?= h($displayEmail); ?>">
+                                                                        </div>
+                                                                        <div>
+                                                                            <label for="customer_recipient_name_<?= $requestId; ?>">Ügyfél címzett neve</label>
+                                                                            <input id="customer_recipient_name_<?= $requestId; ?>" name="customer_recipient_name" value="<?= h($requestCustomerName); ?>">
                                                                         </div>
                                                                     </div>
                                                                     <label for="message_body_<?= $requestId; ?>">Üzenet</label>

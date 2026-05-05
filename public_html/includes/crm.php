@@ -6705,16 +6705,17 @@ function latest_mvm_email_message_preview(array $thread): string
     return substr($body, 0, 240);
 }
 
-function connection_request_message_recipient(array $request, string $recipient): ?array
+function connection_request_message_recipient(array $request, string $recipient, string $customerEmail = '', string $customerName = ''): ?array
 {
     $recipient = trim($recipient);
 
     if ($recipient === 'customer') {
-        $email = trim((string) ($request['email'] ?? ''));
+        $email = trim($customerEmail) !== '' ? trim($customerEmail) : trim((string) ($request['email'] ?? ''));
+        $name = trim($customerName) !== '' ? trim($customerName) : (string) ($request['requester_name'] ?? '');
 
         return $email !== '' ? [
             'email' => $email,
-            'name' => email_recipient_name($request['requester_name'] ?? ''),
+            'name' => email_recipient_name($name),
             'label' => 'ügyfél',
             'purpose' => 'customer-message',
             'thread_label' => 'Ügyfél kommunikáció',
@@ -6740,7 +6741,7 @@ function connection_request_message_recipient(array $request, string $recipient)
     return null;
 }
 
-function send_connection_request_manual_message(int $requestId, string $recipient, string $subject, string $message): array
+function send_connection_request_manual_message(int $requestId, string $recipient, string $subject, string $message, string $customerEmail = '', string $customerName = ''): array
 {
     $request = find_connection_request($requestId);
 
@@ -6748,6 +6749,7 @@ function send_connection_request_manual_message(int $requestId, string $recipien
         return ['ok' => false, 'message' => 'Az adatlap nem található.'];
     }
 
+    $recipient = trim($recipient);
     $message = trim($message);
 
     if ($message === '') {
@@ -6758,12 +6760,16 @@ function send_connection_request_manual_message(int $requestId, string $recipien
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
-    $recipientData = connection_request_message_recipient($request, $recipient);
+    $recipientData = connection_request_message_recipient($request, $recipient, $customerEmail, $customerName);
 
     if ($recipientData === null) {
         return ['ok' => false, 'message' => $recipient === 'responsible'
             ? 'Az adatlap felelősének nincs elérhető email címe, vagy nincs szerelőhöz rendelve.'
             : 'Az ügyfél email címe hiányzik.'];
+    }
+
+    if (!filter_var((string) $recipientData['email'], FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'A címzett email címe nem érvényes.'];
     }
 
     $token = customer_email_thread_token($requestId, (string) $recipientData['purpose']);
@@ -6781,6 +6787,7 @@ function send_connection_request_manual_message(int $requestId, string $recipien
             'rows' => [
                 ['label' => 'Munka', 'value' => $request['project_name'] ?? '-'],
                 ['label' => 'Ügyfél', 'value' => ($request['requester_name'] ?? '-') . "\n" . ($request['email'] ?? '-') . "\n" . ($request['phone'] ?? '-')],
+                ['label' => 'Címzett email', 'value' => (string) $recipientData['email']],
                 ['label' => 'Cím', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
                 ['label' => 'Küldő', 'value' => $actorLabel],
                 ['label' => 'Válaszazonosító', 'value' => $token],
@@ -6823,7 +6830,7 @@ function send_connection_request_manual_message(int $requestId, string $recipien
             $requestId,
             'message',
             'Üzenet küldve: ' . (string) $recipientData['label'],
-            $message
+            'Címzett: ' . (string) $recipientData['email'] . "\n\n" . $message
         );
         db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, (string) $recipientData['email'], $subject, 'sent']);
 
