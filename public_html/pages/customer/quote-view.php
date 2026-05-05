@@ -18,6 +18,7 @@ $intent = (string) ($_GET['intent'] ?? '');
 $status = (string) ($quote['status'] ?? 'sent');
 $canRespond = !in_array($status, ['accepted', 'consultation_requested'], true);
 $quoteState = quote_state_summary($quote, $status === 'accepted' ? $quote : null);
+$acceptanceFeeNotice = quote_acceptance_fee_notice((int) $quote['id']);
 
 if (is_post()) {
     require_valid_csrf_token();
@@ -86,7 +87,7 @@ if (is_post()) {
         <div id="quote-actions" class="quote-response-panel">
             <?php if ($canRespond): ?>
                 <?php if ($intent === 'accept'): ?>
-                    <div class="alert alert-info"><p>Az elfogadáshoz kattints az alábbi gombra.</p></div>
+                    <div class="alert alert-info"><p>Az elfogadáshoz kérjük, olvasd át az alábbi tájékoztatást, majd kattints az elfogadás gombra.</p></div>
                 <?php elseif ($intent === 'consultation'): ?>
                     <div class="alert alert-info"><p>Írd le röviden, miről szeretnél egyeztetni, majd küldd el a kérést.</p></div>
                 <?php endif; ?>
@@ -95,7 +96,10 @@ if (is_post()) {
                     <form method="post" action="<?= h(url_path('/customer/quotes/view') . '?id=' . (int) $quote['id']); ?>" class="quote-response-card">
                         <?= csrf_field(); ?>
                         <h2>Elfogadás</h2>
-                        <p>Ha az ajánlat megfelelő, itt tudod elfogadni. Az admin azonnal értesítést kap.</p>
+                        <p>Ha az ajánlat megfelelő, itt tudod elfogadni. Az elfogadásról munkatársaink automatikusan értesítést kapnak.</p>
+                        <?php if ($acceptanceFeeNotice !== ''): ?>
+                            <p class="quote-acceptance-note"><?= h($acceptanceFeeNotice); ?></p>
+                        <?php endif; ?>
                         <button class="button" name="quote_action" value="accept" type="submit">Elfogadom az árajánlatot</button>
                     </form>
 

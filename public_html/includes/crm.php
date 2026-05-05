@@ -2456,26 +2456,20 @@ function record_quote_customer_response(int $quoteId, string $response, string $
         $notification = notify_admin_quote_response($quoteId, $response, $message);
         $registrationOffer = send_quote_registration_offer($quoteId);
         $feeRequest = send_quote_fee_request_email($quoteId);
-        $responseMessage = 'Az árajánlat elfogadását rögzítettük';
-
-        if ($notification['ok']) {
-            $responseMessage .= ', és értesítettük az admint';
-        } else {
-            $responseMessage .= ', de az admin email értesítés nem ment ki: ' . $notification['message'];
-        }
-
-        if ($registrationOffer['ok'] && $registrationOffer['message'] === 'Az ügyfélnek már van saját profilja.') {
-            $responseMessage .= '. Az ügyfélnek már van saját profilja.';
-        } elseif ($registrationOffer['ok']) {
-            $responseMessage .= '. A saját profil regisztrációs lehetőségét elküldtük emailben.';
-        } else {
-            $responseMessage .= '. A saját profil regisztrációs email küldése nem sikerült.';
-        }
+        $responseMessage = 'Köszönjük, az árajánlat elfogadását rögzítettük.';
 
         if ($feeRequest['ok']) {
-            $responseMessage .= ' A díjbekérőt elküldtük emailben.';
+            $responseMessage .= ' Az ügykezelési díjról a díjbekérőt emailben elküldtük. A munka MVM felé történő indítását a díj beérkezése után tudjuk megkezdeni.';
         } else {
-            $responseMessage .= ' A díjbekérő automatikus kiküldése nem sikerült, admin felületen újraindítható.';
+            $responseMessage .= ' Az ügykezelési díjbekérő automatikus kiküldése közben technikai hiba történt, kollégáink ellenőrzik és szükség esetén külön jelentkeznek.';
+        }
+
+        if ($registrationOffer['ok'] && $registrationOffer['message'] !== 'Az ügyfélnek már van saját profilja.') {
+            $responseMessage .= ' Külön emailben elküldtük a saját ügyfélprofil létrehozásának lehetőségét is.';
+        }
+
+        if (!$notification['ok']) {
+            $responseMessage .= ' Az adminisztrátori értesítés küldését a rendszer naplózta, munkatársaink ellenőrizni tudják.';
         }
 
         return [
@@ -3801,6 +3795,36 @@ function quote_fee_request_selection(int $quoteId): array
     ];
 }
 
+function quote_fee_request_line_amount(array $line): string
+{
+    return format_money((float) ($line['line_gross'] ?? 0));
+}
+
+function quote_acceptance_fee_notice(int $quoteId): string
+{
+    $selection = quote_fee_request_selection($quoteId);
+
+    if (!($selection['ok'] ?? false) || !is_array($selection['line'] ?? null)) {
+        return '';
+    }
+
+    $amount = quote_fee_request_line_amount($selection['line']);
+
+    return 'Az árajánlat elfogadásakor az abban szereplő ' . $amount . ' bruttó ügykezelési díjról automatikusan díjbekérőt állítunk ki, amelyet emailben küldünk el. A munka MVM felé történő indítását a díj beérkezése után tudjuk megkezdeni. Köszönjük a megértését és együttműködését.';
+}
+
+function quote_fee_request_customer_email_text(array $quote, array $line): string
+{
+    $recipientName = email_recipient_name($quote['requester_name'] ?? '');
+    $amount = quote_fee_request_line_amount($line);
+    $greeting = $recipientName !== '' ? 'Tisztelt ' . $recipientName . '!' : 'Tisztelt Ügyfelünk!';
+
+    return $greeting . "\n\n"
+        . 'Köszönjük szépen, hogy elfogadta árajánlatunkat. Az elfogadott ajánlatban szereplő aktuális ügykezelési díjról (' . $amount . ' bruttó) elkészítettük a díjbekérőt, amelyet csatolva küldünk.' . "\n\n"
+        . 'Kérjük, hogy a díjbekérő kiegyenlítéséről a rajta szereplő fizetési határidőig szíveskedjen gondoskodni. A munkát az MVM felé a díj beérkezése után tudjuk éles ügyintézésként elindítani.' . "\n\n"
+        . 'Köszönjük az együttműködését.';
+}
+
 function quote_fee_request_safe_part(string $value): string
 {
     $safe = preg_replace('/[^A-Za-z0-9_-]+/', '-', $value);
@@ -4280,6 +4304,7 @@ function send_quote_fee_request_email(int $quoteId, string $note = ''): array
 
     $baseNote = 'Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-');
     $quote['fee_request_note'] = fee_request_note_with_extra($baseNote, $note);
+    $quote['fee_request_email_text'] = quote_fee_request_customer_email_text($quote, $selection['line']);
     $subject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
     $result = szamlazz_create_quote_fee_request($quote, $selection['line']);
 
@@ -4405,6 +4430,15 @@ function send_quote_email(int $quoteId): array
             ],
         ],
     ];
+    $feeNotice = quote_acceptance_fee_notice($quoteId);
+
+    if ($feeNotice !== '') {
+        $emailSections[] = [
+            'title' => 'Elfogadás utáni ügykezelési díj',
+            'lead' => $feeNotice,
+        ];
+    }
+
     $emailActions = [
         ['label' => 'Árajánlat megtekintése', 'url' => quote_customer_action_url($quote)],
         ['label' => 'Árajánlat elfogadása', 'url' => quote_customer_action_url($quote, 'accept')],
