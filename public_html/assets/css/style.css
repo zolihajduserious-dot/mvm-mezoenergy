@@ -535,6 +535,35 @@ video {
     font-size: 1.2rem;
 }
 
+.development-suggestion-list {
+    display: grid;
+    gap: 16px;
+}
+
+.development-suggestion-card {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.development-suggestion-card h3 {
+    margin: 0 0 6px;
+    color: var(--color-text);
+    font-size: 1.05rem;
+}
+
+.development-suggestion-card p {
+    margin: 0;
+}
+
+.development-suggestion-review-form {
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
 .auth-panel-links {
     display: flex;
     flex-wrap: wrap;

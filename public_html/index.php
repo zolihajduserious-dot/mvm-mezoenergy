@@ -99,6 +99,10 @@ $routes = [
         'title' => 'Profil',
         'file' => PAGE_PATH . '/profile.php',
     ],
+    'feedback' => [
+        'title' => 'Fejlesztési javaslatok',
+        'file' => PAGE_PATH . '/feedback.php',
+    ],
     'quick-quote' => [
         'title' => 'Gyors árajánlat',
         'file' => PAGE_PATH . '/quick-quote.php',
@@ -395,16 +399,19 @@ try {
                         <?php if (can_view_super_admin_overview()): ?>
                             <a href="<?= h(url_path('/admin/super-overview')); ?>">Szuper riport</a>
                         <?php endif; ?>
+                        <a href="<?= h(url_path('/feedback')); ?>">Javaslat</a>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/admin/profile')); ?>">Profil</a>
                     <?php elseif (is_general_contractor_user()): ?>
                         <a href="<?= h(url_path('/contractor/work-requests')); ?>">Igények</a>
                         <a href="<?= h(url_path('/contractor/work-request')); ?>">Új igény</a>
+                        <a href="<?= h(url_path('/feedback')); ?>">Javaslat</a>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/contractor/profile')); ?>">Profil</a>
                     <?php elseif (is_electrician_user()): ?>
                         <a href="<?= h(url_path('/electrician/work-requests')); ?>">Munkáim</a>
                         <a href="<?= h(url_path('/electrician/work-request')); ?>">Új felmérés</a>
+                        <a href="<?= h(url_path('/feedback')); ?>">Javaslat</a>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/electrician/profile')); ?>">Profil</a>
                     <?php else: ?>

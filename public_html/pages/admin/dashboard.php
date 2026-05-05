@@ -17,6 +17,7 @@ $staffUserCount = null;
 $minicrmImportCount = null;
 $standaloneConnectionRequestCount = null;
 $calendarBookedCount = null;
+$developmentSuggestionCounts = null;
 $workflowStages = admin_workflow_stage_definitions();
 $workflowStageCounts = array_fill_keys(array_keys($workflowStages), 0);
 $showDashboardWorkflow = false;
@@ -38,6 +39,7 @@ try {
             ['booked']
         )->fetchColumn()
         : null;
+    $developmentSuggestionCounts = development_suggestion_counts();
 
     if (db_table_exists('connection_requests') && db_table_exists('minicrm_connection_request_links')) {
         $standaloneConnectionRequestCount = (int) db_query(
@@ -145,6 +147,13 @@ $dashboardCards = [
         'description' => 'Letölthető meghatalmazások, nyilatkozatok és ügyintézési dokumentumok.',
         'href' => '/admin/documents',
         'variant' => 'accent',
+    ],
+    [
+        'label' => 'Javaslatok',
+        'value' => is_array($developmentSuggestionCounts) ? (int) ($developmentSuggestionCounts['new'] ?? 0) : '-',
+        'description' => 'Beérkezett fejlesztési ötletek és hibajelzések áttekintése.',
+        'href' => '/feedback',
+        'variant' => 'system',
     ],
     [
         'label' => 'Árlista tételek',

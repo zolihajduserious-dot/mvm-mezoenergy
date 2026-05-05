@@ -94,6 +94,7 @@ if (is_post()) {
                 </dl>
 
                 <div class="form-actions">
+                    <a class="button" href="<?= h(url_path('/feedback')); ?>">Fejlesztési javaslat</a>
                     <a class="button" href="<?= h(url_path('/quick-quote')); ?>">Gyors árajánlat</a>
                     <a class="button button-secondary" href="<?= h(url_path(dashboard_path_for_user())); ?>">Vissza</a>
                 </div>

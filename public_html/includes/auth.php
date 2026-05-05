@@ -321,6 +321,16 @@ function can_view_super_admin_overview(): bool
     return is_admin_user();
 }
 
+function can_submit_development_suggestion(): bool
+{
+    return is_logged_in() && !is_customer_user();
+}
+
+function can_manage_development_suggestions(): bool
+{
+    return is_admin_user();
+}
+
 function is_specialist_user(): bool
 {
     return current_user_role() === 'specialist';

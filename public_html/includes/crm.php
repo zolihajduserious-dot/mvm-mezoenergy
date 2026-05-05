@@ -1566,6 +1566,233 @@ function connection_request_activity_logs(int $requestId): array
     )->fetchAll();
 }
 
+function development_suggestion_schema_errors(): array
+{
+    try {
+        if (!db_table_exists('development_suggestions')) {
+            db_query(
+                "CREATE TABLE IF NOT EXISTS `development_suggestions` (
+                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `user_id` INT UNSIGNED NULL,
+                    `user_role` VARCHAR(40) NOT NULL,
+                    `user_name` VARCHAR(160) DEFAULT NULL,
+                    `user_email` VARCHAR(190) DEFAULT NULL,
+                    `title` VARCHAR(190) NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `status` ENUM('new', 'reviewing', 'accepted', 'rejected', 'done') NOT NULL DEFAULT 'new',
+                    `admin_note` TEXT DEFAULT NULL,
+                    `reviewed_by_user_id` INT UNSIGNED NULL,
+                    `reviewed_at` DATETIME DEFAULT NULL,
+                    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`),
+                    KEY `idx_development_suggestions_user` (`user_id`, `created_at`),
+                    KEY `idx_development_suggestions_status` (`status`, `created_at`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'A fejlesztési javaslatok táblájának létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'A fejlesztési javaslatok adatbázis-táblájának létrehozása szükséges.',
+        ];
+    }
+
+    return [];
+}
+
+function development_suggestions_are_ready(): bool
+{
+    return development_suggestion_schema_errors() === [];
+}
+
+function development_suggestion_status_labels(): array
+{
+    return [
+        'new' => 'Új',
+        'reviewing' => 'Átnézés alatt',
+        'accepted' => 'Elfogadva',
+        'rejected' => 'Nem kerül megvalósításra',
+        'done' => 'Elkészült',
+    ];
+}
+
+function development_suggestion_status_label(string $status): string
+{
+    $labels = development_suggestion_status_labels();
+
+    return $labels[$status] ?? $status;
+}
+
+function validate_development_suggestion(array $data): array
+{
+    $errors = [];
+
+    if (trim((string) ($data['title'] ?? '')) === '') {
+        $errors[] = 'A rövid cím megadása kötelező.';
+    }
+
+    if (trim((string) ($data['body'] ?? '')) === '') {
+        $errors[] = 'Írd le röviden a javaslatot vagy hibát.';
+    }
+
+    if (function_exists('mb_strlen')) {
+        if (mb_strlen(trim((string) ($data['title'] ?? '')), 'UTF-8') > 190) {
+            $errors[] = 'A cím legfeljebb 190 karakter lehet.';
+        }
+
+        if (mb_strlen(trim((string) ($data['body'] ?? '')), 'UTF-8') > 5000) {
+            $errors[] = 'A leírás legfeljebb 5000 karakter lehet.';
+        }
+    } else {
+        if (strlen(trim((string) ($data['title'] ?? ''))) > 190) {
+            $errors[] = 'A cím legfeljebb 190 karakter lehet.';
+        }
+
+        if (strlen(trim((string) ($data['body'] ?? ''))) > 5000) {
+            $errors[] = 'A leírás legfeljebb 5000 karakter lehet.';
+        }
+    }
+
+    return $errors;
+}
+
+function create_development_suggestion(array $data): array
+{
+    $schemaErrors = development_suggestion_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    if (!can_submit_development_suggestion()) {
+        return ['ok' => false, 'message' => 'Fejlesztési javaslatot csak belső felhasználó küldhet be.'];
+    }
+
+    $errors = validate_development_suggestion($data);
+
+    if ($errors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $errors)];
+    }
+
+    $user = current_user();
+    $userId = is_array($user) ? (int) $user['id'] : null;
+    $role = current_user_role();
+    db_query(
+        'INSERT INTO `development_suggestions`
+            (`user_id`, `user_role`, `user_name`, `user_email`, `title`, `body`)
+         VALUES (?, ?, ?, ?, ?, ?)',
+        [
+            $userId !== null && $userId > 0 ? $userId : null,
+            $role,
+            is_array($user) ? (string) ($user['name'] ?? '') : null,
+            is_array($user) ? (string) ($user['email'] ?? '') : null,
+            trim((string) ($data['title'] ?? '')),
+            trim((string) ($data['body'] ?? '')),
+        ]
+    );
+
+    return ['ok' => true, 'message' => 'Köszönjük, a fejlesztési javaslat rögzítve lett.'];
+}
+
+function development_suggestions_for_user(int $userId, int $limit = 30): array
+{
+    if ($userId <= 0 || !development_suggestions_are_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT ds.*, ru.name AS reviewed_by_name, ru.email AS reviewed_by_email, ru.role AS reviewed_by_role, ru.is_admin AS reviewed_by_is_admin
+         FROM `development_suggestions` ds
+         LEFT JOIN `users` ru ON ru.id = ds.reviewed_by_user_id
+         WHERE ds.`user_id` = ?
+         ORDER BY ds.`created_at` DESC, ds.`id` DESC
+         LIMIT ' . max(1, min(200, $limit)),
+        [$userId]
+    )->fetchAll();
+}
+
+function all_development_suggestions(int $limit = 200): array
+{
+    if (!development_suggestions_are_ready()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT ds.*, ru.name AS reviewed_by_name, ru.email AS reviewed_by_email, ru.role AS reviewed_by_role, ru.is_admin AS reviewed_by_is_admin
+         FROM `development_suggestions` ds
+         LEFT JOIN `users` ru ON ru.id = ds.reviewed_by_user_id
+         ORDER BY FIELD(ds.`status`, \'new\', \'reviewing\', \'accepted\', \'done\', \'rejected\'), ds.`created_at` DESC, ds.`id` DESC
+         LIMIT ' . max(1, min(500, $limit))
+    )->fetchAll();
+}
+
+function development_suggestion_counts(): array
+{
+    $counts = array_fill_keys(array_keys(development_suggestion_status_labels()), 0);
+
+    if (!development_suggestions_are_ready()) {
+        return $counts;
+    }
+
+    foreach (db_query('SELECT `status`, COUNT(*) AS item_count FROM `development_suggestions` GROUP BY `status`')->fetchAll() as $row) {
+        $status = (string) ($row['status'] ?? '');
+
+        if (array_key_exists($status, $counts)) {
+            $counts[$status] = (int) $row['item_count'];
+        }
+    }
+
+    return $counts;
+}
+
+function update_development_suggestion_status(int $suggestionId, string $status, string $adminNote = ''): array
+{
+    $schemaErrors = development_suggestion_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    if (!can_manage_development_suggestions()) {
+        return ['ok' => false, 'message' => 'A javaslatok státuszát csak főadmin módosíthatja.'];
+    }
+
+    if ($suggestionId <= 0) {
+        return ['ok' => false, 'message' => 'Hiányzó fejlesztési javaslat azonosító.'];
+    }
+
+    if (!array_key_exists($status, development_suggestion_status_labels())) {
+        return ['ok' => false, 'message' => 'Érvénytelen javaslat státusz.'];
+    }
+
+    $user = current_user();
+    db_query(
+        'UPDATE `development_suggestions`
+         SET `status` = ?, `admin_note` = ?, `reviewed_by_user_id` = ?, `reviewed_at` = NOW()
+         WHERE `id` = ?',
+        [
+            $status,
+            trim($adminNote) !== '' ? trim($adminNote) : null,
+            is_array($user) ? (int) $user['id'] : null,
+            $suggestionId,
+        ]
+    );
+
+    return ['ok' => true, 'message' => 'A fejlesztési javaslat státusza frissítve.'];
+}
+
+function development_suggestion_actor_label(array $suggestion): string
+{
+    return actor_display_label_from_parts(
+        (string) ($suggestion['user_role'] ?? ''),
+        (string) ($suggestion['user_name'] ?? ''),
+        (string) ($suggestion['user_email'] ?? ''),
+        isset($suggestion['user_id']) ? (int) $suggestion['user_id'] : null
+    );
+}
+
 function customer_owner_label(array $customer): string
 {
     $role = (string) ($customer['owner_role'] ?? '');
