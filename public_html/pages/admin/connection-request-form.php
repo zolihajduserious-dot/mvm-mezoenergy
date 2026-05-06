@@ -19,7 +19,7 @@ if ($request !== null) {
 
 $customer = $customerId ? find_customer($customerId) : null;
 
-if ($customer === null) {
+if ($customerId && $customer === null) {
     set_flash('error', 'Az ügyfél nem található.');
     redirect('/admin/customers');
 }
@@ -27,28 +27,53 @@ if ($customer === null) {
 $errors = [];
 $uploadMessages = [];
 $flash = get_flash();
-$form = normalize_connection_request_data($request ?? [], $customer);
+$customerForm = $customer !== null
+    ? normalize_customer_data($customer)
+    : normalize_customer_data([
+        'source' => 'Admin rögzítés',
+        'status' => 'Mérőhelyi igény',
+        'contact_data_accepted' => 1,
+    ]);
+$form = normalize_connection_request_data($request ?? [], $customer ?? $customerForm);
 $existingFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
 $actionUrl = $requestId
     ? url_path('/admin/connection-requests/edit') . '?id=' . (int) $requestId
-    : url_path('/admin/connection-requests/edit') . '?customer_id=' . (int) $customer['id'];
+    : ($customer !== null
+        ? url_path('/admin/connection-requests/edit') . '?customer_id=' . (int) $customer['id']
+        : url_path('/admin/connection-requests/edit'));
 
 if (is_post()) {
     require_valid_csrf_token();
 
-    $form = normalize_connection_request_data($_POST, $customer);
-    $errors = validate_connection_request_data($form, $_FILES, false, $requestId ?: null);
+    $user = current_user();
+    $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
+    $isNewCustomerRequest = $customer === null;
+    $customerForm = $isNewCustomerRequest ? normalize_customer_data($_POST) : $customerForm;
+    if ($isNewCustomerRequest) {
+        $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Admin rögzítés';
+        $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Mérőhelyi igény';
+        $customerForm['contact_data_accepted'] = 1;
+    }
+    $form = normalize_connection_request_data($_POST, $customer ?? $customerForm);
+    $errors = array_merge(
+        $isNewCustomerRequest ? validate_customer_data($customerForm, false) : [],
+        validate_connection_request_data($form, $_FILES, false, $requestId ?: null)
+    );
 
     if ($errors === []) {
         try {
-            $savedRequestId = save_connection_request((int) $customer['id'], $form, $requestId ?: null, null, true);
+            $savedCustomerId = $customer !== null
+                ? (int) $customer['id']
+                : create_customer($customerForm, null, $submittedByUserId);
+            $customer = find_customer($savedCustomerId);
+            $savedRequestId = save_connection_request($savedCustomerId, $form, $requestId ?: null, $submittedByUserId, true);
             $requestId = $savedRequestId;
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false);
 
             if ($uploadMessages === []) {
-                set_flash('success', 'Az igényt mentettük.');
+                set_flash('success', $isNewCustomerRequest ? 'Az ügyfél és az igény mentve.' : 'Az igényt mentettük.');
                 redirect('/admin/connection-requests/edit?id=' . $savedRequestId);
             }
 
@@ -60,19 +85,28 @@ if (is_post()) {
         }
     }
 }
+
+$pageTitle = $requestId
+    ? 'Igény szerkesztése'
+    : ($customer === null ? 'Új ügyfél + igény rögzítése' : 'Új igény rögzítése');
+$pageSubtitle = $customer !== null
+    ? (string) $customer['requester_name'] . ' · ' . (string) $customer['email']
+    : 'A kezdőlapról indított admin rögzítésnél itt tudod felvenni az ügyfelet és a hozzá tartozó munkaigényt egyben.';
 ?>
 <section class="admin-section">
     <div class="container">
         <div class="admin-header">
             <div>
                 <p class="eyebrow">Admin</p>
-                <h1><?= $requestId ? 'Igény szerkesztése' : 'Új igény rögzítése'; ?></h1>
-                <p><?= h((string) $customer['requester_name']); ?> · <?= h((string) $customer['email']); ?></p>
+                <h1><?= h($pageTitle); ?></h1>
+                <p><?= h($pageSubtitle); ?></p>
             </div>
             <div class="form-actions">
                 <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Ügyfelek</a>
                 <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/minicrm-import') . '#portal-works'); ?>">Munkalista</a>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Ügyfél szerkesztése</a>
+                <?php if ($customer !== null): ?>
+                    <a class="button button-secondary" href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Ügyfél szerkesztése</a>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -133,13 +167,30 @@ if (is_post()) {
             <div class="form-grid two">
                 <section class="auth-panel">
                     <h2>Ügyfél adatai</h2>
-                    <div class="status-list">
-                        <li><span class="status-label">Név</span><span class="status-value"><?= h((string) $customer['requester_name']); ?></span></li>
-                        <li><span class="status-label">Születési név</span><span class="status-value"><?= h((string) ($customer['birth_name'] ?? '-')); ?></span></li>
-                        <li><span class="status-label">Telefon</span><span class="status-value"><?= h((string) $customer['phone']); ?></span></li>
-                        <li><span class="status-label">Email</span><span class="status-value"><?= h((string) $customer['email']); ?></span></li>
-                        <li><span class="status-label">Postacím</span><span class="status-value"><?= h((string) $customer['postal_code'] . ' ' . (string) $customer['city'] . ', ' . (string) $customer['postal_address']); ?></span></li>
-                    </div>
+                    <?php if ($customer === null): ?>
+                        <label class="checkbox-row"><input type="checkbox" name="is_legal_entity" value="1" <?= (int) $customerForm['is_legal_entity'] === 1 ? 'checked' : ''; ?>><span>Jogi személy</span></label>
+                        <label>Név</label><input name="requester_name" value="<?= h($customerForm['requester_name']); ?>" required>
+                        <label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>">
+                        <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
+                        <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
+                        <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
+                        <label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
+                        <label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required>
+                        <label>Születési név</label><input name="birth_name" value="<?= h($customerForm['birth_name']); ?>">
+                        <label>Anyja neve</label><input name="mother_name" value="<?= h($customerForm['mother_name']); ?>">
+                        <label>Születési hely</label><input name="birth_place" value="<?= h($customerForm['birth_place']); ?>">
+                        <label>Születési idő</label><input name="birth_date" type="date" value="<?= h($customerForm['birth_date']); ?>">
+                        <input type="hidden" name="source" value="<?= h($customerForm['source']); ?>">
+                        <input type="hidden" name="status" value="<?= h($customerForm['status']); ?>">
+                    <?php else: ?>
+                        <div class="status-list">
+                            <li><span class="status-label">Név</span><span class="status-value"><?= h((string) $customer['requester_name']); ?></span></li>
+                            <li><span class="status-label">Születési név</span><span class="status-value"><?= h((string) ($customer['birth_name'] ?? '-')); ?></span></li>
+                            <li><span class="status-label">Telefon</span><span class="status-value"><?= h((string) $customer['phone']); ?></span></li>
+                            <li><span class="status-label">Email</span><span class="status-value"><?= h((string) $customer['email']); ?></span></li>
+                            <li><span class="status-label">Postacím</span><span class="status-value"><?= h((string) $customer['postal_code'] . ' ' . (string) $customer['city'] . ', ' . (string) $customer['postal_address']); ?></span></li>
+                        </div>
+                    <?php endif; ?>
                 </section>
 
                 <section class="auth-panel">

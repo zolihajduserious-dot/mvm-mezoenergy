@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+if (is_logged_in() && !is_customer_user()) {
+    redirect(work_request_create_path_for_user());
+}
+
 require_role(['customer']);
 
 $customer = current_customer();

@@ -50,7 +50,7 @@ if (is_logged_in()) {
             <span>01</span>
             <h2>Munkaigény beküldése</h2>
             <p>Az ügyfél vagy a generálkivitelező rögzíti az adatokat, a helyszínt, a teljesítményigényt és a szükséges fájlokat.</p>
-            <a href="<?= h(url_path(is_logged_in() && is_general_contractor_user() ? '/contractor/work-request' : (is_logged_in() && is_electrician_user() ? '/electrician/work-request' : '/customer/work-request'))); ?>">Igény indítása</a>
+            <a href="<?= h(url_path(work_request_create_path_for_user())); ?>">Igény indítása</a>
         </article>
 
         <article class="service-card">

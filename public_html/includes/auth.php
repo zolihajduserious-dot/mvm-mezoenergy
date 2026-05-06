@@ -395,6 +395,25 @@ function dashboard_path_for_user(?array $user = null): string
     return '/customer/work-requests';
 }
 
+function work_request_create_path_for_user(?array $user = null): string
+{
+    $role = $user !== null ? (string) ($user['role'] ?? '') : current_user_role();
+
+    if ($role === 'admin' || $role === 'specialist') {
+        return '/admin/connection-requests/edit';
+    }
+
+    if ($role === 'general_contractor') {
+        return '/contractor/work-request';
+    }
+
+    if ($role === 'electrician') {
+        return '/electrician/work-request';
+    }
+
+    return '/customer/work-request';
+}
+
 function require_role(array $roles): void
 {
     require_login();
