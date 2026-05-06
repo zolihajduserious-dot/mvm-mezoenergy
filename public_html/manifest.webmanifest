@@ -1,0 +1,26 @@
+{
+  "name": "Mező Energy Szerelő App",
+  "short_name": "Mező Szerelő",
+  "description": "Gyors árajánlat és kivitelezési fotózás szerelőknek.",
+  "lang": "hu-HU",
+  "start_url": "/electrician/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#edf7f5",
+  "theme_color": "#008c73",
+  "icons": [
+    {
+      "src": "/assets/img/mezo-energy-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/img/mezo-energy-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

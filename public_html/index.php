@@ -379,7 +379,14 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Mező Energy Kft. ügyfélintegrációs és árajánlatkészítő webalkalmazás.">
+    <meta name="theme-color" content="#008c73">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Mező Energy">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title><?= h($page['title']); ?></title>
+    <link rel="manifest" href="<?= h(url_path('/manifest.webmanifest')); ?>">
+    <link rel="apple-touch-icon" href="<?= h(asset_url('img/mezo-energy-app-192.png')); ?>">
     <link rel="stylesheet" href="<?= h(asset_url('css/style.css')); ?>">
 </head>
 <body>

@@ -6787,6 +6787,58 @@ a.metric-card {
     background: #ffffff;
 }
 
+.app-install-dialog {
+    width: min(92vw, 460px);
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-text);
+}
+
+.app-install-dialog::backdrop {
+    background: rgba(9, 26, 36, 0.46);
+    backdrop-filter: blur(2px);
+}
+
+.app-install-card {
+    display: grid;
+    gap: 18px;
+    padding: 22px;
+    border: 1px solid rgba(0, 140, 115, 0.22);
+    border-top: 6px solid var(--color-primary);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 22px 64px rgba(23, 33, 47, 0.26);
+}
+
+.app-install-card h2,
+.app-install-card p {
+    margin: 0;
+}
+
+.app-install-card h2 {
+    color: var(--color-primary-dark);
+    font-size: 1.45rem;
+    line-height: 1.16;
+}
+
+.app-install-card p:not(.eyebrow) {
+    color: var(--color-muted);
+}
+
+.app-install-ios-copy,
+.app-install-manual-copy,
+.app-install-dialog[data-install-mode="ios"] .app-install-native-copy,
+.app-install-dialog[data-install-mode="manual"] .app-install-native-copy {
+    display: none;
+}
+
+.app-install-dialog[data-install-mode="ios"] .app-install-ios-copy,
+.app-install-dialog[data-install-mode="manual"] .app-install-manual-copy {
+    display: block;
+}
+
 @media (max-width: 760px) {
     .electrician-mobile-app {
         padding-top: 12px;

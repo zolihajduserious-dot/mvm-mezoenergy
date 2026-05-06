@@ -206,3 +206,20 @@ function electrician_mobile_app_next_action_label(array $request): string
         <?php endif; ?>
     </div>
 </section>
+
+<dialog class="app-install-dialog" id="electricianInstallDialog" data-electrician-install-root aria-labelledby="electricianInstallTitle">
+    <div class="app-install-card">
+        <div>
+            <p class="eyebrow">Gyors elérés</p>
+            <h2 id="electricianInstallTitle">Szerelő app mentése a kezdőképernyőre</h2>
+            <p class="app-install-native-copy">Így a telefonon külön ikonnal nyitható meg, nem kell mindig a böngészőből előkeresni.</p>
+            <p class="app-install-ios-copy">iPhone-on a Megosztás gomb után válaszd a „Hozzáadás a főképernyőhöz” lehetőséget.</p>
+            <p class="app-install-manual-copy">Ha a telefon nem ajánlja fel automatikusan, a böngésző menüjében keresd a „Telepítés” vagy „Hozzáadás a kezdőképernyőhöz” pontot.</p>
+        </div>
+        <div class="form-actions">
+            <button class="button" type="button" data-install-confirm>Mentés</button>
+            <button class="button button-secondary" type="button" data-install-dismiss>Később</button>
+        </div>
+    </div>
+</dialog>
+<script src="<?= h(asset_url('js/electrician-app-install.js')); ?>" defer></script>
