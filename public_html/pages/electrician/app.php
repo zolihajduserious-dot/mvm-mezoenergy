@@ -175,9 +175,15 @@ function electrician_mobile_app_next_action_label(array $request): string
                                     <small><?= h((string) ($request['project_name'] ?? connection_request_type_label($request['request_type'] ?? null))); ?></small>
                                 </div>
 
-                                <div class="electrician-app-work-progress" aria-label="Fotózási állapot">
-                                    <span class="<?= $beforeDone ? 'is-done' : ''; ?>">Előtte</span>
-                                    <span class="<?= $afterDone ? 'is-done' : ''; ?>">Utána</span>
+                                <div class="electrician-app-work-progress" aria-label="Fotók állapota">
+                                    <span class="<?= $beforeDone ? 'is-done' : 'is-missing'; ?>">
+                                        <strong>Előtte fotók</strong>
+                                        <small><?= $beforeDone ? 'lezárva' : 'még hiányzik'; ?></small>
+                                    </span>
+                                    <span class="<?= $afterDone ? 'is-done' : 'is-missing'; ?>">
+                                        <strong>Utána fotók</strong>
+                                        <small><?= $afterDone ? 'lezárva' : 'még hiányzik'; ?></small>
+                                    </span>
                                 </div>
 
                                 <div class="electrician-app-work-actions">

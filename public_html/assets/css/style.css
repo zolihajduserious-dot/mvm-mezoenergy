@@ -6705,17 +6705,28 @@ a.metric-card {
 }
 
 .electrician-app-work-progress span {
-    min-height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
+    min-height: 44px;
+    display: grid;
+    gap: 2px;
+    align-content: center;
+    justify-items: center;
+    padding: 8px 10px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
     background: #f7fafb;
     color: var(--color-muted);
-    font-weight: 900;
     text-align: center;
+}
+
+.electrician-app-work-progress strong {
+    font-size: 0.86rem;
+    line-height: 1.15;
+}
+
+.electrician-app-work-progress small {
+    font-size: 0.76rem;
+    font-weight: 800;
+    line-height: 1.15;
 }
 
 .electrician-app-work-progress .is-done {
