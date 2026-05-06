@@ -440,6 +440,18 @@ foreach ($items as $item) {
     $itemsByStatus[$statusName][] = $item;
 }
 
+foreach ($itemsByStatus as &$statusItems) {
+    usort(
+        $statusItems,
+        static fn (array $a, array $b): int => minicrm_import_compare_rows_chronologically(
+            $a,
+            $b,
+            ['submitted_date', 'date_value', 'updated_at', 'created_at']
+        )
+    );
+}
+unset($statusItems);
+
 uasort($itemsByStatus, static fn (array $a, array $b): int => count($b) <=> count($a));
 
 foreach ($standaloneRequests as $request) {
@@ -450,6 +462,18 @@ foreach ($standaloneRequests as $request) {
     $workflowStage = minicrm_import_request_list_workflow_stage($request);
     $standaloneRequestsByWorkflowStage[$workflowStage][] = $request;
 }
+
+foreach ($standaloneRequestsByWorkflowStage as &$requestItems) {
+    usort(
+        $requestItems,
+        static fn (array $a, array $b): int => minicrm_import_compare_rows_chronologically(
+            $a,
+            $b,
+            ['created_at', 'submitted_at', 'updated_at']
+        )
+    );
+}
+unset($requestItems);
 
 uksort($standaloneRequestsByWorkflowStage, static function (string $a, string $b): int {
     $comparison = admin_workflow_stage_number($a) <=> admin_workflow_stage_number($b);
@@ -467,6 +491,56 @@ function minicrm_import_dom_id(string $value): string
     $id = trim($id, '-');
 
     return $id !== '' ? $id : 'nincs-statusz';
+}
+
+function minicrm_import_sort_timestamp(mixed $value): ?int
+{
+    $value = trim((string) $value);
+
+    if ($value === '' || $value === '-') {
+        return null;
+    }
+
+    $normalized = preg_replace('/\s+/', ' ', $value) ?: $value;
+    $normalized = preg_replace('/^(\d{4})\.(\d{1,2})\.(\d{1,2})\.?/', '$1-$2-$3', $normalized) ?: $normalized;
+    $timestamp = strtotime($normalized);
+
+    return $timestamp === false ? null : $timestamp;
+}
+
+function minicrm_import_row_sort_timestamp(array $row, array $dateKeys): ?int
+{
+    foreach ($dateKeys as $dateKey) {
+        $timestamp = minicrm_import_sort_timestamp($row[$dateKey] ?? null);
+
+        if ($timestamp !== null) {
+            return $timestamp;
+        }
+    }
+
+    return null;
+}
+
+function minicrm_import_compare_rows_chronologically(array $a, array $b, array $dateKeys): int
+{
+    $aTimestamp = minicrm_import_row_sort_timestamp($a, $dateKeys);
+    $bTimestamp = minicrm_import_row_sort_timestamp($b, $dateKeys);
+
+    if ($aTimestamp === null && $bTimestamp === null) {
+        return ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
+    }
+
+    if ($aTimestamp === null) {
+        return 1;
+    }
+
+    if ($bTimestamp === null) {
+        return -1;
+    }
+
+    $dateComparison = $aTimestamp <=> $bTimestamp;
+
+    return $dateComparison !== 0 ? $dateComparison : ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
 }
 
 function minicrm_import_request_list_workflow_stage(array $request): string
