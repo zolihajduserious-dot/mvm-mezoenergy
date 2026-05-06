@@ -4207,6 +4207,42 @@ a.metric-card {
     font-weight: 800;
 }
 
+.workflow-stage-panel .portal-assignment-form {
+    gap: 6px;
+}
+
+.workflow-stage-panel .portal-assignment-form select {
+    min-height: 38px;
+    padding: 7px 9px;
+    font-size: 0.82rem;
+}
+
+.workflow-stage-panel .portal-assignment-form label.checkbox-row {
+    min-height: 30px;
+    margin: 0;
+    padding: 6px 8px;
+    gap: 7px;
+    border: 1px solid rgba(0, 140, 115, 0.14);
+    border-radius: 6px;
+    background: rgba(248, 251, 252, 0.86);
+    color: var(--color-text);
+    font-size: 0.76rem;
+    font-weight: 850;
+    letter-spacing: 0;
+    line-height: 1.2;
+    text-transform: none;
+}
+
+.workflow-stage-panel .portal-assignment-form label.checkbox-row input {
+    flex: 0 0 14px;
+    width: 14px;
+    min-height: 14px;
+}
+
+.workflow-stage-panel .portal-assignment-form label.checkbox-row span {
+    min-width: 0;
+}
+
 .electrician-workflow-panel {
     margin: 14px 0;
 }

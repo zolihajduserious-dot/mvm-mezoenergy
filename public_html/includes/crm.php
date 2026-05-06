@@ -3118,6 +3118,12 @@ function admin_workflow_stage_definitions(): array
             'description' => 'Az MVM kapcsolja be az ügyfelet, a munka lezáró ügyintézésben van.',
             'variant' => 'accent',
         ],
+        'waiting_customer_response' => [
+            'number' => 9,
+            'title' => 'Választ várunk a fogyasztótól',
+            'description' => 'Az ügyintézés az ügyfél visszajelzésére vár.',
+            'variant' => 'system',
+        ],
     ];
 }
 
@@ -3149,6 +3155,8 @@ function normalize_admin_workflow_stage(?string $stage): ?string
         'work_order_arrived_assignable' => 'under_construction',
         'assigned_waiting_execution' => 'under_construction',
         'completed_waiting_settlement' => 'completed',
+        'waiting_customer_answer' => 'waiting_customer_response',
+        'waiting_consumer_response' => 'waiting_customer_response',
     ];
 
     if (isset($legacyStages[$stage])) {
@@ -3242,6 +3250,16 @@ function send_connection_request_status_change_email(int $requestId, string $pre
     if ($nextStage === 'under_construction') {
         $actions[] = ['label' => 'Kivitelezési nap kiválasztása', 'url' => connection_request_schedule_url($request)];
     }
+    if ($nextStage === 'waiting_customer_response') {
+        $sections[] = [
+            'title' => 'Teendő',
+            'rows' => [
+                ['label' => 'Visszajelzés', 'value' => 'Kérjük, válaszoljon erre az emailre, hogy az ügyintézést folytatni tudjuk.'],
+                ['label' => 'Fontos', 'value' => 'A válasz a tárgyban szereplő azonosító alapján automatikusan ehhez az adatlaphoz kerül.'],
+            ],
+        ];
+    }
+
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
     try {
@@ -3255,6 +3273,11 @@ function send_connection_request_status_change_email(int $requestId, string $pre
         $emailLead = $nextStage === 'under_construction'
             ? 'A munka kivitelezési szakaszba lépett. Az alábbi összefoglalóban láthatja, mennyi pénzt érdemes előkészítenie a kivitelezés napjára. Ha kérdése van, kérjük, válaszoljon erre az emailre, és az üzenet automatikusan ehhez a munkához kerül.'
             : 'Frissült a mérőhelyi ügyintézés állapota. Ha kérdése van, kérjük, válaszoljon erre az emailre, és az üzenet automatikusan ehhez a munkához kerül.';
+        if ($nextStage === 'waiting_customer_response') {
+            $emailTitle = 'Választ várunk';
+            $emailLead = 'Az ügyintézés folytatásához az Ön visszajelzésére van szükségünk. Kérjük, válaszoljon erre az emailre röviden a kért információval, hogy a munkát tovább tudjuk vinni.';
+        }
+
         apply_branded_email(
             $mail,
             $emailTitle,
