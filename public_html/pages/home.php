@@ -12,8 +12,8 @@ if (is_logged_in()) {
         $primaryDashboardUrl = '/contractor/work-requests';
         $primaryDashboardLabel = 'Munkák megnyitása';
     } elseif (is_electrician_user()) {
-        $primaryDashboardUrl = '/electrician/work-requests';
-        $primaryDashboardLabel = 'Szerelői munkák';
+        $primaryDashboardUrl = '/electrician/app';
+        $primaryDashboardLabel = 'Szerelő app';
     } else {
         $primaryDashboardUrl = '/customer/work-requests';
         $primaryDashboardLabel = 'Igényeim megnyitása';

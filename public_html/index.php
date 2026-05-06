@@ -151,6 +151,10 @@ $routes = [
         'title' => 'Szerelői munkák',
         'file' => PAGE_PATH . '/electrician/work-requests.php',
     ],
+    'electrician/app' => [
+        'title' => 'Szerelő app',
+        'file' => PAGE_PATH . '/electrician/app.php',
+    ],
     'electrician/work-request' => [
         'title' => 'Szerelői munka',
         'file' => PAGE_PATH . '/electrician/work-request.php',
@@ -409,6 +413,7 @@ try {
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
                         <a href="<?= h(url_path('/contractor/profile')); ?>">Profil</a>
                     <?php elseif (is_electrician_user()): ?>
+                        <a href="<?= h(url_path('/electrician/app')); ?>">Szerelő app</a>
                         <a href="<?= h(url_path('/electrician/work-requests')); ?>">Munkáim</a>
                         <a href="<?= h(url_path('/electrician/work-request')); ?>">Új felmérés</a>
                         <a href="<?= h(url_path('/feedback')); ?>">Javaslat</a>

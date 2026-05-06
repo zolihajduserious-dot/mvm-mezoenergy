@@ -389,7 +389,7 @@ function dashboard_path_for_user(?array $user = null): string
     }
 
     if ($role === 'electrician') {
-        return '/electrician/work-requests';
+        return '/electrician/app';
     }
 
     return '/customer/work-requests';

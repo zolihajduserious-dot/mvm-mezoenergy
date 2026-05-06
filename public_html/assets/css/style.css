@@ -6491,3 +6491,329 @@ a.metric-card {
         height: 120px;
     }
 }
+
+.electrician-mobile-app {
+    padding: 22px 0 44px;
+    background: #edf7f5;
+}
+
+.electrician-app-container {
+    width: min(100% - 18px, 840px);
+}
+
+.electrician-app-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow-card);
+}
+
+.electrician-app-header h1,
+.electrician-app-header p {
+    margin: 0;
+}
+
+.electrician-app-header h1 {
+    color: var(--color-primary-dark);
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+    line-height: 1.05;
+}
+
+.electrician-app-header p:not(.eyebrow) {
+    max-width: 58ch;
+    color: var(--color-muted);
+}
+
+.electrician-app-count {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    border: 1px solid rgba(0, 140, 115, 0.2);
+    border-radius: 8px;
+    background: #e9faf4;
+    color: var(--color-primary-dark);
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.electrician-app-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.electrician-app-action {
+    display: grid;
+    gap: 4px;
+    min-height: 92px;
+    align-content: center;
+    padding: 16px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-primary-dark);
+    box-shadow: var(--shadow-card);
+}
+
+.electrician-app-action-primary {
+    background: var(--color-primary);
+    color: #ffffff;
+}
+
+.electrician-app-action span {
+    color: inherit;
+    font-size: 0.84rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.electrician-app-action strong {
+    font-size: 1.08rem;
+    line-height: 1.2;
+}
+
+.electrician-app-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.electrician-app-stats article {
+    display: grid;
+    gap: 2px;
+    padding: 12px;
+    border: 1px solid rgba(93, 107, 124, 0.16);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.electrician-app-stats span {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.electrician-app-stats strong {
+    color: var(--color-text);
+    font-size: 1.6rem;
+    line-height: 1;
+}
+
+.electrician-app-worklist {
+    display: grid;
+    gap: 12px;
+}
+
+.electrician-app-section-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.electrician-app-section-head h2,
+.electrician-app-section-head p {
+    margin: 0;
+}
+
+.electrician-app-section-head h2 {
+    color: var(--color-text);
+    font-size: 1.45rem;
+}
+
+.electrician-app-section-head a,
+.electrician-app-inline-link,
+.electrician-app-more {
+    color: var(--color-primary-dark);
+    font-weight: 900;
+}
+
+.electrician-app-card-list {
+    display: grid;
+    gap: 12px;
+}
+
+.electrician-app-work-card {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-left: 5px solid var(--color-primary);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow-card);
+}
+
+.electrician-app-work-card-in-progress {
+    border-left-color: var(--color-lime);
+}
+
+.electrician-app-work-main {
+    display: grid;
+    gap: 4px;
+}
+
+.electrician-app-work-main h3,
+.electrician-app-work-main p,
+.electrician-app-work-main small {
+    margin: 0;
+}
+
+.electrician-app-work-main h3 {
+    color: var(--color-text);
+    font-size: 1.35rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.electrician-app-work-main p {
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+.electrician-app-work-main small {
+    color: var(--color-primary-dark);
+    font-weight: 900;
+}
+
+.electrician-app-status {
+    width: fit-content;
+    max-width: 100%;
+    padding: 5px 8px;
+    border: 1px solid rgba(0, 140, 115, 0.2);
+    border-radius: 8px;
+    background: #eef9f5;
+    color: var(--color-primary-dark);
+    font-size: 0.78rem;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.electrician-app-work-progress {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.electrician-app-work-progress span {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: #f7fafb;
+    color: var(--color-muted);
+    font-weight: 900;
+    text-align: center;
+}
+
+.electrician-app-work-progress .is-done {
+    border-color: rgba(0, 140, 115, 0.24);
+    background: #e7faf2;
+    color: var(--color-primary-dark);
+}
+
+.electrician-app-work-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.electrician-app-work-actions .button,
+.electrician-app-inline-link {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+}
+
+.electrician-app-inline-link {
+    display: inline-flex;
+    min-height: 46px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.electrician-app-empty {
+    display: grid;
+    gap: 4px;
+    padding: 18px;
+    border: 1px dashed rgba(0, 140, 115, 0.28);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.electrician-app-empty strong,
+.electrician-app-empty p {
+    margin: 0;
+}
+
+.electrician-app-empty p {
+    color: var(--color-muted);
+}
+
+.electrician-app-more {
+    display: inline-flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+@media (max-width: 760px) {
+    .electrician-mobile-app {
+        padding-top: 12px;
+    }
+
+    .electrician-app-header,
+    .electrician-app-actions,
+    .electrician-app-stats,
+    .electrician-app-work-actions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .electrician-app-header {
+        align-items: start;
+    }
+
+    .electrician-app-count {
+        justify-self: start;
+    }
+}
+
+@media (max-width: 520px) {
+    .electrician-app-container {
+        width: min(100% - 10px, 840px);
+    }
+
+    .electrician-app-header,
+    .electrician-app-work-card,
+    .electrician-app-action {
+        padding: 14px;
+    }
+
+    .electrician-app-header h1 {
+        font-size: 1.8rem;
+    }
+
+    .electrician-app-section-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

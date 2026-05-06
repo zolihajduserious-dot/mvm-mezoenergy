@@ -949,7 +949,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             </div>
                         <?php endif; ?>
 
-                        <div class="admin-request-section-title admin-request-subtitle">
+                        <div class="admin-request-section-title admin-request-subtitle" id="electrician-request-files">
                             <h3>Fotók és dokumentumok feltöltése</h3>
                             <span>ügyfél-dokumentum</span>
                         </div>
@@ -1211,19 +1211,27 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
         });
     });
 
+    const openWorkDialog = (stage) => {
+        const dialog = dialogs.get(stage);
+
+        if (!dialog) {
+            return;
+        }
+
+        if (typeof dialog.showModal === 'function') {
+            dialog.showModal();
+        } else {
+            dialog.setAttribute('open', 'open');
+        }
+    };
+
     document.querySelectorAll('[data-work-dialog-open]').forEach((button) => {
         button.addEventListener('click', () => {
-            const dialog = dialogs.get(button.dataset.workDialogOpen);
-
-            if (!dialog || button.disabled) {
+            if (button.disabled) {
                 return;
             }
 
-            if (typeof dialog.showModal === 'function') {
-                dialog.showModal();
-            } else {
-                dialog.setAttribute('open', 'open');
-            }
+            openWorkDialog(button.dataset.workDialogOpen);
         });
     });
 
@@ -1242,5 +1250,11 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
             }
         });
     });
+
+    const autoStage = new URLSearchParams(window.location.search).get('work_stage');
+
+    if (autoStage === 'before' || autoStage === 'after') {
+        window.setTimeout(() => openWorkDialog(autoStage), 120);
+    }
 })();
 </script>

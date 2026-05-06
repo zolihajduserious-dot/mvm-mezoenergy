@@ -81,6 +81,7 @@ function electrician_work_status_class(string $status): string
                 <p><?= h((string) ($electrician['name'] ?? $user['name'] ?? 'Szerelo')); ?> kivitelez&#233;si munk&#225;i, MiniCRM-b&#337;l kiadott feladatok &#233;s saj&#225;t felm&#233;r&#233;sek egys&#233;ges munkalist&#225;ban.</p>
             </div>
             <div class="form-actions">
+                <a class="button" href="<?= h(url_path('/electrician/app')); ?>">Szerel&#337; app</a>
                 <a class="button" href="<?= h(url_path('/quick-quote')); ?>">Gyors &#225;raj&#225;nlat</a>
                 <a class="button button-secondary" href="<?= h(url_path('/electrician/work-request')); ?>">&#218;j &#252;gyf&#233;l felm&#233;r&#233;se</a>
             </div>
@@ -91,6 +92,7 @@ function electrician_work_status_class(string $status): string
         <?php endif; ?>
 
         <nav class="minicrm-module-tabs" aria-label="Szereloi menu">
+            <a href="<?= h(url_path('/electrician/app')); ?>">Szerel&#337; app</a>
             <a class="is-active" href="#electrician-works" data-electrician-tab="works">Munk&#225;k</a>
             <a href="<?= h(url_path('/electrician/work-request')); ?>">&#218;j felm&#233;r&#233;s</a>
             <a href="<?= h(url_path('/quick-quote')); ?>">Gyors &#225;raj&#225;nlat</a>
