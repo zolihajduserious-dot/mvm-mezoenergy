@@ -3316,6 +3316,10 @@ function connection_request_admin_workflow_stage(array $request, ?array $latestQ
     $manualStage = normalize_admin_workflow_stage((string) ($request['admin_workflow_stage'] ?? ''));
     $requestId = (int) ($request['id'] ?? 0);
 
+    if ($manualStage !== null) {
+        return $manualStage;
+    }
+
     if ((string) ($request['electrician_status'] ?? '') === 'completed' || !empty($request['after_photos_completed_at'])) {
         $automaticStage = 'completed';
     } elseif (connection_request_document_type_any_exists($documents, ['intervention_sheet', 'completed_intervention_sheet'])) {
@@ -3336,10 +3340,6 @@ function connection_request_admin_workflow_stage(array $request, ?array $latestQ
         $automaticStage = 'case_starting';
     }
 
-    if ($manualStage !== null && admin_workflow_stage_number($manualStage) >= admin_workflow_stage_number($automaticStage)) {
-        return $manualStage;
-    }
-
     return $automaticStage;
 }
 
@@ -3354,6 +3354,109 @@ function next_admin_workflow_stage(string $stage): ?string
     }
 
     return null;
+}
+
+function send_connection_request_responsible_workflow_email(int $requestId, string $previousStage, string $nextStage): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'A szerelő értesítése nem ment ki, mert a munka nem található.'];
+    }
+
+    $nextDefinition = admin_workflow_stage_definitions()[$nextStage] ?? null;
+    $message = "A munkafolyamat státusza módosult.\n\n"
+        . 'Munka: ' . (string) ($request['project_name'] ?? ('#' . $requestId)) . "\n"
+        . 'Korábbi státusz: ' . admin_workflow_stage_label($previousStage) . "\n"
+        . 'Új státusz: ' . admin_workflow_stage_label($nextStage);
+
+    if ($nextDefinition !== null && trim((string) ($nextDefinition['description'] ?? '')) !== '') {
+        $message .= "\n\n" . (string) $nextDefinition['description'];
+    }
+
+    return send_connection_request_manual_message(
+        $requestId,
+        'responsible',
+        APP_NAME . ' munkafolyamat státusz - ' . (string) ($request['project_name'] ?? ('Munka #' . $requestId)),
+        $message
+    );
+}
+
+function set_connection_request_workflow_stage(int $requestId, ?string $targetStage, bool $notifyCustomer = false, bool $notifyResponsible = false): array
+{
+    if (!db_column_exists('connection_requests', 'admin_workflow_stage')) {
+        return ['ok' => false, 'message' => 'Hiányzik a connection_requests.admin_workflow_stage oszlop. Futtasd le az adatbázis frissítést.'];
+    }
+
+    $rawTargetStage = $targetStage;
+    $targetStage = $targetStage !== null ? normalize_admin_workflow_stage($targetStage) : null;
+
+    if ($rawTargetStage !== null && $targetStage === null) {
+        return ['ok' => false, 'message' => 'Érvénytelen munkafolyamat státusz.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'A munka nem található.'];
+    }
+
+    $documents = connection_request_documents($requestId);
+    $latestQuote = latest_quote_for_connection_request($requestId);
+    $acceptedQuote = accepted_quote_for_connection_request($requestId);
+    $currentStage = connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents);
+
+    update_connection_request_admin_workflow_stage($requestId, $targetStage);
+
+    $updatedRequest = find_connection_request($requestId) ?? $request;
+    $updatedDocuments = connection_request_documents($requestId);
+    $updatedLatestQuote = latest_quote_for_connection_request($requestId);
+    $updatedAcceptedQuote = accepted_quote_for_connection_request($requestId);
+    $newStage = connection_request_admin_workflow_stage($updatedRequest, $updatedLatestQuote, $updatedAcceptedQuote, $updatedDocuments);
+    $activityBody = admin_workflow_stage_label($currentStage) . ' -> ' . admin_workflow_stage_label($newStage);
+
+    if ($targetStage === null) {
+        $activityBody .= "\nAutomatikus állapot visszaállítva.";
+    }
+
+    record_connection_request_activity(
+        $requestId,
+        'workflow',
+        'Munkafolyamat státusza módosítva',
+        $activityBody
+    );
+
+    $notifications = [];
+    $message = 'A munkafolyamat státusza mentve. Új státusz: ' . admin_workflow_stage_label($newStage) . '.';
+
+    if ($targetStage === null) {
+        $message .= ' A rendszer újra az automatikus állapotot használja.';
+    }
+
+    if ($notifyCustomer && $currentStage !== $newStage) {
+        $notifications['customer'] = send_connection_request_status_change_email($requestId, $currentStage, $newStage);
+    }
+
+    if ($notifyResponsible && $currentStage !== $newStage) {
+        $notifications['responsible'] = send_connection_request_responsible_workflow_email($requestId, $currentStage, $newStage);
+    }
+
+    if (($notifyCustomer || $notifyResponsible) && $currentStage === $newStage) {
+        $message .= ' Nem ment ki státuszértesítés, mert a tényleges státusz nem változott.';
+    }
+
+    foreach ($notifications as $notification) {
+        if (!empty($notification['message'])) {
+            $message .= ' ' . (string) $notification['message'];
+        }
+    }
+
+    return [
+        'ok' => true,
+        'message' => $message,
+        'stage' => $newStage,
+        'notifications' => $notifications,
+    ];
 }
 
 function close_connection_request_workflow_stage(int $requestId): array
@@ -3378,26 +3481,7 @@ function close_connection_request_workflow_stage(int $requestId): array
         return ['ok' => false, 'message' => 'Ez a munkafolyamat már az utolsó státuszban van.'];
     }
 
-    update_connection_request_admin_workflow_stage($requestId, $nextStage);
-    record_connection_request_activity(
-        $requestId,
-        'workflow',
-        'Munkafolyamat státusza módosítva',
-        admin_workflow_stage_label($currentStage) . ' -> ' . admin_workflow_stage_label($nextStage)
-    );
-    $notification = send_connection_request_status_change_email($requestId, $currentStage, $nextStage);
-    $message = 'A munkafolyamat lezárva. Új státusz: ' . admin_workflow_stage_label($nextStage) . '.';
-
-    if (!empty($notification['message'])) {
-        $message .= ' ' . (string) $notification['message'];
-    }
-
-    return [
-        'ok' => true,
-        'message' => $message,
-        'stage' => $nextStage,
-        'notification' => $notification,
-    ];
+    return set_connection_request_workflow_stage($requestId, $nextStage, true, false);
 }
 
 function admin_workflow_assignment_due_text(array $request): string

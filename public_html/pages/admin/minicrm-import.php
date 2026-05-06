@@ -169,13 +169,26 @@ if (is_post() && ($_POST['action'] ?? '') === 'close_portal_workflow_stage') {
     require_valid_csrf_token();
 
     $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $targetStageRaw = trim((string) ($_POST['target_stage'] ?? ''));
+    $targetStage = $targetStageRaw === '__auto__' ? null : $targetStageRaw;
+    $notifyCustomer = !empty($_POST['notify_customer']);
+    $notifyResponsible = !empty($_POST['notify_responsible']);
 
     if ($requestId <= 0) {
         set_flash('error', 'Hiányzó munka azonosító.');
         redirect('/admin/minicrm-import#portal-works');
     }
 
-    $result = close_connection_request_workflow_stage($requestId);
+    if ($targetStageRaw === '') {
+        $request = find_connection_request($requestId);
+        $documents = connection_request_documents($requestId);
+        $latestQuote = latest_quote_for_connection_request($requestId);
+        $acceptedQuote = accepted_quote_for_connection_request($requestId);
+        $currentStage = is_array($request) ? connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents) : '';
+        $targetStage = $currentStage !== '' ? next_admin_workflow_stage($currentStage) : null;
+    }
+
+    $result = set_connection_request_workflow_stage($requestId, $targetStage, $notifyCustomer, $notifyResponsible);
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafolyamat lezárása sikertelen.'));
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
@@ -301,6 +314,10 @@ if (is_post() && ($_POST['action'] ?? '') === 'close_minicrm_workflow_stage') {
     require_valid_csrf_token();
 
     $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $targetStageRaw = trim((string) ($_POST['target_stage'] ?? ''));
+    $targetStage = $targetStageRaw === '__auto__' ? null : $targetStageRaw;
+    $notifyCustomer = !empty($_POST['notify_customer']);
+    $notifyResponsible = !empty($_POST['notify_responsible']);
 
     if ($workItemId <= 0) {
         set_flash('error', 'Hiányzó MiniCRM munka azonosító.');
@@ -321,7 +338,16 @@ if (is_post() && ($_POST['action'] ?? '') === 'close_minicrm_workflow_stage') {
         redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
     }
 
-    $result = close_connection_request_workflow_stage($requestId);
+    if ($targetStageRaw === '') {
+        $request = find_connection_request($requestId);
+        $documents = connection_request_documents($requestId);
+        $latestQuote = latest_quote_for_connection_request($requestId);
+        $acceptedQuote = accepted_quote_for_connection_request($requestId);
+        $currentStage = is_array($request) ? connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents) : '';
+        $targetStage = $currentStage !== '' ? next_admin_workflow_stage($currentStage) : null;
+    }
+
+    $result = set_connection_request_workflow_stage($requestId, $targetStage, $notifyCustomer, $notifyResponsible);
     set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafolyamat lezárása sikertelen.'));
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
@@ -939,7 +965,6 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 ? connection_request_admin_workflow_stage($linkedMvmRequest, $linkedMiniCrmQuotes[0] ?? null, $linkedAcceptedQuote, $linkedMvmDocuments)
                                 : 'case_starting';
                             $linkedWorkflowDefinition = admin_workflow_stage_definitions()[$linkedWorkflowStage] ?? null;
-                            $linkedNextWorkflowStage = next_admin_workflow_stage($linkedWorkflowStage);
                             $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
                             if ($customerProfile === null && $isSelectedItem) {
                                 $customerProfile = minicrm_customer_profile_for_work_item($item);
@@ -1086,16 +1111,23 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <strong><?= (int) $linkedWorkflowDefinition['number']; ?>. <?= h((string) $linkedWorkflowDefinition['title']); ?></strong><br>
                                                         <?= h((string) $linkedWorkflowDefinition['description']); ?>
                                                     </p>
-                                                    <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>" onsubmit="return confirm('Biztosan lezárod ezt a munkafolyamat-lépést?') && confirm('Második megerősítés: tényleg tovább lépteted a munka státuszát?');">
+                                                    <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>" onsubmit="return confirm('Biztosan mented a kiválasztott munkafolyamat státuszt?');">
                                                         <?= csrf_field(); ?>
                                                         <input type="hidden" name="action" value="close_minicrm_workflow_stage">
                                                         <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
-                                                        <?php if ($linkedNextWorkflowStage !== null): ?>
-                                                            <button class="button" type="submit">Lezárom ezt a folyamatot</button>
-                                                            <small>Következő státusz: <?= h(admin_workflow_stage_label($linkedNextWorkflowStage)); ?></small>
-                                                        <?php else: ?>
-                                                            <button class="button" type="submit" disabled>Utolsó státuszban van</button>
-                                                        <?php endif; ?>
+                                                        <label for="workflow_stage_minicrm_<?= $itemId; ?>">Új státusz</label>
+                                                        <select id="workflow_stage_minicrm_<?= $itemId; ?>" name="target_stage" required>
+                                                            <?php foreach ($workflowStages as $stageKey => $stageDefinition): ?>
+                                                                <option value="<?= h((string) $stageKey); ?>" <?= $linkedWorkflowStage === (string) $stageKey ? 'selected' : ''; ?>>
+                                                                    <?= (int) $stageDefinition['number']; ?>. <?= h((string) $stageDefinition['title']); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                            <option value="__auto__">Automatikus állapot visszaállítása</option>
+                                                        </select>
+                                                        <label class="checkbox-row"><input type="checkbox" name="notify_customer" value="1"><span>Ügyfél tájékoztatása emailben</span></label>
+                                                        <label class="checkbox-row"><input type="checkbox" name="notify_responsible" value="1"><span>Adatlap felelőse / szerelő tájékoztatása emailben</span></label>
+                                                        <button class="button" type="submit">Státusz mentése</button>
+                                                        <small>Email csak akkor megy ki, ha külön bepipálod.</small>
                                                     </form>
                                                 <?php else: ?>
                                                     <p class="request-admin-empty">A munkafolyamat státusza nem olvasható.</p>
@@ -1489,7 +1521,6 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             : (string) $workflowStage;
                                         $requestWorkflowDefinition = $workflowStages[$requestWorkflowStage] ?? null;
                                         $requestWorkflowLabel = $requestWorkflowDefinition !== null ? (string) $requestWorkflowDefinition['title'] : admin_workflow_stage_label($requestWorkflowStage);
-                                        $requestNextWorkflowStage = next_admin_workflow_stage($requestWorkflowStage);
                                         $requestProfile = $customerProfilesByRequest[$requestId] ?? null;
                                         $profileEmail = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
                                         $profilePhone = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
@@ -1610,16 +1641,23 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                         <strong><?= (int) $requestWorkflowDefinition['number']; ?>. <?= h((string) $requestWorkflowDefinition['title']); ?></strong><br>
                                                                         <?= h((string) $requestWorkflowDefinition['description']); ?>
                                                                     </p>
-                                                                    <form class="portal-assignment-form" method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan lezárod ezt a munkafolyamat-lépést?') && confirm('Második megerősítés: tényleg tovább lépteted a munka státuszát?');">
+                                                                    <form class="portal-assignment-form" method="post" action="<?= h($requestDetailUrl); ?>" onsubmit="return confirm('Biztosan mented a kiválasztott munkafolyamat státuszt?');">
                                                                         <?= csrf_field(); ?>
                                                                         <input type="hidden" name="action" value="close_portal_workflow_stage">
                                                                         <input type="hidden" name="request_id" value="<?= $requestId; ?>">
-                                                                        <?php if ($requestNextWorkflowStage !== null): ?>
-                                                                            <button class="button" type="submit">Lezárom ezt a folyamatot</button>
-                                                                            <small>Következő státusz: <?= h(admin_workflow_stage_label($requestNextWorkflowStage)); ?></small>
-                                                                        <?php else: ?>
-                                                                            <button class="button" type="submit" disabled>Utolsó státuszban van</button>
-                                                                        <?php endif; ?>
+                                                                        <label for="workflow_stage_request_<?= $requestId; ?>">Új státusz</label>
+                                                                        <select id="workflow_stage_request_<?= $requestId; ?>" name="target_stage" required>
+                                                                            <?php foreach ($workflowStages as $stageKey => $stageDefinition): ?>
+                                                                                <option value="<?= h((string) $stageKey); ?>" <?= $requestWorkflowStage === (string) $stageKey ? 'selected' : ''; ?>>
+                                                                                    <?= (int) $stageDefinition['number']; ?>. <?= h((string) $stageDefinition['title']); ?>
+                                                                                </option>
+                                                                            <?php endforeach; ?>
+                                                                            <option value="__auto__">Automatikus állapot visszaállítása</option>
+                                                                        </select>
+                                                                        <label class="checkbox-row"><input type="checkbox" name="notify_customer" value="1"><span>Ügyfél tájékoztatása emailben</span></label>
+                                                                        <label class="checkbox-row"><input type="checkbox" name="notify_responsible" value="1"><span>Adatlap felelőse / szerelő tájékoztatása emailben</span></label>
+                                                                        <button class="button" type="submit">Státusz mentése</button>
+                                                                        <small>Email csak akkor megy ki, ha külön bepipálod.</small>
                                                                     </form>
                                                                 <?php else: ?>
                                                                     <p class="request-admin-empty">A munkafolyamat státusza nem olvasható.</p>
