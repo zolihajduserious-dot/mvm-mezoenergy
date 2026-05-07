@@ -104,7 +104,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_portal_work_files') {
     $request = $requestId > 0 ? find_connection_request($requestId) : null;
 
     if ($request === null) {
-        set_flash('error', 'A munka nem talĂˇlhatĂł, a fĂˇjlokat nem lehet feltĂ¶lteni.');
+        set_flash('error', 'A munka nem talalhato, a fajlokat nem lehet feltolteni.');
         redirect('/admin/minicrm-import#portal-works');
     }
 
@@ -120,7 +120,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_portal_work_files') {
     }
 
     if (!$hasAnyUpload) {
-        set_flash('error', 'VĂˇlassz legalĂˇbb egy feltĂ¶ltendĹ‘ fotĂłt vagy dokumentumot.');
+        set_flash('error', 'Valassz legalabb egy feltoltendo fotot vagy dokumentumot.');
         redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
     }
 
@@ -135,7 +135,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_portal_work_files') {
 
     set_flash(
         $uploadMessages === [] ? 'success' : 'error',
-        $uploadMessages === [] ? 'A fotĂłk Ă©s dokumentumok mentve lettek.' : 'NĂ©hĂˇny fĂˇjl nem lett mentve: ' . implode(' ', $uploadMessages)
+        $uploadMessages === [] ? 'A fotok es dokumentumok mentve lettek.' : 'Nehany fajl nem lett mentve: ' . implode(' ', $uploadMessages)
     );
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
@@ -1869,7 +1869,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <span><?= count($requestFiles) + count($requestWorkFiles) + count($requestDocuments); ?> f&#225;jl</span>
                                                                 </div>
                                                                 <details class="minicrm-manual-upload-form portal-work-upload-form">
-                                                                    <summary>Ăšj fotĂł vagy dokumentum feltĂ¶ltĂ©se</summary>
+                                                                    <summary>&#218;j fot&#243; vagy dokumentum felt&#246;lt&#233;se</summary>
                                                                     <form class="form" method="post" enctype="multipart/form-data" action="<?= h($requestDetailUrl); ?>">
                                                                         <?= csrf_field(); ?>
                                                                         <input type="hidden" name="action" value="upload_portal_work_files">
@@ -1887,13 +1887,13 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 ?>
                                                                                 <label class="file-upload-item">
                                                                                     <span><?= h((string) $definition['label']); ?></span>
-                                                                                    <small><?= connection_request_has_file_type($requestId, (string) $key) ? 'MĂˇr van ilyen feltĂ¶ltĂ©s, de Ăşj fĂˇjlt is hozzĂˇadhatsz.' : 'OpcionĂˇlis, tĂ¶bb fĂˇjl is feltĂ¶lthetĹ‘.'; ?></small>
+                                                                                    <small><?= connection_request_has_file_type($requestId, (string) $key) ? 'M&#225;r van ilyen felt&#246;lt&#233;s, de &#250;j f&#225;jlt is hozz&#225;adhatsz.' : 'Opcion&#225;lis, t&#246;bb f&#225;jl is felt&#246;lthet&#337;.'; ?></small>
                                                                                     <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?>>
                                                                                 </label>
                                                                             <?php endforeach; ?>
                                                                         </div>
                                                                         <div class="form-actions">
-                                                                            <button class="button button-secondary" type="submit">FĂˇjlok mentĂ©se</button>
+                                                                            <button class="button button-secondary" type="submit">F&#225;jlok ment&#233;se</button>
                                                                         </div>
                                                                     </form>
                                                                 </details>
