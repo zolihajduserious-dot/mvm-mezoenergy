@@ -8,6 +8,10 @@ $form = normalize_download_document_data(['is_active' => 1]);
 $flash = get_flash();
 $tableReady = db_table_exists('download_documents');
 
+if ($tableReady) {
+    ensure_default_download_documents();
+}
+
 if (is_post()) {
     require_valid_csrf_token();
 

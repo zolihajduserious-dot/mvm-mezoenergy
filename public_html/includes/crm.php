@@ -626,6 +626,112 @@ function create_download_document(array $data, array $file): int
     return (int) db()->lastInsertId();
 }
 
+function default_download_document_definitions(): array
+{
+    return [
+        [
+            'title' => 'Nyilatkozat adatlap',
+            'category' => 'MVM nyomtatvány',
+            'description' => 'MVM Démász nyilatkozatokhoz használható adatlap. Kitöltve az ügyfélportálon vagy az adott munkához tartozó dokumentumfeltöltésnél lehet visszatölteni.',
+            'original_name' => 'MVM_Demasz_Nyilatkozatok_adatlap_N31400-05.pdf',
+            'stored_name' => 'mvm-demasz-nyilatkozatok-adatlap-n31400-05.pdf',
+            'asset_path' => PUBLIC_ROOT . '/assets/documents/mvm-demasz-nyilatkozatok-adatlap-n31400-05.pdf',
+            'sort_order' => 20,
+        ],
+    ];
+}
+
+function ensure_default_download_documents(): void
+{
+    if (!db_table_exists('download_documents')) {
+        return;
+    }
+
+    foreach (default_download_document_definitions() as $definition) {
+        upsert_download_document_from_local_file($definition);
+    }
+}
+
+function upsert_download_document_from_local_file(array $definition): void
+{
+    $sourcePath = (string) ($definition['asset_path'] ?? '');
+
+    if ($sourcePath === '' || !is_file($sourcePath)) {
+        return;
+    }
+
+    ensure_storage_dir(DOWNLOAD_DOCUMENT_PATH);
+
+    $storedName = basename((string) ($definition['stored_name'] ?? basename($sourcePath)));
+    $targetPath = DOWNLOAD_DOCUMENT_PATH . '/' . $storedName;
+    $sourceSize = (int) filesize($sourcePath);
+
+    if (!is_file($targetPath) || (int) filesize($targetPath) !== $sourceSize) {
+        if (!copy($sourcePath, $targetPath)) {
+            throw new RuntimeException('Nem sikerült elérhetővé tenni az alap dokumentumot: ' . (string) ($definition['title'] ?? $storedName));
+        }
+    }
+
+    $mimeType = function_exists('mime_content_type') ? (mime_content_type($targetPath) ?: '') : '';
+    $title = trim((string) ($definition['title'] ?? pathinfo($sourcePath, PATHINFO_FILENAME)));
+    $category = trim((string) ($definition['category'] ?? 'MVM dokumentum'));
+    $description = trim((string) ($definition['description'] ?? ''));
+    $originalName = trim((string) ($definition['original_name'] ?? basename($sourcePath)));
+
+    $existing = db_query(
+        'SELECT `id` FROM `download_documents` WHERE `title` = ? LIMIT 1',
+        [$title]
+    )->fetch();
+
+    if (is_array($existing)) {
+        db_query(
+            'UPDATE `download_documents`
+             SET `category` = ?,
+                 `description` = ?,
+                 `original_name` = ?,
+                 `stored_name` = ?,
+                 `storage_path` = ?,
+                 `mime_type` = ?,
+                 `file_size` = ?,
+                 `is_active` = ?,
+                 `sort_order` = ?
+             WHERE `id` = ?',
+            [
+                $category !== '' ? $category : 'MVM dokumentum',
+                $description !== '' ? $description : null,
+                $originalName !== '' ? $originalName : basename($sourcePath),
+                $storedName,
+                $targetPath,
+                $mimeType !== '' ? $mimeType : 'application/pdf',
+                $sourceSize,
+                1,
+                (int) ($definition['sort_order'] ?? 0),
+                (int) $existing['id'],
+            ]
+        );
+        return;
+    }
+
+    db_query(
+        'INSERT INTO `download_documents`
+            (`title`, `category`, `description`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`, `is_active`, `sort_order`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $title,
+            $category !== '' ? $category : 'MVM dokumentum',
+            $description !== '' ? $description : null,
+            $originalName !== '' ? $originalName : basename($sourcePath),
+            $storedName,
+            $targetPath,
+            $mimeType !== '' ? $mimeType : 'application/pdf',
+            $sourceSize,
+            1,
+            (int) ($definition['sort_order'] ?? 0),
+            null,
+        ]
+    );
+}
+
 function download_documents(bool $onlyActive = true): array
 {
     if (!db_table_exists('download_documents')) {
@@ -666,6 +772,116 @@ function find_download_document(int $id, bool $onlyActive = true): ?array
     $document = $statement->fetch();
 
     return is_array($document) ? $document : null;
+}
+
+function normalize_download_document_email_data(array $source): array
+{
+    return [
+        'document_id' => (int) ($source['document_id'] ?? 0),
+        'recipient_name' => trim((string) ($source['recipient_name'] ?? '')),
+        'recipient_email' => trim((string) ($source['recipient_email'] ?? '')),
+        'message' => trim((string) ($source['message'] ?? '')),
+    ];
+}
+
+function validate_download_document_email_data(array $data): array
+{
+    $errors = [];
+
+    if ((int) $data['document_id'] <= 0 || find_download_document((int) $data['document_id'], true) === null) {
+        $errors[] = 'Válassz egy elküldhető dokumentumot.';
+    }
+
+    if (!filter_var((string) $data['recipient_email'], FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'Érvényes ügyfél email címet adj meg.';
+    }
+
+    return $errors;
+}
+
+function send_download_document_to_customer(array $data): array
+{
+    $data = normalize_download_document_email_data($data);
+    $errors = validate_download_document_email_data($data);
+
+    if ($errors !== []) {
+        return ['ok' => false, 'message' => implode(' ', $errors)];
+    }
+
+    $document = find_download_document((int) $data['document_id'], true);
+
+    if ($document === null || !is_file((string) ($document['storage_path'] ?? ''))) {
+        return ['ok' => false, 'message' => 'A kiválasztott dokumentum fájlja nem található.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $recipientEmail = (string) $data['recipient_email'];
+    $recipientName = (string) $data['recipient_name'];
+    $downloadUrl = absolute_url('/documents/file?id=' . (int) $document['id']);
+    $registrationUrl = absolute_url('/register');
+    $subject = APP_NAME . ' - ' . (string) $document['title'];
+    $lead = 'Csatoltan küldjük a kért dokumentumot. A Mező Energy Kft. a mérőhelyi ügyintézésben, az MVM/Démász dokumentáció előkészítésében, az árajánlatok kezelésében és a kivitelezési folyamatok koordinálásában segít, hogy az ügyintézés átláthatóan és egy helyen követhető legyen.';
+    $sections = [
+        [
+            'title' => 'Küldött dokumentum',
+            'rows' => [
+                ['label' => 'Dokumentum neve', 'value' => (string) $document['title']],
+                ['label' => 'Kategória', 'value' => (string) $document['category']],
+                ['label' => 'Letöltési link', 'value' => $downloadUrl],
+            ],
+        ],
+        [
+            'title' => 'Regisztráció előnyei',
+            'items' => [
+                'Saját ügyfélprofilból beküldhető a munkaigény és visszatölthetők a kitöltött dokumentumok.',
+                'A folyamat állapota, az üzenetek és a feltöltött fájlok egy adatlapon maradnak.',
+                'Az adminisztráció és a szerelői egyeztetés gyorsabban követhető.',
+            ],
+        ],
+    ];
+
+    if ((string) $data['message'] !== '') {
+        $sections[] = [
+            'title' => 'Kiegészítő üzenet',
+            'lead' => (string) $data['message'],
+        ];
+    }
+
+    $actions = [
+        ['label' => 'Regisztráció indítása', 'url' => $registrationUrl],
+        ['label' => 'Dokumentum letöltése', 'url' => $downloadUrl],
+        ['label' => 'Dokumentumtár megnyitása', 'url' => absolute_url('/documents')],
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress($recipientEmail, $recipientName);
+        $mail->Subject = $subject;
+        apply_branded_email($mail, 'Kért dokumentum és regisztrációs lehetőség', $lead, $sections, $actions, $recipientName);
+        $mail->addAttachment((string) $document['storage_path'], (string) $document['original_name']);
+        $mail->send();
+
+        if (db_table_exists('email_logs')) {
+            db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+        }
+
+        return ['ok' => true, 'message' => 'A dokumentum emailben elküldve az ügyfélnek.'];
+    } catch (Throwable $exception) {
+        if (db_table_exists('email_logs')) {
+            db_query(
+                'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+                [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
+            );
+        }
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A dokumentum email küldése sikertelen.'];
+    }
 }
 
 function split_full_name(string $name): array

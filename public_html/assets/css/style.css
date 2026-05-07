@@ -1581,6 +1581,34 @@ a.metric-card {
     margin: 28px 0;
 }
 
+.document-email-panel {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.document-email-copy {
+    max-width: 780px;
+}
+
+.document-email-form {
+    width: 100%;
+}
+
+.document-email-fields {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.2fr) repeat(2, minmax(180px, 1fr));
+    gap: 14px;
+}
+
+.document-email-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.document-email-actions .button {
+    margin-top: 0;
+}
+
 .admin-header .admin-actions {
     margin-top: 0;
 }
@@ -2788,6 +2816,7 @@ a.metric-card {
     .price-summary-grid,
     .price-item-card,
     .price-item-meta,
+    .document-email-fields,
     .quote-response-grid,
     .quote-send-summary,
     .quote-send-actions,
