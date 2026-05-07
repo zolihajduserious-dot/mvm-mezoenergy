@@ -5949,7 +5949,9 @@ function document_prefill_openai_api_key(): string
 
 function document_prefill_model(): string
 {
-    return trim(mvm_config_value('DOCUMENT_PREFILL_MODEL', 'gpt-4o-mini'));
+    $model = trim(mvm_config_value('DOCUMENT_PREFILL_MODEL', 'gpt-4o'));
+
+    return $model === 'gpt-4o-mini' ? 'gpt-4o' : $model;
 }
 
 function document_prefill_instruction_text(): string
@@ -5965,6 +5967,8 @@ function document_prefill_instruction_text(): string
         'Különösen fontos célmezők: mother_name, birth_place, birth_date. Ezeket minden feltöltött okmányon keresd meg, ne csak az elsőként olvasott képen.',
         'Személyi igazolvány: requester_name = Név / Name mező magyar sorrendben; birth_name = Születési név; birth_date = Születési idő / Date of birth. A magyar személyin a születési idő gyakran YYYY MM DD tagolású, ezt alakítsd YYYY-MM-DD formára.',
         'Lakcímkártya: mother_name = Anyja neve; birth_place = Születési helye, Születési hely vagy Születési hely/idő helynév része; postal_code = irányítószám; city = település/város; postal_address = utca, házszám. Ha csak tartózkodási hely olvasható, azt használd lakcímként.',
+        'Lakcímkártya: a "Születési helye, ideje" sorban a dátum előtti település a birth_place, a dátum pedig a birth_date. Példa: "Mezőhegyes 1971. 11. 01." -> birth_place: Mezőhegyes, birth_date: 1971-11-01.',
+        'Lakcímkártya: az "Anyja neve" felirat után álló teljes nevet minden esetben írd a mother_name mezőbe, magyar névsorrendben.',
         'Ha az Anyja neve, Születési hely vagy Születési idő felirat kis betűvel, függőlegesen vagy elfordítva látszik, akkor is olvasd ki.',
         'Villanyszámla: site_postal_code/site_address = Felhasználási hely, Fogyasztási hely vagy Számlázási/fogyasztási cím. A site_address mezőbe kerüljön bele a település is, mert ehhez nincs külön város mező. Példa: 5820 Mezőhegyes, Tavasz utca 4 -> site_postal_code: 5820, site_address: Mezőhegyes, Tavasz utca 4.',
         'Villanyszámla: consumption_place_id = Vevő (fizető) azonosító, Fogyasztási hely azonosító, Felhasználási hely azonosító vagy Mérési pont azonosító. A HU-val kezdődő mérési pont azonosító is elfogadható ebben a mezőben. Ha csak HU azonosító látszik, azt add vissza; ha 10 jegyű vevőazonosító és HU mérési pont is látszik, a biztosabban olvashatót add vissza.',
