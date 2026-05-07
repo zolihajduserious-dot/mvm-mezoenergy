@@ -812,7 +812,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 <section id="h-tariff-section" class="mvm-form-section">
                     <div>
                         <h3>H tarifa nyilatkozat generálása</h3>
-                        <p>Ha a H tarifa nyilatkozat mezői ki vannak töltve, a PDF automatikusan bekerül az MVM jóváhagyási csomagba. A kiválasztott hőszivattyú működési rendszer a Word sablonban aláhúzva jelenik meg.</p>
+                        <p>Ha a H tarifa nyilatkozat mezői ki vannak töltve, a PDF automatikusan bekerül az MVM jóváhagyási csomagba. H tarifa esetén a klíma matrica és a klíma adatlap PDF/kép feltöltése is szükséges. A kiválasztott hőszivattyú működési rendszer a Word sablonban aláhúzva jelenik meg.</p>
                     </div>
                     <div>
                         <?php if ($hTariffFlash !== null): ?>
@@ -883,7 +883,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">1. csomag</p>
                     <h2>MVM jóváhagyási PDF csomag</h2>
-                    <p>Sorrend: MVM dokumentum, H tarifa nyilatkozat ha ki van töltve, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
+                    <p>Sorrend: MVM dokumentum, H tarifa nyilatkozat ha ki van töltve, H tarifa esetén klíma matrica és klíma adatlap, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>

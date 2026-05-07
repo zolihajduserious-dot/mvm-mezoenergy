@@ -310,13 +310,15 @@ $pageSubtitle = $customer !== null
                     <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
                         <?php
                         $isImage = $definition['kind'] === 'image';
-                        $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
-                        $hasExistingFile = connection_request_has_file_type($requestId ?: null, (string) $key);
                         $isHTariffRequired = !empty($definition['h_tariff_required']);
+                        $accept = connection_request_upload_accept($definition);
+                        $hasExistingFile = $isHTariffRequired
+                            ? connection_request_has_package_file_type($requestId ?: null, (string) $key)
+                            : connection_request_has_file_type($requestId ?: null, (string) $key);
                         ?>
                         <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?>>
                             <span><?= h((string) $definition['label']); ?><?= ($definition['required'] || $isHTariffRequired) ? ' *' : ''; ?></span>
-                            <small><?= $definition['required'] ? 'Lezáráskor mindig kötelező. Több fájl is feltölthető.' : ($isHTariffRequired ? 'H tarifa esetén lezáráskor kötelező.' : 'Opcionális. Több fájl is feltölthető.'); ?></small>
+                            <small><?= $definition['required'] ? 'Lezáráskor mindig kötelező. Több fájl is feltölthető.' : ($isHTariffRequired ? 'H tarifa esetén lezáráskor kötelező, PDF vagy kép formátumban.' : 'Opcionális. Több fájl is feltölthető.'); ?></small>
                             <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> <?= $isHTariffRequired ? 'data-h-tariff-required="1" data-has-existing="' . ($hasExistingFile ? '1' : '0') . '"' : ''; ?>>
                         </label>
                     <?php endforeach; ?>

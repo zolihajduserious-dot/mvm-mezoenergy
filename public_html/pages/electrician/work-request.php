@@ -814,12 +814,12 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
                             <?php
                             $isImage = $definition['kind'] === 'image';
-                            $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
                             $isHTariffRequired = !empty($definition['h_tariff_required']);
+                            $accept = connection_request_upload_accept($definition);
                             ?>
                             <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?>>
                                 <span><?= h($definition['label']); ?><?= $isHTariffRequired ? ' *' : ''; ?></span>
-                                <small><?= $isHTariffRequired ? 'H tarifa esetén kötelező dokumentum.' : 'Opcionális, több fájl is feltölthető.'; ?></small>
+                                <small><?= $isHTariffRequired ? 'H tarifa esetén kötelező, PDF vagy kép formátumban.' : 'Opcionális, több fájl is feltölthető.'; ?></small>
                                 <input name="file_<?= h($key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> <?= $isHTariffRequired ? 'data-h-tariff-required="1" data-has-existing="0"' : ''; ?>>
                             </label>
                         <?php endforeach; ?>
@@ -1069,8 +1069,8 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                 <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
                                     <?php
                                     $isImage = $definition['kind'] === 'image';
-                                    $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
                                     $isHTariffRequired = !empty($definition['h_tariff_required']);
+                                    $accept = connection_request_upload_accept($definition);
 
                                     if ($isHTariffRequired && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
                                         continue;
@@ -1078,7 +1078,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                     ?>
                                     <label class="file-upload-item">
                                         <span><?= h($definition['label']); ?></span>
-                                        <small><?= connection_request_has_file_type((int) $request['id'], (string) $key) ? 'Már van ilyen feltöltés, de új fájlt is hozzáadhatsz.' : 'Opcionális, több fájl is feltölthető.'; ?></small>
+                                        <small><?= ($isHTariffRequired ? connection_request_has_package_file_type((int) $request['id'], (string) $key) : connection_request_has_file_type((int) $request['id'], (string) $key)) ? 'Már van ilyen feltöltés, de új fájlt is hozzáadhatsz.' : ($isHTariffRequired ? 'H tarifa esetén kötelező, PDF vagy kép formátumban.' : 'Opcionális, több fájl is feltölthető.'); ?></small>
                                         <input name="file_<?= h($key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?>>
                                     </label>
                                 <?php endforeach; ?>

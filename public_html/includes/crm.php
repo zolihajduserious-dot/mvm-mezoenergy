@@ -5573,8 +5573,8 @@ function connection_request_type_label(?string $type): string
 function h_tariff_required_file_types(): array
 {
     return [
-        'h_tariff_label' => 'Klímamatrica fotó vagy dokumentum',
-        'h_tariff_datasheet' => 'Műszaki adatlap fotó vagy dokumentum',
+        'h_tariff_label' => 'Klíma matrica',
+        'h_tariff_datasheet' => 'Klíma adatlap',
     ];
 }
 
@@ -5590,10 +5590,38 @@ function connection_request_upload_definitions(): array
         'map_copy' => ['label' => 'Térképmásolat', 'required' => false, 'kind' => 'document'],
         'authorization' => ['label' => 'Kitöltött meghatalmazás', 'required' => false, 'kind' => 'document'],
         'consent_statement' => ['label' => 'Kitöltött hozzájáruló nyilatkozat', 'required' => false, 'kind' => 'document'],
-        'h_tariff_label' => ['label' => 'Klímamatrica fotó vagy dokumentum', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
-        'h_tariff_datasheet' => ['label' => 'Műszaki adatlap fotó vagy dokumentum', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
+        'h_tariff_label' => ['label' => 'Klíma matrica', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
+        'h_tariff_datasheet' => ['label' => 'Klíma adatlap', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
         'completed_document' => ['label' => 'Egyéb kitöltött dokumentum', 'required' => false, 'kind' => 'document'],
     ];
+}
+
+function connection_request_package_file_extensions(): array
+{
+    return ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+}
+
+function connection_request_package_file_accept(): string
+{
+    return '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+}
+
+function connection_request_upload_accept(array $definition): string
+{
+    if (($definition['kind'] ?? '') === 'image') {
+        return 'image/jpeg,image/png,image/webp';
+    }
+
+    if (!empty($definition['h_tariff_required'])) {
+        return connection_request_package_file_accept();
+    }
+
+    return '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+}
+
+function connection_request_upload_needs_package_compatible_file(array $definition): bool
+{
+    return !empty($definition['h_tariff_required']);
 }
 
 function normalize_connection_request_data(array $source, ?array $customer = null): array
@@ -5680,14 +5708,25 @@ function validate_connection_request_data(array $data, array $files, bool $final
         ));
         $isRequiredForRequest = !empty($definition['required'])
             || (($data['request_type'] ?? '') === 'h_tariff' && !empty($definition['h_tariff_required']));
+        $hasExistingRequiredFile = connection_request_upload_needs_package_compatible_file($definition)
+            ? connection_request_has_package_file_type($requestId, (string) $key)
+            : connection_request_has_file_type($requestId, (string) $key);
 
-        if ($finalize && $isRequiredForRequest && $uploadedFiles === [] && !connection_request_has_file_type($requestId, $key)) {
+        if ($finalize && $isRequiredForRequest && $uploadedFiles === [] && !$hasExistingRequiredFile) {
             $errors[] = $definition['label'] . ' feltöltése kötelező a lezáráshoz.';
         }
 
         foreach ($uploadedFiles as $file) {
             if (($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
                 $errors[] = $definition['label'] . ': túl nagy fájl. Maximum 8 MB engedélyezett.';
+            }
+
+            $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+
+            if (connection_request_upload_needs_package_compatible_file($definition)
+                && !in_array($extension, connection_request_package_file_extensions(), true)
+            ) {
+                $errors[] = $definition['label'] . ': H tarifa mellékletként csak PDF vagy kép tölthető fel, mert bekerül az MVM jóváhagyási csomagba.';
             }
         }
     }
@@ -5880,6 +5919,13 @@ function handle_connection_request_uploads(int $requestId, array $files, bool $n
 
             if ($definition['kind'] === 'image' && !in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true)) {
                 $messages[] = $definition['label'] . ': ehhez csak kep toltheto fel.';
+                continue;
+            }
+
+            if (connection_request_upload_needs_package_compatible_file($definition)
+                && !in_array($extension, connection_request_package_file_extensions(), true)
+            ) {
+                $messages[] = $definition['label'] . ': H tarifa mellékletként csak PDF vagy kép tölthető fel.';
                 continue;
             }
 
@@ -13202,6 +13248,61 @@ function connection_request_work_file_package_part(array $file, string $group): 
     ];
 }
 
+function connection_request_package_file_is_compatible(array $file): bool
+{
+    return pdf_package_file_is_pdf($file) || pdf_package_file_is_image($file);
+}
+
+function connection_request_has_package_file_type(?int $requestId, string $fileType): bool
+{
+    if ($requestId === null || $requestId <= 0) {
+        return false;
+    }
+
+    foreach (connection_request_files($requestId) as $file) {
+        if ((string) ($file['file_type'] ?? '') !== $fileType) {
+            continue;
+        }
+
+        if (connection_request_package_file_is_compatible($file)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function connection_request_has_h_tariff_requirement(int $requestId): bool
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return false;
+    }
+
+    if ((string) ($request['request_type'] ?? '') === 'h_tariff') {
+        return true;
+    }
+
+    $values = connection_request_mvm_form_values($request);
+
+    return trim((string) ($values['h_tarifa_vagy_melleszereles'] ?? '')) !== ''
+        || mvm_h_tariff_form_values_are_filled($values);
+}
+
+function connection_request_named_file_package_part(array $file, string $group, string $label, string $fileType): array
+{
+    return [
+        'group' => $group,
+        'label' => $label,
+        'original_name' => (string) $file['original_name'],
+        'path' => (string) $file['storage_path'],
+        'mime_type' => (string) $file['mime_type'],
+        'source' => 'request_file',
+        'file_type' => $fileType,
+    ];
+}
+
 function connection_request_complete_package_parts(int $requestId): array
 {
     $parts = [];
@@ -13224,6 +13325,18 @@ function connection_request_complete_package_parts(int $requestId): array
         $filesByType[(string) $file['file_type']][] = $file;
     }
 
+    if (connection_request_has_h_tariff_requirement($requestId)) {
+        foreach (h_tariff_required_file_types() as $fileType => $label) {
+            foreach ($filesByType[$fileType] ?? [] as $file) {
+                if (!connection_request_package_file_is_compatible($file)) {
+                    continue;
+                }
+
+                $parts[] = connection_request_named_file_package_part($file, 'H tarifa melléklet', $label, (string) $fileType);
+            }
+        }
+    }
+
     foreach ([
         'authorization' => 'Meghatalmazás',
         'title_deed' => 'Tulajdoni lap',
@@ -13231,15 +13344,16 @@ function connection_request_complete_package_parts(int $requestId): array
         'consent_statement' => 'Hozzájáruló nyilatkozat',
     ] as $fileType => $group) {
         foreach ($filesByType[$fileType] ?? [] as $file) {
-            $parts[] = [
-                'group' => $group,
-                'label' => (string) ($definitions[$fileType]['label'] ?? $group),
-                'original_name' => (string) $file['original_name'],
-                'path' => (string) $file['storage_path'],
-                'mime_type' => (string) $file['mime_type'],
-                'source' => 'request_file',
-                'file_type' => $fileType,
-            ];
+            if (!connection_request_package_file_is_compatible($file)) {
+                continue;
+            }
+
+            $parts[] = connection_request_named_file_package_part(
+                $file,
+                $group,
+                (string) ($definitions[$fileType]['label'] ?? $group),
+                (string) $fileType
+            );
         }
     }
 
@@ -13249,15 +13363,11 @@ function connection_request_complete_package_parts(int $requestId): array
         }
 
         foreach ($filesByType[$fileType] ?? [] as $file) {
-            $parts[] = [
-                'group' => 'Fotók',
-                'label' => (string) $definition['label'],
-                'original_name' => (string) $file['original_name'],
-                'path' => (string) $file['storage_path'],
-                'mime_type' => (string) $file['mime_type'],
-                'source' => 'request_file',
-                'file_type' => $fileType,
-            ];
+            if (!connection_request_package_file_is_compatible($file)) {
+                continue;
+            }
+
+            $parts[] = connection_request_named_file_package_part($file, 'Fotók', (string) $definition['label'], (string) $fileType);
         }
     }
 
@@ -13334,16 +13444,28 @@ function connection_request_complete_package_missing_items(int $requestId): arra
         $missing[] = 'H tarifa nyilatkozat sablon';
     }
 
-    if (!connection_request_has_file_type($requestId, 'authorization')) {
-        $missing[] = 'Meghatalmazás';
+    if (connection_request_has_h_tariff_requirement($requestId)) {
+        if (!connection_request_h_tariff_section_is_filled($requestId)) {
+            $missing[] = 'H tarifa nyilatkozat adatai';
+        }
+
+        foreach (h_tariff_required_file_types() as $fileType => $label) {
+            if (!connection_request_has_package_file_type($requestId, (string) $fileType)) {
+                $missing[] = $label . ' PDF vagy kép formátumban';
+            }
+        }
     }
 
-    if (!connection_request_has_file_type($requestId, 'title_deed')) {
-        $missing[] = 'Tulajdoni lap';
+    if (!connection_request_has_package_file_type($requestId, 'authorization')) {
+        $missing[] = 'Meghatalmazás PDF vagy kép formátumban';
     }
 
-    if (!connection_request_has_file_type($requestId, 'map_copy')) {
-        $missing[] = 'Térképmásolat';
+    if (!connection_request_has_package_file_type($requestId, 'title_deed')) {
+        $missing[] = 'Tulajdoni lap PDF vagy kép formátumban';
+    }
+
+    if (!connection_request_has_package_file_type($requestId, 'map_copy')) {
+        $missing[] = 'Térképmásolat PDF vagy kép formátumban';
     }
 
     if (!connection_request_has_photo_file($requestId)) {
@@ -17901,12 +18023,12 @@ function minicrm_connection_request_file_type(array $file): string
         return 'consent_statement';
     }
 
-    if (preg_match('/klima|matrica/', $text)) {
-        return 'h_tariff_label';
+    if (preg_match('/klima.*adatlap|adatlap.*klima|muszaki adatlap/', $text)) {
+        return 'h_tariff_datasheet';
     }
 
-    if (preg_match('/muszaki adatlap|adatlap/', $text)) {
-        return 'h_tariff_datasheet';
+    if (preg_match('/klima|matrica/', $text)) {
+        return 'h_tariff_label';
     }
 
     if (preg_match('/oszlop/', $text)) {

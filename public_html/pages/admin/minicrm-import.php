@@ -2148,8 +2148,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                             <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
                                                                                 <?php
                                                                                 $isImage = ($definition['kind'] ?? '') === 'image';
-                                                                                $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
                                                                                 $isHTariffOnly = !empty($definition['h_tariff_required']);
+                                                                                $accept = connection_request_upload_accept($definition);
 
                                                                                 if ($isHTariffOnly && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
                                                                                     continue;
@@ -2157,7 +2157,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 ?>
                                                                                 <label class="file-upload-item">
                                                                                     <span><?= h((string) $definition['label']); ?></span>
-                                                                                    <small><?= connection_request_has_file_type($requestId, (string) $key) ? 'M&#225;r van ilyen felt&#246;lt&#233;s, de &#250;j f&#225;jlt is hozz&#225;adhatsz.' : 'Opcion&#225;lis, t&#246;bb f&#225;jl is felt&#246;lthet&#337;.'; ?></small>
+                                                                                    <small><?= ($isHTariffOnly ? connection_request_has_package_file_type($requestId, (string) $key) : connection_request_has_file_type($requestId, (string) $key)) ? 'M&#225;r van ilyen felt&#246;lt&#233;s, de &#250;j f&#225;jlt is hozz&#225;adhatsz.' : ($isHTariffOnly ? 'H tarifa eset&#233;n k&#246;telez&#337;, PDF vagy k&#233;p form&#225;tumban.' : 'Opcion&#225;lis, t&#246;bb f&#225;jl is felt&#246;lthet&#337;.'); ?></small>
                                                                                     <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?>>
                                                                                 </label>
                                                                             <?php endforeach; ?>
