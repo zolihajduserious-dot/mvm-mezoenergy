@@ -5960,11 +5960,13 @@ function document_prefill_instruction_text(): string
         'Csak a dokumentumokon látható adatot add vissza. A kissé homályos, de olvasható adatot írd be; csak a tényleg olvashatatlan mező maradjon üres string.',
         'Ne adj vissza személyi okmányszámot, személyi azonosítót, igazolványszámot vagy adóazonosító jelet.',
         'A születési dátum mindig YYYY-MM-DD formátumú legyen.',
+        'Magyar neveknél tilos a sorrendet megfordítani. A személyin és lakcímkártyán látható magyar sorrendet tartsd meg: vezetéknév, majd keresztnév/nevek. Példa: HAJDU ZOLTAN LASZLO -> Hajdu Zoltán László, nem Zoltán László Hajdu.',
+        'Ne adj vissza neveket végig nagybetűvel. A csupa nagybetűs okmányfeliratot alakítsd normál névírásra.',
         'Különösen fontos célmezők: mother_name, birth_place, birth_date. Ezeket minden feltöltött okmányon keresd meg, ne csak az elsőként olvasott képen.',
-        'Személyi igazolvány: requester_name = név, birth_name = születési név, birth_date = Születési idő / Date of birth. A magyar személyin a születési idő gyakran YYYY MM DD tagolású, ezt alakítsd YYYY-MM-DD formára.',
-        'Lakcímkártya: mother_name = Anyja neve; birth_place = Születési helye, Születési hely vagy Születési hely/idő helynév része; postal_code/city/postal_address = Lakóhely, Lakóhelye vagy Bejelentett lakóhely címe. Ha csak tartózkodási hely olvasható, azt használd lakcímként.',
+        'Személyi igazolvány: requester_name = Név / Name mező magyar sorrendben; birth_name = Születési név; birth_date = Születési idő / Date of birth. A magyar személyin a születési idő gyakran YYYY MM DD tagolású, ezt alakítsd YYYY-MM-DD formára.',
+        'Lakcímkártya: mother_name = Anyja neve; birth_place = Születési helye, Születési hely vagy Születési hely/idő helynév része; postal_code = irányítószám; city = település/város; postal_address = utca, házszám. Ha csak tartózkodási hely olvasható, azt használd lakcímként.',
         'Ha az Anyja neve, Születési hely vagy Születési idő felirat kis betűvel, függőlegesen vagy elfordítva látszik, akkor is olvasd ki.',
-        'Villanyszámla: site_postal_code/site_address = Felhasználási hely, Fogyasztási hely vagy Számlázási/fogyasztási cím.',
+        'Villanyszámla: site_postal_code/site_address = Felhasználási hely, Fogyasztási hely vagy Számlázási/fogyasztási cím. A site_address mezőbe kerüljön bele a település is, mert ehhez nincs külön város mező. Példa: 5820 Mezőhegyes, Tavasz utca 4 -> site_postal_code: 5820, site_address: Mezőhegyes, Tavasz utca 4.',
         'Villanyszámla: consumption_place_id = Vevő (fizető) azonosító, Fogyasztási hely azonosító, Felhasználási hely azonosító vagy Mérési pont azonosító. A HU-val kezdődő mérési pont azonosító is elfogadható ebben a mezőben. Ha csak HU azonosító látszik, azt add vissza; ha 10 jegyű vevőazonosító és HU mérési pont is látszik, a biztosabban olvashatót add vissza.',
         'Villanyszámla: meter_serial = Mérő gyártási száma, Mérő gyári száma vagy Mérőóra gyári száma. Ha ugyanaz a mérő több sorban szerepel, egyszer add vissza. Ha több eltérő mérő van, a legaktuálisabb vagy legjobban olvasható saját mérőt válaszd.',
         'A confidence_notes mezőbe röviden írd be, ha egy fontos mezőt nem találtál vagy bizonytalan volt.',
@@ -6091,6 +6093,52 @@ function document_prefill_decode_json_text(string $text): ?array
     }
 
     return null;
+}
+
+function document_prefill_humanize_uppercase_text(string $value): string
+{
+    $value = trim((string) preg_replace('/\s+/', ' ', $value));
+
+    if ($value === '' || !preg_match('/\p{L}/u', $value)) {
+        return $value;
+    }
+
+    $upperValue = function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+
+    if ($value !== $upperValue) {
+        return $value;
+    }
+
+    if (function_exists('mb_convert_case')) {
+        return mb_convert_case($value, MB_CASE_TITLE, 'UTF-8');
+    }
+
+    return ucwords(strtolower($value));
+}
+
+function document_prefill_prefix_site_city(array $data): array
+{
+    $siteAddress = trim((string) ($data['site_address'] ?? ''));
+    $city = trim((string) ($data['city'] ?? ''));
+
+    if ($siteAddress === '' || $city === '') {
+        return $data;
+    }
+
+    $normalizedSiteAddress = function_exists('mb_strtolower') ? mb_strtolower($siteAddress, 'UTF-8') : strtolower($siteAddress);
+    $normalizedCity = function_exists('mb_strtolower') ? mb_strtolower($city, 'UTF-8') : strtolower($city);
+    $sitePostalCode = preg_replace('/\D+/', '', (string) ($data['site_postal_code'] ?? ''));
+    $postalCode = preg_replace('/\D+/', '', (string) ($data['postal_code'] ?? ''));
+
+    if (str_contains($normalizedSiteAddress, $normalizedCity) || str_contains($siteAddress, ',')) {
+        return $data;
+    }
+
+    if ($sitePostalCode !== '' && $postalCode !== '' && $sitePostalCode === $postalCode) {
+        $data['site_address'] = $city . ', ' . $siteAddress;
+    }
+
+    return $data;
 }
 
 function document_prefill_retry_after_seconds(?string $rawResponse): float
@@ -6288,6 +6336,12 @@ function document_prefill_normalize_data(array $data): array
     }
 
     $normalized['birth_date'] = normalize_connection_request_mvm_source_date($normalized['birth_date']);
+    $normalized['requester_name'] = document_prefill_humanize_uppercase_text($normalized['requester_name']);
+    $normalized['birth_name'] = document_prefill_humanize_uppercase_text($normalized['birth_name']);
+    $normalized['mother_name'] = document_prefill_humanize_uppercase_text($normalized['mother_name']);
+    $normalized['birth_place'] = document_prefill_humanize_uppercase_text($normalized['birth_place']);
+    $normalized['city'] = document_prefill_humanize_uppercase_text($normalized['city']);
+    $normalized = document_prefill_prefix_site_city($normalized);
 
     return $normalized;
 }
