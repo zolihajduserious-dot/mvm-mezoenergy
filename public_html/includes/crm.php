@@ -5581,6 +5581,9 @@ function h_tariff_required_file_types(): array
 function connection_request_upload_definitions(): array
 {
     return [
+        'utility_bill' => ['label' => 'Villanyszámla', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
+        'identity_card' => ['label' => 'Személyi igazolvány', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
+        'address_card' => ['label' => 'Lakcímkártya', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
         'meter_close' => ['label' => 'Mérő fotó közelről', 'required' => false, 'kind' => 'image'],
         'meter_far' => ['label' => 'Mérő fotó távolról', 'required' => false, 'kind' => 'image'],
         'roof_hook' => ['label' => 'Tetőtartó vagy falihorog, ha van', 'required' => false, 'kind' => 'image'],
@@ -5612,7 +5615,7 @@ function connection_request_upload_accept(array $definition): string
         return 'image/jpeg,image/png,image/webp';
     }
 
-    if (!empty($definition['h_tariff_required'])) {
+    if (!empty($definition['h_tariff_required']) || !empty($definition['prefill_source'])) {
         return connection_request_package_file_accept();
     }
 
@@ -5622,6 +5625,618 @@ function connection_request_upload_accept(array $definition): string
 function connection_request_upload_needs_package_compatible_file(array $definition): bool
 {
     return !empty($definition['h_tariff_required']);
+}
+
+function connection_request_upload_pdf_or_image_only(array $definition): bool
+{
+    return !empty($definition['h_tariff_required']) || !empty($definition['prefill_source']);
+}
+
+function connection_request_upload_pdf_or_image_error(array $definition): string
+{
+    if (!empty($definition['h_tariff_required'])) {
+        return 'H tarifa mellékletként csak PDF vagy kép tölthető fel, mert bekerül az MVM jóváhagyási csomagba.';
+    }
+
+    return 'ehhez csak PDF vagy kép tölthető fel.';
+}
+
+function document_prefill_upload_definitions(): array
+{
+    return [
+        'utility_bill' => [
+            'label' => 'Villanyszámla',
+            'help' => 'Név, fogyasztási hely, fogyasztási hely azonosító és mérő gyári szám kiolvasásához.',
+        ],
+        'identity_card' => [
+            'label' => 'Személyi igazolvány',
+            'help' => 'Név, születési név, születési hely és születési idő ellenőrzéséhez.',
+        ],
+        'address_card' => [
+            'label' => 'Lakcímkártya',
+            'help' => 'Lakcím és azonosítási adatok ellenőrzéséhez.',
+        ],
+    ];
+}
+
+function document_prefill_token(?string $value = null): string
+{
+    $value = trim((string) $value);
+
+    if (preg_match('/^[a-f0-9]{32}$/', $value)) {
+        return $value;
+    }
+
+    return bin2hex(random_bytes(16));
+}
+
+function document_prefill_session_key(string $token): string
+{
+    return 'connection_request_document_prefill_' . document_prefill_token($token);
+}
+
+function document_prefill_temp_dir(string $token): string
+{
+    return STORAGE_PATH . '/uploads/document-prefill/' . document_prefill_token($token);
+}
+
+function document_prefill_allowed_extensions(): array
+{
+    return ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+}
+
+function document_prefill_file_accept(): string
+{
+    return connection_request_package_file_accept();
+}
+
+function document_prefill_store_uploads(string $token, array $files): array
+{
+    $token = document_prefill_token($token);
+    $messages = [];
+    $storedFiles = [];
+    $definitions = document_prefill_upload_definitions();
+    $targetDir = document_prefill_temp_dir($token);
+    ensure_storage_dir($targetDir);
+
+    foreach ($definitions as $fileType => $definition) {
+        foreach (uploaded_files_for_key($files, 'prefill_' . $fileType) as $file) {
+            if (!uploaded_file_is_present($file)) {
+                continue;
+            }
+
+            if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                $messages[] = $definition['label'] . ': a feltöltés sikertelen.';
+                continue;
+            }
+
+            if (($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
+                $messages[] = $definition['label'] . ': túl nagy fájl. Maximum 8 MB engedélyezett.';
+                continue;
+            }
+
+            $originalName = (string) ($file['name'] ?? '');
+            $tmpName = (string) ($file['tmp_name'] ?? '');
+            $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+            if (!in_array($extension, document_prefill_allowed_extensions(), true)) {
+                $messages[] = $definition['label'] . ': csak PDF vagy kép fájl tölthető fel.';
+                continue;
+            }
+
+            $mimeType = $tmpName !== '' && function_exists('mime_content_type') ? (mime_content_type($tmpName) ?: '') : '';
+            $storedName = $fileType . '-' . bin2hex(random_bytes(12)) . '.' . ($extension === 'jpeg' ? 'jpg' : $extension);
+            $targetPath = $targetDir . '/' . $storedName;
+
+            if (!move_uploaded_file($tmpName, $targetPath)) {
+                $messages[] = $definition['label'] . ': nem sikerült ideiglenesen menteni.';
+                continue;
+            }
+
+            $storedFiles[] = [
+                'file_type' => $fileType,
+                'label' => (string) $definition['label'],
+                'original_name' => $originalName,
+                'stored_name' => $storedName,
+                'storage_path' => $targetPath,
+                'mime_type' => $mimeType !== '' ? $mimeType : (document_allowed_extensions()[$extension] ?? 'application/octet-stream'),
+                'file_size' => (int) ($file['size'] ?? 0),
+            ];
+        }
+    }
+
+    if ($storedFiles !== []) {
+        $sessionKey = document_prefill_session_key($token);
+        $existing = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
+        $_SESSION[$sessionKey] = array_values(array_merge($existing, $storedFiles));
+    }
+
+    return [
+        'ok' => $messages === [],
+        'messages' => $messages,
+        'files' => $storedFiles,
+    ];
+}
+
+function document_prefill_session_files(string $token): array
+{
+    $sessionKey = document_prefill_session_key($token);
+    $files = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
+
+    return array_values(array_filter($files, static fn (array $file): bool => is_file((string) ($file['storage_path'] ?? ''))));
+}
+
+function document_prefill_clear_session(string $token): void
+{
+    $sessionKey = document_prefill_session_key($token);
+    $files = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
+
+    foreach ($files as $file) {
+        $path = (string) ($file['storage_path'] ?? '');
+
+        if ($path !== '' && is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    unset($_SESSION[$sessionKey]);
+}
+
+function document_prefill_attach_session_files(int $requestId, string $token): array
+{
+    $files = document_prefill_session_files($token);
+
+    if ($files === []) {
+        return [];
+    }
+
+    $targetDir = CONNECTION_UPLOAD_PATH . '/' . $requestId;
+    $actor = current_actor_snapshot('Dokumentum előtöltés');
+    $storeActor = connection_request_file_actor_columns_ready();
+    $attached = [];
+    ensure_storage_dir($targetDir);
+
+    foreach ($files as $file) {
+        $sourcePath = (string) ($file['storage_path'] ?? '');
+
+        if ($sourcePath === '' || !is_file($sourcePath)) {
+            continue;
+        }
+
+        $extension = strtolower(pathinfo((string) ($file['stored_name'] ?? $sourcePath), PATHINFO_EXTENSION));
+        $storedName = (string) ($file['file_type'] ?? 'document') . '-' . bin2hex(random_bytes(12)) . '.' . $extension;
+        $targetPath = $targetDir . '/' . $storedName;
+
+        if (!copy($sourcePath, $targetPath)) {
+            continue;
+        }
+
+        $fileType = (string) ($file['file_type'] ?? 'completed_document');
+        $label = (string) ($file['label'] ?? (connection_request_upload_definitions()[$fileType]['label'] ?? 'Dokumentum'));
+        $mimeType = function_exists('mime_content_type') ? (mime_content_type($targetPath) ?: '') : '';
+        $fileSize = (int) filesize($targetPath);
+
+        if ($storeActor) {
+            db_query(
+                'INSERT INTO `connection_request_files`
+                    (`connection_request_id`, `uploaded_by_user_id`, `uploaded_by_role`, `uploaded_by_name`, `uploaded_by_email`,
+                     `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $requestId,
+                    $actor['user_id'],
+                    $actor['role'],
+                    trim((string) $actor['name']) !== '' ? $actor['name'] : null,
+                    trim((string) $actor['email']) !== '' ? $actor['email'] : null,
+                    $fileType,
+                    $label,
+                    (string) ($file['original_name'] ?? $storedName),
+                    $storedName,
+                    $targetPath,
+                    $mimeType !== '' ? $mimeType : (string) ($file['mime_type'] ?? 'application/octet-stream'),
+                    $fileSize,
+                ]
+            );
+        } else {
+            db_query(
+                'INSERT INTO `connection_request_files`
+                    (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $requestId,
+                    $fileType,
+                    $label,
+                    (string) ($file['original_name'] ?? $storedName),
+                    $storedName,
+                    $targetPath,
+                    $mimeType !== '' ? $mimeType : (string) ($file['mime_type'] ?? 'application/octet-stream'),
+                    $fileSize,
+                ]
+            );
+        }
+
+        $attached[] = $label;
+    }
+
+    if ($attached !== []) {
+        record_connection_request_activity(
+            $requestId,
+            'file_upload',
+            count($attached) . ' azonosító dokumentum csatolva',
+            implode(', ', array_slice($attached, 0, 8))
+        );
+    }
+
+    document_prefill_clear_session($token);
+
+    return $attached;
+}
+
+function document_prefill_openai_api_key(): string
+{
+    return trim(mvm_config_value('DOCUMENT_PREFILL_OPENAI_API_KEY', mvm_config_value('OPENAI_API_KEY', '')));
+}
+
+function document_prefill_model(): string
+{
+    return trim(mvm_config_value('DOCUMENT_PREFILL_MODEL', 'gpt-4o-mini'));
+}
+
+function document_prefill_schema(): array
+{
+    $fields = [
+        'requester_name',
+        'birth_name',
+        'mother_name',
+        'birth_place',
+        'birth_date',
+        'postal_code',
+        'city',
+        'postal_address',
+        'site_postal_code',
+        'site_address',
+        'consumption_place_id',
+        'meter_serial',
+        'confidence_notes',
+    ];
+    $properties = [];
+
+    foreach ($fields as $field) {
+        $properties[$field] = ['type' => 'string'];
+    }
+
+    return [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => $properties,
+        'required' => $fields,
+    ];
+}
+
+function document_prefill_data_url(array $file): ?string
+{
+    $path = (string) ($file['storage_path'] ?? '');
+
+    if ($path === '' || !is_file($path)) {
+        return null;
+    }
+
+    $mimeType = (string) ($file['mime_type'] ?? '');
+
+    if ($mimeType === '' && function_exists('mime_content_type')) {
+        $mimeType = mime_content_type($path) ?: '';
+    }
+
+    if ($mimeType === '') {
+        $mimeType = 'application/octet-stream';
+    }
+
+    $bytes = file_get_contents($path);
+
+    if ($bytes === false) {
+        return null;
+    }
+
+    return 'data:' . $mimeType . ';base64,' . base64_encode($bytes);
+}
+
+function document_prefill_extract_output_text(array $response): string
+{
+    if (isset($response['output_text']) && is_string($response['output_text'])) {
+        return trim($response['output_text']);
+    }
+
+    foreach (($response['output'] ?? []) as $item) {
+        foreach (($item['content'] ?? []) as $content) {
+            if (($content['type'] ?? '') === 'output_text' && isset($content['text'])) {
+                return trim((string) $content['text']);
+            }
+        }
+    }
+
+    return '';
+}
+
+function document_prefill_decode_json_text(string $text): ?array
+{
+    $text = trim($text);
+
+    if ($text === '') {
+        return null;
+    }
+
+    $decoded = json_decode($text, true);
+
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+
+    if (preg_match('/\{.*\}/s', $text, $matches)) {
+        $decoded = json_decode($matches[0], true);
+
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+    }
+
+    return null;
+}
+
+function document_prefill_extract_from_files(array $files): array
+{
+    $files = array_values(array_filter($files, static fn (array $file): bool => is_file((string) ($file['storage_path'] ?? ''))));
+
+    if ($files === []) {
+        return ['ok' => false, 'message' => 'Tölts fel villanyszámlát, személyit vagy lakcímkártyát a kiolvasáshoz.', 'data' => []];
+    }
+
+    $apiKey = document_prefill_openai_api_key();
+
+    if ($apiKey === '') {
+        return ['ok' => false, 'message' => 'Az automatikus adatkiolvasáshoz be kell állítani az OPENAI_API_KEY vagy DOCUMENT_PREFILL_OPENAI_API_KEY kulcsot.', 'data' => []];
+    }
+
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'message' => 'A PHP cURL bővítmény nem elérhető, ezért az adatkiolvasás nem futtatható.', 'data' => []];
+    }
+
+    $content = [[
+        'type' => 'input_text',
+        'text' => 'Olvasd ki a feltöltött magyar villanyszámla, személyi igazolvány és lakcímkártya dokumentumokból az MVM ügyindításhoz szükséges mezőket. Csak a dokumentumokon látható adatot add vissza. Ha valami nem egyértelmű, üres string legyen. A születési dátum YYYY-MM-DD formátumú legyen. A címnél a postal_code/city/postal_address a lakcím, a site_postal_code/site_address a fogyasztási vagy felhasználási hely legyen. Ne adj vissza személyi okmányszámot vagy személyi azonosítót.',
+    ]];
+
+    foreach ($files as $file) {
+        $dataUrl = document_prefill_data_url($file);
+
+        if ($dataUrl === null) {
+            continue;
+        }
+
+        $extension = strtolower(pathinfo((string) ($file['storage_path'] ?? ''), PATHINFO_EXTENSION));
+
+        if ($extension === 'pdf') {
+            $content[] = [
+                'type' => 'input_file',
+                'filename' => (string) ($file['original_name'] ?? basename((string) $file['storage_path'])),
+                'file_data' => $dataUrl,
+            ];
+            continue;
+        }
+
+        $content[] = [
+            'type' => 'input_image',
+            'image_url' => $dataUrl,
+            'detail' => 'high',
+        ];
+    }
+
+    if (count($content) === 1) {
+        return ['ok' => false, 'message' => 'A feltöltött dokumentum nem olvasható.', 'data' => []];
+    }
+
+    $payload = [
+        'model' => document_prefill_model(),
+        'input' => [
+            [
+                'role' => 'developer',
+                'content' => [[
+                    'type' => 'input_text',
+                    'text' => 'Te magyar közmű- és személyazonosító dokumentumokból strukturált adatokat kinyerő asszisztens vagy. Mindig kizárólag JSON választ adj a megadott sémával.',
+                ]],
+            ],
+            [
+                'role' => 'user',
+                'content' => $content,
+            ],
+        ],
+        'text' => [
+            'format' => [
+                'type' => 'json_schema',
+                'name' => 'connection_request_document_prefill',
+                'schema' => document_prefill_schema(),
+                'strict' => true,
+            ],
+        ],
+        'store' => false,
+    ];
+
+    $curl = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 90,
+        CURLOPT_CONNECTTIMEOUT => 15,
+    ]);
+
+    $rawResponse = curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    if ($rawResponse === false || $statusCode < 200 || $statusCode >= 300) {
+        $message = 'Az adatkiolvasás sikertelen.';
+
+        if ($curlError !== '') {
+            $message .= ' cURL: ' . $curlError;
+        }
+
+        if (is_string($rawResponse) && $rawResponse !== '') {
+            $decodedError = json_decode($rawResponse, true);
+            $apiMessage = is_array($decodedError) ? (string) ($decodedError['error']['message'] ?? '') : '';
+            $message .= ' HTTP: ' . $statusCode . ($apiMessage !== '' ? ' - ' . $apiMessage : '');
+        }
+
+        return ['ok' => false, 'message' => $message, 'data' => []];
+    }
+
+    $response = json_decode((string) $rawResponse, true);
+
+    if (!is_array($response)) {
+        return ['ok' => false, 'message' => 'Az adatkiolvasás válasza nem értelmezhető.', 'data' => []];
+    }
+
+    $data = document_prefill_decode_json_text(document_prefill_extract_output_text($response));
+
+    if (!is_array($data)) {
+        return ['ok' => false, 'message' => 'Az adatkiolvasás nem adott használható mezőlistát.', 'data' => []];
+    }
+
+    return ['ok' => true, 'message' => 'Az adatok kiolvasása elkészült. Ellenőrizd a mezőket mentés előtt.', 'data' => document_prefill_normalize_data($data)];
+}
+
+function document_prefill_normalize_data(array $data): array
+{
+    $normalized = [];
+
+    foreach (array_keys(document_prefill_schema()['properties']) as $key) {
+        $normalized[$key] = trim((string) ($data[$key] ?? ''));
+    }
+
+    $normalized['birth_date'] = normalize_connection_request_mvm_source_date($normalized['birth_date']);
+
+    return $normalized;
+}
+
+function document_prefill_apply_to_forms(array $data, array $customerForm, array $requestForm): array
+{
+    $customerMap = [
+        'requester_name',
+        'birth_name',
+        'mother_name',
+        'birth_place',
+        'birth_date',
+        'postal_code',
+        'city',
+        'postal_address',
+    ];
+    $requestMap = [
+        'site_postal_code',
+        'site_address',
+        'consumption_place_id',
+        'meter_serial',
+    ];
+
+    foreach ($customerMap as $key) {
+        if (($customerForm[$key] ?? '') === '' && ($data[$key] ?? '') !== '') {
+            $customerForm[$key] = (string) $data[$key];
+        }
+    }
+
+    foreach ($requestMap as $key) {
+        if (($requestForm[$key] ?? '') === '' && ($data[$key] ?? '') !== '') {
+            $requestForm[$key] = (string) $data[$key];
+        }
+    }
+
+    if (($requestForm['site_postal_code'] ?? '') === '' && ($data['postal_code'] ?? '') !== '') {
+        $requestForm['site_postal_code'] = (string) $data['postal_code'];
+    }
+
+    if (($requestForm['site_address'] ?? '') === '' && ($data['postal_address'] ?? '') !== '') {
+        $requestForm['site_address'] = (string) $data['postal_address'];
+    }
+
+    return [$customerForm, $requestForm];
+}
+
+function handle_connection_request_document_prefill(string $token, array $files, array $customerForm, array $requestForm): array
+{
+    $storeResult = document_prefill_store_uploads($token, $files);
+
+    if (($storeResult['messages'] ?? []) !== []) {
+        return [
+            'ok' => false,
+            'message' => implode(' ', (array) $storeResult['messages']),
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+        ];
+    }
+
+    $extractResult = document_prefill_extract_from_files(document_prefill_session_files($token));
+
+    if (!($extractResult['ok'] ?? false)) {
+        return [
+            'ok' => false,
+            'message' => (string) ($extractResult['message'] ?? 'Az adatkiolvasás sikertelen.'),
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+        ];
+    }
+
+    [$customerForm, $requestForm] = document_prefill_apply_to_forms((array) $extractResult['data'], $customerForm, $requestForm);
+
+    return [
+        'ok' => true,
+        'message' => (string) $extractResult['message'],
+        'customer_form' => $customerForm,
+        'request_form' => $requestForm,
+        'data' => (array) $extractResult['data'],
+    ];
+}
+
+function render_connection_request_document_prefill_panel(string $token, ?array $prefillResult = null): void
+{
+    $sessionFiles = document_prefill_session_files($token);
+    ?>
+    <section class="auth-panel form-block document-prefill-panel">
+        <h2>Dokumentumokból kitöltés</h2>
+        <p class="muted-text">Fotózd be vagy töltsd fel a villanyszámlát, személyi igazolványt és lakcímkártyát. A rendszer előtölti a mezőket, de mentés előtt mindig ellenőrizd az adatokat.</p>
+        <input type="hidden" name="document_prefill_token" value="<?= h($token); ?>">
+
+        <?php if ($prefillResult !== null): ?>
+            <div class="alert alert-<?= ($prefillResult['ok'] ?? false) ? 'success' : 'error'; ?>">
+                <p><?= h((string) ($prefillResult['message'] ?? '')); ?></p>
+                <?php if (!empty($prefillResult['data']['confidence_notes'])): ?>
+                    <p><?= h((string) $prefillResult['data']['confidence_notes']); ?></p>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($sessionFiles !== []): ?>
+            <p class="muted-text">Kiolvasásra előkészítve: <?= h(implode(', ', array_map(static fn (array $file): string => (string) ($file['label'] ?? $file['original_name'] ?? 'dokumentum'), $sessionFiles))); ?>. Mentéskor ezek az adatlap fájljai közé is bekerülnek.</p>
+        <?php endif; ?>
+
+        <div class="file-upload-grid">
+            <?php foreach (document_prefill_upload_definitions() as $key => $definition): ?>
+                <label class="file-upload-item">
+                    <span><?= h((string) $definition['label']); ?></span>
+                    <small><?= h((string) $definition['help']); ?></small>
+                    <input name="prefill_<?= h((string) $key); ?>[]" type="file" accept="<?= h(document_prefill_file_accept()); ?>" multiple>
+                </label>
+            <?php endforeach; ?>
+        </div>
+        <div class="form-actions">
+            <button class="button button-secondary" name="action" value="extract_document_prefill" type="submit" formnovalidate>Adatok kiolvasása</button>
+        </div>
+    </section>
+    <?php
 }
 
 function normalize_connection_request_data(array $source, ?array $customer = null): array
@@ -5723,10 +6338,10 @@ function validate_connection_request_data(array $data, array $files, bool $final
 
             $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
 
-            if (connection_request_upload_needs_package_compatible_file($definition)
+            if (connection_request_upload_pdf_or_image_only($definition)
                 && !in_array($extension, connection_request_package_file_extensions(), true)
             ) {
-                $errors[] = $definition['label'] . ': H tarifa mellékletként csak PDF vagy kép tölthető fel, mert bekerül az MVM jóváhagyási csomagba.';
+                $errors[] = $definition['label'] . ': ' . connection_request_upload_pdf_or_image_error($definition);
             }
         }
     }
@@ -5922,10 +6537,10 @@ function handle_connection_request_uploads(int $requestId, array $files, bool $n
                 continue;
             }
 
-            if (connection_request_upload_needs_package_compatible_file($definition)
+            if (connection_request_upload_pdf_or_image_only($definition)
                 && !in_array($extension, connection_request_package_file_extensions(), true)
             ) {
-                $messages[] = $definition['label'] . ': H tarifa mellékletként csak PDF vagy kép tölthető fel.';
+                $messages[] = $definition['label'] . ': ' . connection_request_upload_pdf_or_image_error($definition);
                 continue;
             }
 

@@ -31,6 +31,8 @@ $priceItemsBySection = array_fill_keys(array_keys($quoteSections), []);
 $selectedQuantities = [];
 $customRows = [];
 $quotePhotoMessages = [];
+$documentPrefillToken = document_prefill_token((string) ($_POST['document_prefill_token'] ?? ''));
+$documentPrefillResult = null;
 $customerForm = normalize_customer_data([
     'source' => 'Szerelői felmérés',
     'status' => 'Szerelői felmérés',
@@ -81,6 +83,17 @@ if (is_post() && $schemaErrors === []) {
         $result = delete_connection_request_work_file((int) $deleteWorkFileId, (int) $request['id']);
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafájl törlése sikertelen.'));
         redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
+    if ($action === 'extract_document_prefill') {
+        $customerForm = normalize_customer_data($_POST);
+        $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Szerelői felmérés';
+        $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Szerelői felmérés';
+        $customerForm['contact_data_accepted'] = 1;
+        $workForm = normalize_connection_request_data($_POST, $customerForm);
+        $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerForm, $workForm);
+        $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+        $workForm = (array) ($documentPrefillResult['request_form'] ?? $workForm);
     }
 
     if ($request !== null && in_array($action, ['schedule_open_day', 'schedule_book_day', 'schedule_close_day'], true)) {
@@ -236,6 +249,7 @@ if (is_post() && $schemaErrors === []) {
                 $customerId = create_customer($customerForm, null, (int) $user['id']);
                 $savedRequestId = save_connection_request($customerId, $workForm, null, (int) $user['id']);
                 assign_connection_request_to_electrician($savedRequestId, (int) $user['id']);
+                document_prefill_attach_session_files($savedRequestId, $documentPrefillToken);
                 $saveMessages = [];
                 $flashType = 'success';
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false);
@@ -754,6 +768,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
             <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request')); ?>">
                 <?= csrf_field(); ?>
                 <input type="hidden" name="action" value="create_survey">
+                <?php render_connection_request_document_prefill_panel($documentPrefillToken, $documentPrefillResult); ?>
 
                 <div class="form-grid two">
                     <section class="auth-panel">

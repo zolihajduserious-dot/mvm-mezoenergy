@@ -260,6 +260,8 @@ $requestForm = normalize_connection_request_data($request ?? [
     'site_postal_code' => '',
     'notes' => '',
 ]);
+$documentPrefillToken = document_prefill_token((string) ($_POST['document_prefill_token'] ?? ''));
+$documentPrefillResult = null;
 $surveyForm = normalize_survey_data([
     'site_address' => trim((string) ($requestForm['site_postal_code'] ?? '') . ' ' . (string) ($requestForm['site_address'] ?? '')),
     'work_type' => connection_request_type_label($requestForm['request_type'] ?? 'phase_upgrade'),
@@ -339,7 +341,47 @@ if (is_post()) {
         redirect(quick_quote_current_redirect_path($quote, $request, $customer, $minicrmItemId ? (int) $minicrmItemId : null));
     }
 
-    $action = (string) ($_POST['quick_action'] ?? 'save_quote');
+    $postedAction = (string) ($_POST['action'] ?? '');
+    $action = $postedAction === 'extract_document_prefill'
+        ? 'extract_document_prefill'
+        : (string) ($_POST['quick_action'] ?? 'save_quote');
+
+    if ($quote === null && $action === 'extract_document_prefill') {
+        $form = [
+            'requester_name' => trim((string) ($_POST['requester_name'] ?? '')),
+            'email' => trim((string) ($_POST['email'] ?? '')),
+            'phone' => trim((string) ($_POST['phone'] ?? '')),
+            'subject' => trim((string) ($_POST['subject'] ?? (APP_NAME . ' árajánlat'))),
+            'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+        ];
+        $requestForm = normalize_connection_request_data($_POST);
+        $customerSeed = normalize_customer_data($customer ?? [
+            'requester_name' => $form['requester_name'],
+            'email' => $form['email'],
+            'phone' => $form['phone'],
+            'source' => 'Gyors árajánlat',
+            'status' => 'Árajánlat',
+        ]);
+        $customerSeed['requester_name'] = $form['requester_name'];
+        $customerSeed['email'] = $form['email'];
+        $customerSeed['phone'] = $form['phone'];
+        $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerSeed, $requestForm);
+        $customerSeed = (array) ($documentPrefillResult['customer_form'] ?? $customerSeed);
+        $requestForm = (array) ($documentPrefillResult['request_form'] ?? $requestForm);
+        $form['requester_name'] = (string) ($customerSeed['requester_name'] ?? $form['requester_name']);
+        $form['email'] = (string) ($customerSeed['email'] ?? $form['email']);
+        $form['phone'] = (string) ($customerSeed['phone'] ?? $form['phone']);
+        $surveyForm = normalize_survey_data([
+            'site_address' => trim((string) $requestForm['site_postal_code'] . ' ' . (string) $requestForm['site_address']),
+            'work_type' => connection_request_type_label($requestForm['request_type']),
+            'hrsz' => $requestForm['hrsz'],
+            'meter_serial' => $requestForm['meter_serial'],
+            'current_ampere' => $requestForm['existing_general_power'],
+            'requested_ampere' => $requestForm['requested_general_power'],
+            'survey_notes' => $requestForm['notes'],
+            'has_h_tariff' => $requestForm['request_type'] === 'h_tariff' ? 1 : 0,
+        ]);
+    }
 
     if ($quote !== null && in_array($action, ['pdf', 'send'], true)) {
         $result = $action === 'send' ? send_quote_email((int) $quote['id']) : generate_quote_pdf((int) $quote['id']);
@@ -548,7 +590,7 @@ if (is_post()) {
             $customerForm = [
                 'is_legal_entity' => 0,
                 'requester_name' => $form['requester_name'],
-                'birth_name' => '',
+                'birth_name' => trim((string) ($_POST['birth_name'] ?? '')),
                 'company_name' => '',
                 'tax_number' => '',
                 'phone' => $form['phone'],
@@ -557,9 +599,9 @@ if (is_post()) {
                 'postal_code' => (string) $billingAddress['postal_code'],
                 'city' => (string) $billingAddress['city'],
                 'mailing_address' => '',
-                'mother_name' => '',
-                'birth_place' => '',
-                'birth_date' => '',
+                'mother_name' => trim((string) ($_POST['mother_name'] ?? '')),
+                'birth_place' => trim((string) ($_POST['birth_place'] ?? '')),
+                'birth_date' => normalize_connection_request_mvm_source_date((string) ($_POST['birth_date'] ?? '')),
                 'contact_data_accepted' => 0,
                 'source' => 'Gyors árajánlat',
                 'status' => 'Árajánlat',
@@ -582,6 +624,11 @@ if (is_post()) {
                     $existingCustomerForm['postal_address'] = $customerForm['postal_address'];
                     $existingCustomerForm['postal_code'] = $customerForm['postal_code'];
                     $existingCustomerForm['city'] = $customerForm['city'];
+                    foreach (['birth_name', 'mother_name', 'birth_place', 'birth_date'] as $customerField) {
+                        if (trim((string) ($customerForm[$customerField] ?? '')) !== '') {
+                            $existingCustomerForm[$customerField] = $customerForm[$customerField];
+                        }
+                    }
                     $customerForm = $existingCustomerForm;
                     $customerId = (int) $customer['id'];
                     update_customer($customerId, $customerForm);
@@ -592,6 +639,7 @@ if (is_post()) {
                 $savedRequestId = $request !== null
                     ? (int) $request['id']
                     : save_connection_request($customerId, $requestForm, null, is_array($user) ? (int) $user['id'] : null);
+                document_prefill_attach_session_files($savedRequestId, $documentPrefillToken);
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false, 'Gyors árajánlat');
                 $savedQuoteId = save_quote($customerId, $quoteForm, $surveyForm, $lines, null, $savedRequestId);
                 ensure_quote_public_token($savedQuoteId);
@@ -867,6 +915,7 @@ if ($quote === null) {
             <form class="form" method="post" enctype="multipart/form-data" action="<?= h($quickQuoteCreateAction); ?>">
                 <?= csrf_field(); ?>
                 <input type="hidden" name="quick_action" value="save_quote">
+                <?php render_connection_request_document_prefill_panel($documentPrefillToken, $documentPrefillResult); ?>
 
                 <div class="form-grid two">
                     <section class="auth-panel">
@@ -879,6 +928,11 @@ if ($quote === null) {
 
                         <label for="phone">Telefonszám</label>
                         <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
+                        <?php $quickPrefillCustomerForm = is_array($documentPrefillResult['customer_form'] ?? null) ? (array) $documentPrefillResult['customer_form'] : normalize_customer_data($customer ?? []); ?>
+                        <input type="hidden" name="birth_name" value="<?= h((string) ($quickPrefillCustomerForm['birth_name'] ?? '')); ?>">
+                        <input type="hidden" name="mother_name" value="<?= h((string) ($quickPrefillCustomerForm['mother_name'] ?? '')); ?>">
+                        <input type="hidden" name="birth_place" value="<?= h((string) ($quickPrefillCustomerForm['birth_place'] ?? '')); ?>">
+                        <input type="hidden" name="birth_date" value="<?= h((string) ($quickPrefillCustomerForm['birth_date'] ?? '')); ?>">
                     </section>
 
                     <section class="auth-panel">

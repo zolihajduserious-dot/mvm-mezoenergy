@@ -37,6 +37,8 @@ $existingFiles = $request !== null ? connection_request_files((int) $request['id
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
 $requestAlreadyFinalized = $request !== null && (string) ($request['request_status'] ?? '') === 'finalized';
+$documentPrefillToken = document_prefill_token((string) ($_POST['document_prefill_token'] ?? ''));
+$documentPrefillResult = null;
 
 if (is_post()) {
     require_valid_csrf_token();
@@ -50,6 +52,7 @@ if (is_post()) {
     }
 
     $action = (string) ($_POST['action'] ?? 'save');
+    $skipSave = false;
     $finalize = $action === 'finalize' && !$requestAlreadyFinalized;
     $customerForm = normalize_customer_data(array_merge($customer, $_POST));
     $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : (string) ($customer['source'] ?? 'Ügyfélportál');
@@ -57,6 +60,15 @@ if (is_post()) {
     $customerForm['contact_data_accepted'] = (int) ($customer['contact_data_accepted'] ?? 0);
     $customerForm['notes'] = (string) ($customer['notes'] ?? '');
     $form = normalize_connection_request_data($_POST, $customerForm);
+
+    if ($action === 'extract_document_prefill') {
+        $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerForm, $form);
+        $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+        $form = (array) ($documentPrefillResult['request_form'] ?? $form);
+        $skipSave = true;
+    }
+
+    if (!$skipSave) {
     $errors = array_merge(
         validate_customer_data($customerForm, false),
         validate_connection_request_data($form, $_FILES, $finalize, $requestId ?: null)
@@ -82,6 +94,7 @@ if (is_post()) {
             $customer = find_customer((int) $customer['id']) ?: $customer;
             $savedRequestId = save_connection_request((int) $customer['id'], $form, $requestId ?: null);
             $requestId = $savedRequestId;
+            document_prefill_attach_session_files($savedRequestId, $documentPrefillToken);
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, !$finalize);
 
             if ($uploadMessages === []) {
@@ -123,6 +136,7 @@ if (is_post()) {
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az igény mentése sikertelen.';
         }
+    }
     }
 }
 ?>
@@ -180,6 +194,7 @@ if (is_post()) {
 
         <form class="form" method="post" enctype="multipart/form-data" action="<?= h($requestId ? url_path('/customer/work-request') . '?id=' . $requestId : url_path('/customer/work-request')); ?>">
             <?= csrf_field(); ?>
+            <?php render_connection_request_document_prefill_panel($documentPrefillToken, $documentPrefillResult); ?>
 
             <div class="form-grid two">
                 <section class="auth-panel">

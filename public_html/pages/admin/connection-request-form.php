@@ -38,6 +38,8 @@ $form = normalize_connection_request_data($request ?? [], $customer ?? $customer
 $existingFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
+$documentPrefillToken = document_prefill_token((string) ($_POST['document_prefill_token'] ?? ''));
+$documentPrefillResult = null;
 $requestQuotes = [];
 $requestAcceptedQuote = null;
 $requestDocuments = [];
@@ -62,6 +64,7 @@ $actionUrl = $requestId
 if (is_post()) {
     require_valid_csrf_token();
 
+    $action = (string) ($_POST['action'] ?? '');
     $deleteFileId = filter_input(INPUT_POST, 'delete_request_file_id', FILTER_VALIDATE_INT);
 
     if ($request !== null && $deleteFileId) {
@@ -70,6 +73,42 @@ if (is_post()) {
         redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
     }
 
+    $skipSave = false;
+
+    if ($action === 'extract_document_prefill') {
+        $isNewCustomerRequest = $customer === null;
+        $shouldSaveCustomerData = $isNewCustomerRequest || $initialDataEditable;
+        $customerForm = $shouldSaveCustomerData ? normalize_customer_data(array_merge($customer ?? [], $_POST)) : $customerForm;
+
+        if ($shouldSaveCustomerData && $customer !== null) {
+            $customerForm['notes'] = (string) ($customer['notes'] ?? '');
+        }
+
+        if ($shouldSaveCustomerData) {
+            $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Admin rögzítés';
+            $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Mérőhelyi igény';
+            $customerForm['contact_data_accepted'] = (int) $customerForm['contact_data_accepted'] === 1 ? 1 : ($isNewCustomerRequest ? 1 : 0);
+        }
+
+        $customerDefaultsForRequest = $shouldSaveCustomerData ? $customerForm : ($customer ?? $customerForm);
+        $form = normalize_connection_request_data($_POST, $customerDefaultsForRequest);
+
+        if ($request !== null && !$initialDataEditable) {
+            $documentPrefillResult = [
+                'ok' => false,
+                'message' => 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók ezen az oldalon.',
+                'data' => [],
+            ];
+        } else {
+            $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerForm, $form);
+            $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+            $form = (array) ($documentPrefillResult['request_form'] ?? $form);
+        }
+
+        $skipSave = true;
+    }
+
+    if (!$skipSave) {
     $user = current_user();
     $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
     $isNewCustomerRequest = $customer === null;
@@ -112,6 +151,7 @@ if (is_post()) {
             $customer = find_customer($savedCustomerId);
             $savedRequestId = save_connection_request($savedCustomerId, $form, $requestId ?: null, $submittedByUserId, true);
             $requestId = $savedRequestId;
+            document_prefill_attach_session_files($savedRequestId, $documentPrefillToken);
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false);
 
             if ($uploadMessages === []) {
@@ -135,6 +175,7 @@ if (is_post()) {
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az igény mentése sikertelen.';
         }
+    }
     }
 }
 
@@ -224,6 +265,7 @@ $pageSubtitle = $customer !== null
 
         <form class="form" method="post" enctype="multipart/form-data" action="<?= h($actionUrl); ?>">
             <?= csrf_field(); ?>
+            <?php render_connection_request_document_prefill_panel($documentPrefillToken, $documentPrefillResult); ?>
 
             <div class="form-grid two">
                 <section class="auth-panel">
