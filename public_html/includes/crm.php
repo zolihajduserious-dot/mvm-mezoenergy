@@ -3698,6 +3698,35 @@ function connection_request_admin_workflow_stage(array $request, ?array $latestQ
     return $automaticStage;
 }
 
+function connection_request_initial_data_is_editable(array $request, ?array $latestQuote = null, ?array $acceptedQuote = null, array $documents = []): bool
+{
+    $stage = connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents);
+    $lockedStages = [
+        'in_progress',
+        'waiting_plan',
+        'waiting_intervention_sheet',
+        'under_construction',
+        'completed',
+        'demand_reporter',
+    ];
+
+    if (in_array($stage, $lockedStages, true)) {
+        return false;
+    }
+
+    return !connection_request_document_type_any_exists($documents, [
+        'complete_package',
+        'submitted_request',
+        'accepted_request',
+        'execution_plan_package',
+        'execution_plan',
+        'intervention_sheet',
+        'completed_intervention_sheet',
+        'technical_handover_package',
+        'seal_removal_package',
+    ]);
+}
+
 function next_admin_workflow_stage(string $stage): ?string
 {
     $currentNumber = admin_workflow_stage_number($stage);

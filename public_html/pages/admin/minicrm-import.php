@@ -1809,6 +1809,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $requestWorkflowStage = $isSelectedRequest
                                             ? connection_request_admin_workflow_stage($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
                                             : (string) $workflowStage;
+                                        $requestInitialDataEditable = $isSelectedRequest
+                                            ? connection_request_initial_data_is_editable($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
+                                            : admin_workflow_stage_number($requestWorkflowStage) < admin_workflow_stage_number('in_progress');
                                         $requestWorkflowDefinition = $workflowStages[$requestWorkflowStage] ?? null;
                                         $requestWorkflowLabel = $requestWorkflowDefinition !== null ? (string) $requestWorkflowDefinition['title'] : admin_workflow_stage_label($requestWorkflowStage);
                                         $requestProfile = $customerProfilesByRequest[$requestId] ?? null;
@@ -2097,7 +2100,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 </div>
                                                                 <div class="form-actions">
                                                                     <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . $requestId); ?>">&#218;j aj&#225;nlat k&#233;sz&#237;t&#233;se</a>
-                                                                    <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . $requestId); ?>">Adatok szerkeszt&#233;se</a>
+                                                                    <a class="button button-secondary" href="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . $requestId); ?>"><?= $requestInitialDataEditable ? 'Adatok szerkeszt&#233;se' : 'Adatok megtekint&#233;se'; ?></a>
                                                                 </div>
                                                                 <?php if ($requestQuotes === []): ?>
                                                                     <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs aj&#225;nlat.</p>

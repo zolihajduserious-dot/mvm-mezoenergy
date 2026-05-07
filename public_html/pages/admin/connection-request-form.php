@@ -38,6 +38,21 @@ $form = normalize_connection_request_data($request ?? [], $customer ?? $customer
 $existingFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
+$requestQuotes = [];
+$requestAcceptedQuote = null;
+$requestDocuments = [];
+$requestWorkflowStage = null;
+$initialDataEditable = true;
+
+if ($request !== null) {
+    $requestQuotes = quotes_for_connection_request((int) $request['id']);
+    $requestAcceptedQuote = accepted_quote_for_connection_request((int) $request['id'])
+        ?? accepted_quote_for_registration_duplicate_request((int) $request['id']);
+    $requestDocuments = connection_request_documents((int) $request['id']);
+    $requestWorkflowStage = connection_request_admin_workflow_stage($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments);
+    $initialDataEditable = connection_request_initial_data_is_editable($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments);
+}
+
 $actionUrl = $requestId
     ? url_path('/admin/connection-requests/edit') . '?id=' . (int) $requestId
     : ($customer !== null
@@ -58,35 +73,64 @@ if (is_post()) {
     $user = current_user();
     $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
     $isNewCustomerRequest = $customer === null;
-    $customerForm = $isNewCustomerRequest ? normalize_customer_data($_POST) : $customerForm;
-    if ($isNewCustomerRequest) {
+    $shouldSaveCustomerData = $isNewCustomerRequest || $initialDataEditable;
+    $customerForm = $shouldSaveCustomerData ? normalize_customer_data(array_merge($customer ?? [], $_POST)) : $customerForm;
+    if ($shouldSaveCustomerData && $customer !== null) {
+        $customerForm['notes'] = (string) ($customer['notes'] ?? '');
+    }
+    if ($shouldSaveCustomerData) {
         $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Admin rögzítés';
         $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Mérőhelyi igény';
-        $customerForm['contact_data_accepted'] = 1;
+        $customerForm['contact_data_accepted'] = (int) $customerForm['contact_data_accepted'] === 1 ? 1 : ($isNewCustomerRequest ? 1 : 0);
     }
-    $form = normalize_connection_request_data($_POST, $customer ?? $customerForm);
+    $customerDefaultsForRequest = $shouldSaveCustomerData ? $customerForm : ($customer ?? $customerForm);
+    $form = normalize_connection_request_data($_POST, $customerDefaultsForRequest);
+    $errors = [];
+
+    if ($request !== null && !$initialDataEditable) {
+        $errors[] = 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók ezen az oldalon.';
+    }
+
     $errors = array_merge(
-        $isNewCustomerRequest ? validate_customer_data($customerForm, false) : [],
+        $errors,
+        $shouldSaveCustomerData ? validate_customer_data($customerForm, false) : [],
         validate_connection_request_data($form, $_FILES, false, $requestId ?: null)
     );
 
     if ($errors === []) {
         try {
-            $savedCustomerId = $customer !== null
-                ? (int) $customer['id']
-                : create_customer($customerForm, null, $submittedByUserId);
+            if ($customer !== null) {
+                $savedCustomerId = (int) $customer['id'];
+
+                if ($shouldSaveCustomerData) {
+                    update_customer($savedCustomerId, $customerForm);
+                }
+            } else {
+                $savedCustomerId = create_customer($customerForm, null, $submittedByUserId);
+            }
+
             $customer = find_customer($savedCustomerId);
             $savedRequestId = save_connection_request($savedCustomerId, $form, $requestId ?: null, $submittedByUserId, true);
             $requestId = $savedRequestId;
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false);
 
             if ($uploadMessages === []) {
-                set_flash('success', $isNewCustomerRequest ? 'Az ügyfél és az igény mentve.' : 'Az igényt mentettük.');
+                set_flash('success', $shouldSaveCustomerData ? 'Az ügyfél és az igény mentve.' : 'Az igényt mentettük.');
                 redirect('/admin/connection-requests/edit?id=' . $savedRequestId);
             }
 
             $request = find_connection_request($savedRequestId);
             $existingFiles = connection_request_files($savedRequestId);
+            $requestQuotes = quotes_for_connection_request($savedRequestId);
+            $requestAcceptedQuote = accepted_quote_for_connection_request($savedRequestId)
+                ?? accepted_quote_for_registration_duplicate_request($savedRequestId);
+            $requestDocuments = connection_request_documents($savedRequestId);
+            $requestWorkflowStage = $request !== null
+                ? connection_request_admin_workflow_stage($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
+                : null;
+            $initialDataEditable = $request !== null
+                ? connection_request_initial_data_is_editable($request, $requestQuotes[0] ?? null, $requestAcceptedQuote, $requestDocuments)
+                : true;
             $actionUrl = url_path('/admin/connection-requests/edit') . '?id=' . $savedRequestId;
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az igény mentése sikertelen.';
@@ -112,7 +156,7 @@ $pageSubtitle = $customer !== null
             <div class="form-actions">
                 <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Ügyfelek</a>
                 <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/minicrm-import') . '#portal-works'); ?>">Munkalista</a>
-                <?php if ($customer !== null): ?>
+                <?php if ($customer !== null && $initialDataEditable): ?>
                     <a class="button button-secondary" href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Ügyfél szerkesztése</a>
                 <?php endif; ?>
             </div>
@@ -138,6 +182,11 @@ $pageSubtitle = $customer !== null
                     <h2>Igény állapota</h2>
                     <p><?= h(connection_request_status_label((string) ($request['request_status'] ?? 'draft'))); ?><?= !empty($request['created_at']) ? ' · Létrehozva: ' . h((string) $request['created_at']) : ''; ?></p>
                 </div>
+                <?php if ($requestWorkflowStage !== null): ?>
+                    <div>
+                        <p>Munkafolyamat: <?= h(admin_workflow_stage_label($requestWorkflowStage)); ?><?= !$initialDataEditable ? ' · Az alapadatok már zárolva vannak.' : ' · Az alapadatok még szerkeszthetők.'; ?></p>
+                    </div>
+                <?php endif; ?>
                 <div class="inline-link-list">
                     <a href="<?= h(url_path('/quick-quote') . '?request_id=' . (int) $request['id']); ?>">Gyors árajánlat</a>
                     <a href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">MVM dokumentumok</a>
@@ -169,21 +218,28 @@ $pageSubtitle = $customer !== null
             </section>
         <?php endif; ?>
 
+        <?php if ($request !== null && !$initialDataEditable): ?>
+            <div class="alert alert-info"><p>Ez az adatlap már Folyamatban vagy későbbi munkafolyamatban van. Az MVM-beadás alapadatai ezen az oldalon csak megtekinthetők.</p></div>
+        <?php endif; ?>
+
         <form class="form" method="post" enctype="multipart/form-data" action="<?= h($actionUrl); ?>">
             <?= csrf_field(); ?>
 
             <div class="form-grid two">
                 <section class="auth-panel">
                     <h2>Ügyfél adatai</h2>
-                    <?php if ($customer === null): ?>
+                    <?php if ($customer === null || $initialDataEditable): ?>
+                        <input type="hidden" name="is_legal_entity" value="0">
                         <label class="checkbox-row"><input type="checkbox" name="is_legal_entity" value="1" <?= (int) $customerForm['is_legal_entity'] === 1 ? 'checked' : ''; ?>><span>Jogi személy</span></label>
                         <label>Név</label><input name="requester_name" value="<?= h($customerForm['requester_name']); ?>" required>
                         <label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>">
+                        <label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>">
                         <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
                         <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
                         <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
                         <label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
                         <label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required>
+                        <label>Levelezési cím</label><input name="mailing_address" value="<?= h($customerForm['mailing_address']); ?>">
                         <label>Születési név</label><input name="birth_name" value="<?= h($customerForm['birth_name']); ?>">
                         <label>Anyja neve</label><input name="mother_name" value="<?= h($customerForm['mother_name']); ?>">
                         <label>Születési hely</label><input name="birth_place" value="<?= h($customerForm['birth_place']); ?>">
@@ -198,6 +254,7 @@ $pageSubtitle = $customer !== null
                             <li><span class="status-label">Email</span><span class="status-value"><?= h((string) $customer['email']); ?></span></li>
                             <li><span class="status-label">Postacím</span><span class="status-value"><?= h((string) $customer['postal_code'] . ' ' . (string) $customer['city'] . ', ' . (string) $customer['postal_address']); ?></span></li>
                         </div>
+                        <p class="muted-text">Az adatlap már Folyamatban vagy későbbi státuszban van, ezért az MVM-nek beadott alapadatok itt nem módosíthatók.</p>
                     <?php endif; ?>
                 </section>
 
@@ -267,7 +324,11 @@ $pageSubtitle = $customer !== null
             </section>
 
             <div class="form-actions">
-                <button class="button" name="action" value="save" type="submit" formnovalidate>Igény mentése</button>
+                <?php if ($initialDataEditable): ?>
+                    <button class="button" name="action" value="save" type="submit" formnovalidate>Igény mentése</button>
+                <?php else: ?>
+                    <span class="status-badge status-badge-finalized">Alapadatok zárolva</span>
+                <?php endif; ?>
                 <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Vissza az ügyfelekhez</a>
             </div>
         </form>
