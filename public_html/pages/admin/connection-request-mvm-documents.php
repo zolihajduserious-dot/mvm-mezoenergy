@@ -345,12 +345,6 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
             </div>
         <?php endif; ?>
 
-        <?php if ($handoverTemplateErrors !== []): ?>
-            <div class="alert alert-info">
-                <?php foreach ($handoverTemplateErrors as $templateError): ?><p><?= h($templateError); ?></p><?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-
         <?php if ($topErrors !== []): ?>
             <div class="alert alert-error">
                 <?php foreach ($topErrors as $error): ?><p><?= h($error); ?></p><?php endforeach; ?>
@@ -619,6 +613,9 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <button class="button button-secondary" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás Word generálása</button>
                     <button class="button" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás PDF generálása</button>
                     </div>
+                    <?php if ($handoverTemplateErrors !== []): ?>
+                        <p class="muted-text">A műszaki átadás sablon hiánya csak a műszaki átadás Word/PDF generálását érinti. Az adatok mentése és az MVM ügyindítás ettől még használható.</p>
+                    <?php endif; ?>
                 </div>
             </form>
         </section>
