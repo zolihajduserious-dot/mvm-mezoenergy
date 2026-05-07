@@ -481,7 +481,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                 </section>
 
                 <?php
-                    $ampereOptions = [0, 10, 16, 20, 25, 32, 35, 40, 50, 63, 80, 100];
+                    $ampereOptions = [0, 2, 6, 10, 16, 20, 25, 32, 35, 40, 50, 63, 80, 100];
                     $performanceGroups = [
                         [
                             'title' => 'Meglévő teljesítmény',
