@@ -8949,9 +8949,18 @@ function mvm_seal_removal_template_errors(?string $contractorKey = null): array
 
 function mvm_h_tariff_template_path(): ?string
 {
-    $candidate = APP_ROOT . '/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx';
+    $candidates = [
+        APP_ROOT . '/public_html/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx',
+        APP_ROOT . '/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx',
+    ];
 
-    return is_file($candidate) ? $candidate : null;
+    foreach ($candidates as $candidate) {
+        if (is_file($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return null;
 }
 
 function mvm_h_tariff_template_errors(): array
