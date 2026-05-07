@@ -288,7 +288,10 @@ if (is_post()) {
                 }
 
                 set_flash('success', $message);
-                redirect($mvmRedirectPath);
+                $uploadTarget = in_array($selectedType, ['completed_intervention_sheet', 'construction_log'], true)
+                    ? '&handover_notice=1#technical-handover-section'
+                    : '';
+                redirect($mvmRedirectPath . $uploadTarget);
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az MVM dokumentum feltöltése sikertelen.';
             }
@@ -315,6 +318,7 @@ $afterWorkPhotoParts = connection_request_after_work_photo_parts((int) $request[
 $afterWorkPhotoMissingItems = connection_request_required_after_photo_missing_items((int) $request['id']);
 $technicalHandoverChecklist = [
     [
+        'key' => 'technical_handover',
         'label' => 'Műszaki átadási dokumentum',
         'source' => 'Generált Word/PDF dokumentum',
         'status' => $technicalHandoverDocument !== null ? 'Rendben' : 'Hiányzik',
@@ -322,6 +326,7 @@ $technicalHandoverChecklist = [
         'detail' => $technicalHandoverDocument !== null ? (string) $technicalHandoverDocument['original_name'] : 'A lenti Word/PDF gombokkal generálható.',
     ],
     [
+        'key' => 'completed_intervention_sheet',
         'label' => 'Kész beavatkozási lap',
         'source' => 'Adminisztrátor tölti fel',
         'status' => $completedInterventionSheetDocument !== null ? 'Rendben' : 'Hiányzik',
@@ -329,6 +334,7 @@ $technicalHandoverChecklist = [
         'detail' => $completedInterventionSheetDocument !== null ? (string) $completedInterventionSheetDocument['original_name'] : 'Fent az Új MVM dokumentum feltöltésnél válaszd a Kész beavatkozási lap típust.',
     ],
     [
+        'key' => 'construction_log',
         'label' => 'Építési napló',
         'source' => 'Adminisztrátor tölti fel',
         'status' => $constructionLogDocument !== null ? 'Rendben' : 'Hiányzik',
@@ -336,6 +342,7 @@ $technicalHandoverChecklist = [
         'detail' => $constructionLogDocument !== null ? (string) $constructionLogDocument['original_name'] : 'Fent az Új MVM dokumentum feltöltésnél válaszd az Építési napló típust.',
     ],
     [
+        'key' => 'technical_declaration',
         'label' => 'Nyilatkozat adatlap',
         'source' => 'Jóváhagyási dokumentumból kinyerve',
         'status' => $technicalDeclarationDocument !== null ? 'Rendben' : ($technicalDeclarationSourceDocument !== null ? 'Kinyerhető' : 'Hiányzik'),
@@ -345,6 +352,7 @@ $technicalHandoverChecklist = [
             : ($technicalDeclarationSourceDocument !== null ? 'A jóváhagyási dokumentum megvan, a lenti gombbal kinyerhető.' : 'Előbb MVM jóváhagyási dokumentum PDF szükséges.'),
     ],
     [
+        'key' => 'after_work_photos',
         'label' => 'Kivitelezési fotók',
         'source' => 'Szerelői befejező fotókból',
         'status' => $afterWorkPhotoMissingItems === [] ? 'Rendben' : 'Hiányzik',
@@ -873,14 +881,6 @@ $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
                 </div>
                 <div class="mvm-handover-action-stack">
                     <div class="form-actions">
-                        <button class="button button-secondary" form="mvm-docx-form" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás Word generálása</button>
-                        <button class="button" form="mvm-docx-form" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás PDF generálása</button>
-                    </div>
-                    <div class="form-actions">
-                        <form method="post" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
-                            <?= csrf_field(); ?>
-                            <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || $technicalDeclarationSourceDocument === null || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Nyilatkozat adatlap kinyerése</button>
-                        </form>
                         <form method="post" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
                             <?= csrf_field(); ?>
                             <button class="button" name="action" value="build_handover_package" type="submit" <?= ($technicalHandoverMissingItems !== [] || !$pdfMergeAvailable || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Műszaki átadás csomag generálása</button>
@@ -922,6 +922,29 @@ $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
                             <p><?= h((string) ($item['detail'] ?? '')); ?></p>
                         </div>
                         <span class="status-badge <?= $isReady ? 'status-badge-sent' : 'status-badge-failed'; ?>"><?= h((string) ($item['status'] ?? '')); ?></span>
+
+                        <?php if (($item['key'] ?? '') === 'technical_handover'): ?>
+                            <div class="handover-card-actions">
+                                <button class="button button-secondary" form="mvm-docx-form" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Word generálás</button>
+                                <button class="button" form="mvm-docx-form" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálás</button>
+                            </div>
+                        <?php elseif (in_array(($item['key'] ?? ''), ['completed_intervention_sheet', 'construction_log'], true)): ?>
+                            <form class="handover-card-upload-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
+                                <?= csrf_field(); ?>
+                                <input type="hidden" name="document_type" value="<?= h((string) $item['key']); ?>">
+                                <input type="hidden" name="title" value="<?= h((string) $item['label']); ?>">
+                                <label>
+                                    <span><?= h((string) $item['label']); ?> feltöltése</span>
+                                    <input name="mvm_documents[]" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" required>
+                                </label>
+                                <button class="button button-secondary" name="action" value="upload" type="submit">Feltöltés</button>
+                            </form>
+                        <?php elseif (($item['key'] ?? '') === 'technical_declaration'): ?>
+                            <form class="handover-card-upload-form" method="post" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || $technicalDeclarationSourceDocument === null || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Nyilatkozat kinyerése</button>
+                            </form>
+                        <?php endif; ?>
                     </article>
                 <?php endforeach; ?>
             </div>
