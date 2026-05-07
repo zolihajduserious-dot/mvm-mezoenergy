@@ -193,6 +193,17 @@ if (is_post() && $schemaErrors === []) {
         $customerForm['contact_data_accepted'] = (int) (($customer['contact_data_accepted'] ?? 0) ?: 1);
         $customerForm['notes'] = (string) ($customer['notes'] ?? '');
         $workForm = normalize_connection_request_data($_POST, $customerForm);
+        $regularPrefillResult = handle_connection_request_document_prefill_from_regular_uploads($_FILES, $customerForm, $workForm, true);
+
+        if (!($regularPrefillResult['no_files'] ?? false)) {
+            $documentPrefillResult = $regularPrefillResult;
+
+            if (($documentPrefillResult['ok'] ?? false)) {
+                $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+                $workForm = (array) ($documentPrefillResult['request_form'] ?? $workForm);
+            }
+        }
+
         $errors = array_merge(
             $errors,
             validate_customer_data($customerForm, false),
@@ -223,6 +234,17 @@ if (is_post() && $schemaErrors === []) {
         $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Szerelői felmérés';
         $customerForm['contact_data_accepted'] = 1;
         $workForm = normalize_connection_request_data($_POST);
+        $regularPrefillResult = handle_connection_request_document_prefill_from_regular_uploads($_FILES, $customerForm, $workForm, true);
+
+        if (!($regularPrefillResult['no_files'] ?? false)) {
+            $documentPrefillResult = $regularPrefillResult;
+
+            if (($documentPrefillResult['ok'] ?? false)) {
+                $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+                $workForm = (array) ($documentPrefillResult['request_form'] ?? $workForm);
+            }
+        }
+
         $quoteSubmit = (string) ($_POST['quote_submit'] ?? 'survey_only');
         $shouldSaveQuote = in_array($quoteSubmit, ['save_quote', 'send_quote'], true);
         $shouldSendQuote = $quoteSubmit === 'send_quote';

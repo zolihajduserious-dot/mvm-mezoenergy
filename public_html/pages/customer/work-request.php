@@ -69,6 +69,17 @@ if (is_post()) {
     }
 
     if (!$skipSave) {
+    $regularPrefillResult = handle_connection_request_document_prefill_from_regular_uploads($_FILES, $customerForm, $form, true);
+
+    if (!($regularPrefillResult['no_files'] ?? false)) {
+        $documentPrefillResult = $regularPrefillResult;
+
+        if (($documentPrefillResult['ok'] ?? false)) {
+            $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+            $form = (array) ($documentPrefillResult['request_form'] ?? $form);
+        }
+    }
+
     $errors = array_merge(
         validate_customer_data($customerForm, false),
         validate_connection_request_data($form, $_FILES, $finalize, $requestId ?: null)

@@ -126,6 +126,19 @@ if (is_post()) {
     $form = normalize_connection_request_data($_POST, $customerDefaultsForRequest);
     $errors = [];
 
+    if ($request === null || $initialDataEditable) {
+        $regularPrefillResult = handle_connection_request_document_prefill_from_regular_uploads($_FILES, $customerForm, $form, true);
+
+        if (!($regularPrefillResult['no_files'] ?? false)) {
+            $documentPrefillResult = $regularPrefillResult;
+
+            if (($documentPrefillResult['ok'] ?? false)) {
+                $customerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerForm);
+                $form = (array) ($documentPrefillResult['request_form'] ?? $form);
+            }
+        }
+    }
+
     if ($request !== null && !$initialDataEditable) {
         $errors[] = 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók ezen az oldalon.';
     }

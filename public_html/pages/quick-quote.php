@@ -262,6 +262,7 @@ $requestForm = normalize_connection_request_data($request ?? [
 ]);
 $documentPrefillToken = document_prefill_token((string) ($_POST['document_prefill_token'] ?? ''));
 $documentPrefillResult = null;
+$documentPrefillCustomerForm = null;
 $surveyForm = normalize_survey_data([
     'site_address' => trim((string) ($requestForm['site_postal_code'] ?? '') . ' ' . (string) ($requestForm['site_address'] ?? '')),
     'work_type' => connection_request_type_label($requestForm['request_type'] ?? 'phase_upgrade'),
@@ -367,6 +368,7 @@ if (is_post()) {
         $customerSeed['phone'] = $form['phone'];
         $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerSeed, $requestForm);
         $customerSeed = (array) ($documentPrefillResult['customer_form'] ?? $customerSeed);
+        $documentPrefillCustomerForm = $customerSeed;
         $requestForm = (array) ($documentPrefillResult['request_form'] ?? $requestForm);
         $form['requester_name'] = (string) ($customerSeed['requester_name'] ?? $form['requester_name']);
         $form['email'] = (string) ($customerSeed['email'] ?? $form['email']);
@@ -534,6 +536,29 @@ if (is_post()) {
             'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
         ];
         $requestForm = normalize_connection_request_data($_POST);
+        $customerSeed = normalize_customer_data($customer ?? [
+            'requester_name' => $form['requester_name'],
+            'email' => $form['email'],
+            'phone' => $form['phone'],
+            'source' => 'Gyors árajánlat',
+            'status' => 'Árajánlat',
+        ]);
+        $customerSeed['requester_name'] = $form['requester_name'];
+        $customerSeed['email'] = $form['email'];
+        $customerSeed['phone'] = $form['phone'];
+        $regularPrefillResult = handle_connection_request_document_prefill_from_regular_uploads($_FILES, $customerSeed, $requestForm, true);
+
+        if (!($regularPrefillResult['no_files'] ?? false)) {
+            $documentPrefillResult = $regularPrefillResult;
+
+            if (($documentPrefillResult['ok'] ?? false)) {
+                $documentPrefillCustomerForm = (array) ($documentPrefillResult['customer_form'] ?? $customerSeed);
+                $requestForm = (array) ($documentPrefillResult['request_form'] ?? $requestForm);
+                $form['requester_name'] = (string) ($documentPrefillCustomerForm['requester_name'] ?? $form['requester_name']);
+                $form['email'] = (string) ($documentPrefillCustomerForm['email'] ?? $form['email']);
+                $form['phone'] = (string) ($documentPrefillCustomerForm['phone'] ?? $form['phone']);
+            }
+        }
 
         if ($requestForm['project_name'] === '' && $form['requester_name'] !== '') {
             $requestForm['project_name'] = 'Gyors árajánlat - ' . $form['requester_name'];
@@ -590,7 +615,7 @@ if (is_post()) {
             $customerForm = [
                 'is_legal_entity' => 0,
                 'requester_name' => $form['requester_name'],
-                'birth_name' => trim((string) ($_POST['birth_name'] ?? '')),
+                'birth_name' => trim((string) (($documentPrefillCustomerForm['birth_name'] ?? '') ?: ($_POST['birth_name'] ?? ''))),
                 'company_name' => '',
                 'tax_number' => '',
                 'phone' => $form['phone'],
@@ -599,9 +624,9 @@ if (is_post()) {
                 'postal_code' => (string) $billingAddress['postal_code'],
                 'city' => (string) $billingAddress['city'],
                 'mailing_address' => '',
-                'mother_name' => trim((string) ($_POST['mother_name'] ?? '')),
-                'birth_place' => trim((string) ($_POST['birth_place'] ?? '')),
-                'birth_date' => normalize_connection_request_mvm_source_date((string) ($_POST['birth_date'] ?? '')),
+                'mother_name' => trim((string) (($documentPrefillCustomerForm['mother_name'] ?? '') ?: ($_POST['mother_name'] ?? ''))),
+                'birth_place' => trim((string) (($documentPrefillCustomerForm['birth_place'] ?? '') ?: ($_POST['birth_place'] ?? ''))),
+                'birth_date' => normalize_connection_request_mvm_source_date((string) (($documentPrefillCustomerForm['birth_date'] ?? '') ?: ($_POST['birth_date'] ?? ''))),
                 'contact_data_accepted' => 0,
                 'source' => 'Gyors árajánlat',
                 'status' => 'Árajánlat',
@@ -928,7 +953,7 @@ if ($quote === null) {
 
                         <label for="phone">Telefonszám</label>
                         <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
-                        <?php $quickPrefillCustomerForm = is_array($documentPrefillResult['customer_form'] ?? null) ? (array) $documentPrefillResult['customer_form'] : normalize_customer_data($customer ?? []); ?>
+                        <?php $quickPrefillCustomerForm = is_array($documentPrefillCustomerForm) ? $documentPrefillCustomerForm : (is_array($documentPrefillResult['customer_form'] ?? null) ? (array) $documentPrefillResult['customer_form'] : normalize_customer_data($customer ?? [])); ?>
                         <input type="hidden" name="birth_name" value="<?= h((string) ($quickPrefillCustomerForm['birth_name'] ?? '')); ?>">
                         <input type="hidden" name="mother_name" value="<?= h((string) ($quickPrefillCustomerForm['mother_name'] ?? '')); ?>">
                         <input type="hidden" name="birth_place" value="<?= h((string) ($quickPrefillCustomerForm['birth_place'] ?? '')); ?>">

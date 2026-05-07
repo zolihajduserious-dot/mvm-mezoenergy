@@ -5690,59 +5690,106 @@ function document_prefill_file_accept(): string
     return connection_request_package_file_accept();
 }
 
+function document_prefill_upload_field_names(string $fileType, bool $includePrefillFields = true, bool $includeRegularFields = false): array
+{
+    $fieldNames = [];
+
+    if ($includePrefillFields) {
+        $fieldNames[] = 'prefill_' . $fileType;
+    }
+
+    if ($includeRegularFields) {
+        $fieldNames[] = $fileType;
+    }
+
+    return $fieldNames;
+}
+
+function document_prefill_collect_uploaded_files(array $files, bool $includePrefillFields = true, bool $includeRegularFields = false): array
+{
+    $messages = [];
+    $collectedFiles = [];
+    $definitions = document_prefill_upload_definitions();
+
+    foreach ($definitions as $fileType => $definition) {
+        foreach (document_prefill_upload_field_names((string) $fileType, $includePrefillFields, $includeRegularFields) as $fieldName) {
+            foreach (uploaded_files_for_key($files, $fieldName) as $file) {
+                if (!uploaded_file_is_present($file)) {
+                    continue;
+                }
+
+                if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                    $messages[] = $definition['label'] . ': a feltöltés sikertelen.';
+                    continue;
+                }
+
+                if (($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
+                    $messages[] = $definition['label'] . ': túl nagy fájl. Maximum 8 MB engedélyezett.';
+                    continue;
+                }
+
+                $originalName = (string) ($file['name'] ?? '');
+                $tmpName = (string) ($file['tmp_name'] ?? '');
+                $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+                if (!in_array($extension, document_prefill_allowed_extensions(), true)) {
+                    $messages[] = $definition['label'] . ': csak PDF vagy kép fájl tölthető fel.';
+                    continue;
+                }
+
+                $mimeType = $tmpName !== '' && function_exists('mime_content_type') ? (mime_content_type($tmpName) ?: '') : '';
+
+                $collectedFiles[] = [
+                    'file_type' => (string) $fileType,
+                    'label' => (string) $definition['label'],
+                    'original_name' => $originalName,
+                    'tmp_name' => $tmpName,
+                    'storage_path' => $tmpName,
+                    'extension' => $extension === 'jpeg' ? 'jpg' : $extension,
+                    'mime_type' => $mimeType !== '' ? $mimeType : (document_allowed_extensions()[$extension] ?? 'application/octet-stream'),
+                    'file_size' => (int) ($file['size'] ?? 0),
+                    'source_field' => $fieldName,
+                ];
+            }
+        }
+    }
+
+    return [
+        'ok' => $messages === [],
+        'messages' => $messages,
+        'files' => $collectedFiles,
+    ];
+}
+
 function document_prefill_store_uploads(string $token, array $files): array
 {
     $token = document_prefill_token($token);
-    $messages = [];
     $storedFiles = [];
-    $definitions = document_prefill_upload_definitions();
     $targetDir = document_prefill_temp_dir($token);
+    $collectResult = document_prefill_collect_uploaded_files($files, true, true);
+    $messages = (array) ($collectResult['messages'] ?? []);
     ensure_storage_dir($targetDir);
 
-    foreach ($definitions as $fileType => $definition) {
-        foreach (uploaded_files_for_key($files, 'prefill_' . $fileType) as $file) {
-            if (!uploaded_file_is_present($file)) {
-                continue;
-            }
+    foreach ((array) ($collectResult['files'] ?? []) as $file) {
+        $tmpName = (string) ($file['tmp_name'] ?? '');
+        $fileType = (string) ($file['file_type'] ?? 'document');
+        $storedName = $fileType . '-' . bin2hex(random_bytes(12)) . '.' . (string) ($file['extension'] ?? 'bin');
+        $targetPath = $targetDir . '/' . $storedName;
 
-            if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
-                $messages[] = $definition['label'] . ': a feltöltés sikertelen.';
-                continue;
-            }
-
-            if (($file['size'] ?? 0) > PHOTO_MAX_BYTES) {
-                $messages[] = $definition['label'] . ': túl nagy fájl. Maximum 8 MB engedélyezett.';
-                continue;
-            }
-
-            $originalName = (string) ($file['name'] ?? '');
-            $tmpName = (string) ($file['tmp_name'] ?? '');
-            $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-
-            if (!in_array($extension, document_prefill_allowed_extensions(), true)) {
-                $messages[] = $definition['label'] . ': csak PDF vagy kép fájl tölthető fel.';
-                continue;
-            }
-
-            $mimeType = $tmpName !== '' && function_exists('mime_content_type') ? (mime_content_type($tmpName) ?: '') : '';
-            $storedName = $fileType . '-' . bin2hex(random_bytes(12)) . '.' . ($extension === 'jpeg' ? 'jpg' : $extension);
-            $targetPath = $targetDir . '/' . $storedName;
-
-            if (!move_uploaded_file($tmpName, $targetPath)) {
-                $messages[] = $definition['label'] . ': nem sikerült ideiglenesen menteni.';
-                continue;
-            }
-
-            $storedFiles[] = [
-                'file_type' => $fileType,
-                'label' => (string) $definition['label'],
-                'original_name' => $originalName,
-                'stored_name' => $storedName,
-                'storage_path' => $targetPath,
-                'mime_type' => $mimeType !== '' ? $mimeType : (document_allowed_extensions()[$extension] ?? 'application/octet-stream'),
-                'file_size' => (int) ($file['size'] ?? 0),
-            ];
+        if (!move_uploaded_file($tmpName, $targetPath)) {
+            $messages[] = (string) ($file['label'] ?? 'Dokumentum') . ': nem sikerült ideiglenesen menteni.';
+            continue;
         }
+
+        $storedFiles[] = [
+            'file_type' => $fileType,
+            'label' => (string) ($file['label'] ?? 'Dokumentum'),
+            'original_name' => (string) ($file['original_name'] ?? $storedName),
+            'stored_name' => $storedName,
+            'storage_path' => $targetPath,
+            'mime_type' => (string) ($file['mime_type'] ?? 'application/octet-stream'),
+            'file_size' => (int) ($file['file_size'] ?? 0),
+        ];
     }
 
     if ($storedFiles !== []) {
@@ -6122,7 +6169,7 @@ function document_prefill_normalize_data(array $data): array
     return $normalized;
 }
 
-function document_prefill_apply_to_forms(array $data, array $customerForm, array $requestForm): array
+function document_prefill_apply_to_forms(array $data, array $customerForm, array $requestForm, bool $overwrite = false): array
 {
     $customerMap = [
         'requester_name',
@@ -6140,28 +6187,33 @@ function document_prefill_apply_to_forms(array $data, array $customerForm, array
         'consumption_place_id',
         'meter_serial',
     ];
+    $applied = [];
 
     foreach ($customerMap as $key) {
-        if (($customerForm[$key] ?? '') === '' && ($data[$key] ?? '') !== '') {
+        if (($overwrite || ($customerForm[$key] ?? '') === '') && ($data[$key] ?? '') !== '') {
             $customerForm[$key] = (string) $data[$key];
+            $applied[] = $key;
         }
     }
 
     foreach ($requestMap as $key) {
-        if (($requestForm[$key] ?? '') === '' && ($data[$key] ?? '') !== '') {
+        if (($overwrite || ($requestForm[$key] ?? '') === '') && ($data[$key] ?? '') !== '') {
             $requestForm[$key] = (string) $data[$key];
+            $applied[] = $key;
         }
     }
 
-    if (($requestForm['site_postal_code'] ?? '') === '' && ($data['postal_code'] ?? '') !== '') {
+    if (($overwrite || ($requestForm['site_postal_code'] ?? '') === '') && ($data['postal_code'] ?? '') !== '') {
         $requestForm['site_postal_code'] = (string) $data['postal_code'];
+        $applied[] = 'site_postal_code';
     }
 
-    if (($requestForm['site_address'] ?? '') === '' && ($data['postal_address'] ?? '') !== '') {
+    if (($overwrite || ($requestForm['site_address'] ?? '') === '') && ($data['postal_address'] ?? '') !== '') {
         $requestForm['site_address'] = (string) $data['postal_address'];
+        $applied[] = 'site_address';
     }
 
-    return [$customerForm, $requestForm];
+    return [$customerForm, $requestForm, array_values(array_unique($applied))];
 }
 
 function handle_connection_request_document_prefill(string $token, array $files, array $customerForm, array $requestForm): array
@@ -6190,14 +6242,82 @@ function handle_connection_request_document_prefill(string $token, array $files,
         ];
     }
 
-    [$customerForm, $requestForm] = document_prefill_apply_to_forms((array) $extractResult['data'], $customerForm, $requestForm);
+    [$customerForm, $requestForm, $applied] = document_prefill_apply_to_forms((array) $extractResult['data'], $customerForm, $requestForm, true);
+    $message = (string) $extractResult['message'];
+
+    if ($applied !== []) {
+        $message .= ' Kitöltött mezők száma: ' . count($applied) . '.';
+    } else {
+        $message .= ' A dokumentumból nem találtam olyan mezőt, amit vissza tudtam tölteni.';
+    }
 
     return [
         'ok' => true,
-        'message' => (string) $extractResult['message'],
+        'message' => $message,
         'customer_form' => $customerForm,
         'request_form' => $requestForm,
         'data' => (array) $extractResult['data'],
+        'applied' => $applied,
+    ];
+}
+
+function handle_connection_request_document_prefill_from_regular_uploads(array $files, array $customerForm, array $requestForm, bool $overwrite = true): array
+{
+    $collectResult = document_prefill_collect_uploaded_files($files, false, true);
+    $collectedFiles = (array) ($collectResult['files'] ?? []);
+
+    if (($collectResult['messages'] ?? []) !== []) {
+        return [
+            'ok' => false,
+            'message' => implode(' ', (array) $collectResult['messages']),
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+            'no_files' => false,
+        ];
+    }
+
+    if ($collectedFiles === []) {
+        return [
+            'ok' => false,
+            'message' => '',
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+            'no_files' => true,
+        ];
+    }
+
+    $extractResult = document_prefill_extract_from_files($collectedFiles);
+
+    if (!($extractResult['ok'] ?? false)) {
+        return [
+            'ok' => false,
+            'message' => (string) ($extractResult['message'] ?? 'Az adatkiolvasás sikertelen.'),
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+            'no_files' => false,
+        ];
+    }
+
+    [$customerForm, $requestForm, $applied] = document_prefill_apply_to_forms((array) $extractResult['data'], $customerForm, $requestForm, $overwrite);
+    $message = 'A feltöltött dokumentumokból az adatkiolvasás lefutott.';
+
+    if ($applied !== []) {
+        $message .= ' Kitöltött mezők száma: ' . count($applied) . '.';
+    } else {
+        $message .= ' Nem találtam új mezőt, amit vissza tudtam volna tölteni.';
+    }
+
+    return [
+        'ok' => true,
+        'message' => $message,
+        'customer_form' => $customerForm,
+        'request_form' => $requestForm,
+        'data' => (array) $extractResult['data'],
+        'applied' => $applied,
+        'no_files' => false,
     ];
 }
 
@@ -6207,7 +6327,7 @@ function render_connection_request_document_prefill_panel(string $token, ?array 
     ?>
     <section class="auth-panel form-block document-prefill-panel">
         <h2>Dokumentumokból kitöltés</h2>
-        <p class="muted-text">Fotózd be vagy töltsd fel a villanyszámlát, személyi igazolványt és lakcímkártyát. A rendszer előtölti a mezőket, de mentés előtt mindig ellenőrizd az adatokat.</p>
+        <p class="muted-text">Fotózd be vagy töltsd fel a villanyszámlát, személyi igazolványt és lakcímkártyát. A rendszer ezekből és a lentebb feltöltött azonos nevű dokumentummezőkből is előtölti az adatlap mezőit. Mentés előtt mindig ellenőrizd az adatokat.</p>
         <input type="hidden" name="document_prefill_token" value="<?= h($token); ?>">
 
         <?php if ($prefillResult !== null): ?>
