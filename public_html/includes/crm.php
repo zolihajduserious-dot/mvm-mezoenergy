@@ -7487,18 +7487,21 @@ function mvm_document_types(bool $includeSystemTypes = true): array
     $types = [
         'submitted_request' => 'Beküldött igény',
         'accepted_request' => 'Elfogadott igény',
+        'authorization' => 'Meghatalmazás',
         'execution_plan' => 'Kiviteli terv dokumentáció',
         'intervention_sheet' => 'Új beavatkozási lap',
         'completed_intervention_sheet' => 'Kész beavatkozási lap',
         'construction_log' => 'Építési napló',
         'technical_handover' => 'Műszaki átadás-átvételi jegyzőkönyv',
         'technical_declaration' => 'Nyilatkozatok adatlap',
+        'seal_removal' => 'Plombabontási engedély',
     ];
 
     if ($includeSystemTypes) {
         $types['complete_package'] = 'MVM jóváhagyási csomag';
         $types['execution_plan_package'] = 'Kiviteli terv csomag';
         $types['technical_handover_package'] = 'Műszaki átadás csomag';
+        $types['seal_removal_package'] = 'Plombabontás csomag';
     }
 
     return $types;
@@ -7509,21 +7512,24 @@ function mvm_document_type_keys(): array
     return [
         'submitted_request',
         'accepted_request',
+        'authorization',
         'execution_plan',
         'intervention_sheet',
         'completed_intervention_sheet',
         'construction_log',
         'technical_handover',
         'technical_declaration',
+        'seal_removal',
         'complete_package',
         'execution_plan_package',
         'technical_handover_package',
+        'seal_removal_package',
     ];
 }
 
 function mvm_document_is_mvm_sendable_package(string $documentType): bool
 {
-    return in_array($documentType, ['complete_package', 'execution_plan_package', 'technical_handover_package'], true);
+    return in_array($documentType, ['complete_package', 'execution_plan_package', 'technical_handover_package', 'seal_removal_package'], true);
 }
 
 function mvm_document_type_enum_sql(): string
@@ -8727,6 +8733,7 @@ function mvm_contractor_templates(): array
             'template' => 'primavill_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'primavill_terv_sablon.docx',
             'handover_template' => 'primavill_muszaki_atadas.docx',
+            'seal_removal_template' => 'primavill_plombabontasi_engedely.docx',
             'plan_header_line_1' => 'Primavill Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => '5600 Békéscsaba, Víztározó u. 19. Tel.: 06 30 23 08 472',
         ],
@@ -8737,6 +8744,7 @@ function mvm_contractor_templates(): array
             'template' => 'kasosvill_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'kasosvill_terv_sablon.docx',
             'handover_template' => 'kasosvill_muszaki_atadas.docx',
+            'seal_removal_template' => 'kasosvill_plombabontasi_engedely.docx',
             'plan_header_line_1' => 'Kasosvill Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 33716',
         ],
@@ -8747,6 +8755,7 @@ function mvm_contractor_templates(): array
             'template' => 'szabowatt_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 'szabowatt_terv_sablon.docx',
             'handover_template' => 'szabowatt_muszaki_atadas.docx',
+            'seal_removal_template' => 'szabowatt_plombabontasi_engedely.docx',
             'plan_header_line_1' => 'Szabó Watt és Társai Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 31945',
         ],
@@ -8757,6 +8766,7 @@ function mvm_contractor_templates(): array
             'template' => 't-tech-2000_igenybejelento_2026_lakossagi.docx',
             'plan_template' => 't-tech-2000_terv_sablon.docx',
             'handover_template' => 't-tech-2000_muszaki_atadas.docx',
+            'seal_removal_template' => 't-tech-2000_plombabontasi_engedely.docx',
             'plan_header_line_1' => 'T-tech 2000 Kft. MVM Démász Áramhálózati Kft. partnerkivitelező',
             'plan_header_line_2' => 'Szállító szám: 33665',
         ],
@@ -8842,6 +8852,23 @@ function mvm_technical_handover_template_errors(?string $contractorKey = null): 
 
     return mvm_technical_handover_template_path($contractorKey) === null
         ? ['Hiányzik a(z) ' . $contractor['label'] . ' műszaki átadás DOCX sablon a templates/mvm/handover-templates mappából.']
+        : [];
+}
+
+function mvm_seal_removal_template_path(?string $contractorKey = null): ?string
+{
+    $contractor = mvm_contractor_definition($contractorKey);
+    $candidate = APP_ROOT . '/templates/mvm/seal-removal-templates/' . (string) ($contractor['seal_removal_template'] ?? '');
+
+    return is_file($candidate) ? $candidate : null;
+}
+
+function mvm_seal_removal_template_errors(?string $contractorKey = null): array
+{
+    $contractor = mvm_contractor_definition($contractorKey);
+
+    return mvm_seal_removal_template_path($contractorKey) === null
+        ? ['Hiányzik a(z) ' . $contractor['label'] . ' plombabontási DOCX sablon a templates/mvm/seal-removal-templates mappából.']
         : [];
 }
 
@@ -10140,6 +10167,8 @@ function mvm_docx_placeholder_map(array $request, array $values): array
     $addProject('Datum', $field('datum'));
     $addProject('KeszrejelentesDatum', date('Y.m.d.'));
     $addProject('SkiccFeltoltese', '');
+    $addProject('MeghatalmazasFeltoltese', '');
+    $addProject('MeghatalmazasFeltoltese2', '');
     $map['{d.Projekt.OszlopTipusa}'] = $field('oszlop_tipusa');
 
     return $map;
@@ -12166,6 +12195,171 @@ function generate_mvm_technical_handover_pdf(int $requestId): array
     ];
 }
 
+function generate_mvm_seal_removal_docx(int $requestId): array
+{
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $form = connection_request_mvm_form($requestId);
+
+    if ($form === null) {
+        return ['ok' => false, 'message' => 'Előbb mentsd az MVM űrlap adatait.', 'document_id' => null];
+    }
+
+    $values = connection_request_mvm_form_values($request);
+    $contractorKey = normalize_mvm_contractor_key($values['mvm_contractor'] ?? null);
+    $contractor = mvm_contractor_definition($contractorKey);
+    $templatePath = mvm_seal_removal_template_path($contractorKey);
+
+    if ($templatePath === null) {
+        return ['ok' => false, 'message' => 'Hiányzik a(z) ' . $contractor['label'] . ' plombabontási DOCX sablon a templates/mvm/seal-removal-templates mappából.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-seal-removal-docx';
+    ensure_storage_dir($targetDir);
+
+    $storedName = $contractorKey . '-plombabontasi-engedely-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $targetPath = $targetDir . '/' . $storedName;
+
+    if (!copy($templatePath, $targetPath)) {
+        return ['ok' => false, 'message' => 'A plombabontási Word sablont nem sikerült előkészíteni.', 'document_id' => null];
+    }
+
+    $zip = new ZipArchive();
+
+    if ($zip->open($targetPath) !== true) {
+        return ['ok' => false, 'message' => 'A plombabontási Word dokumentumot nem sikerült megnyitni szerkesztésre.', 'document_id' => null];
+    }
+
+    try {
+        $placeholderMap = mvm_docx_placeholder_map($request, $values);
+        $zipFileCount = $zip->numFiles;
+
+        for ($index = 0; $index < $zipFileCount; $index++) {
+            $name = $zip->getNameIndex($index);
+
+            if (!is_string($name) || !preg_match('#^word/(document|header\d+|footer\d+)\.xml$#', $name)) {
+                continue;
+            }
+
+            $xml = $zip->getFromName($name);
+
+            if ($xml === false) {
+                continue;
+            }
+
+            $xml = replace_docx_placeholders_in_xml($xml, $placeholderMap);
+            $zip->addFromString($name, strtr($xml, array_map('mvm_docx_xml_value', $placeholderMap)));
+        }
+
+        $zip->close();
+    } catch (Throwable $exception) {
+        $zip->close();
+
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+
+        return ['ok' => false, 'message' => 'A plombabontási Word dokumentum generálása sikertelen: ' . $exception->getMessage(), 'document_id' => null];
+    }
+
+    clearstatcache(true, $targetPath);
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'seal_removal',
+            $contractor['short_label'] . ' plombabontási engedély - kitöltött Word dokumentum',
+            $storedName,
+            $storedName,
+            $targetPath,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            is_file($targetPath) ? (int) filesize($targetPath) : 0,
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött ' . $contractor['short_label'] . ' plombabontási Word dokumentum elkészült.',
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
+function generate_mvm_seal_removal_pdf(int $requestId): array
+{
+    $docxResult = generate_mvm_seal_removal_docx($requestId);
+
+    if (!$docxResult['ok']) {
+        return $docxResult;
+    }
+
+    $document = find_connection_request_document((int) $docxResult['document_id']);
+
+    if ($document === null) {
+        return ['ok' => false, 'message' => 'A plombabontási Word dokumentum elkészült, de a mentett dokumentumrekord nem található.', 'document_id' => null];
+    }
+
+    $pdfResult = convert_mvm_docx_document_to_pdf($document);
+
+    if (!$pdfResult['ok'] || empty($pdfResult['path']) || !is_file((string) $pdfResult['path'])) {
+        return ['ok' => false, 'message' => $pdfResult['message'], 'document_id' => (int) $document['id']];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $values = connection_request_mvm_form_values($request);
+    $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
+    $pdfPath = (string) $pdfResult['path'];
+    $storedName = basename($pdfPath);
+
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'seal_removal',
+            $contractor['short_label'] . ' plombabontási engedély - kitöltött PDF',
+            $storedName,
+            $storedName,
+            $pdfPath,
+            'application/pdf',
+            (int) filesize($pdfPath),
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött ' . $contractor['short_label'] . ' plombabontási PDF dokumentum elkészült.',
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
 function validate_connection_request_document_upload(string $documentType, array $files): array
 {
     $errors = [];
@@ -12199,11 +12393,11 @@ function validate_connection_request_document_upload(string $documentType, array
             }
         }
 
-        if (in_array($documentType, ['completed_intervention_sheet', 'construction_log', 'technical_declaration', 'technical_handover_package'], true)) {
+        if (in_array($documentType, ['authorization', 'completed_intervention_sheet', 'construction_log', 'technical_declaration', 'technical_handover_package', 'seal_removal_package'], true)) {
             $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
 
             if (!in_array($extension, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true)) {
-                $errors[] = 'A műszaki átadás csomagba kerülő feltöltések csak PDF vagy kép fájlok lehetnek.';
+                $errors[] = 'Az összefűzött MVM csomagba kerülő feltöltések csak PDF vagy kép fájlok lehetnek.';
             }
         }
     }
@@ -12332,6 +12526,20 @@ function connection_request_technical_handover_packages(int $requestId): array
     )->fetchAll();
 }
 
+function connection_request_seal_removal_packages(int $requestId): array
+{
+    if (!db_table_exists('connection_request_documents')) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT * FROM `connection_request_documents`
+         WHERE `connection_request_id` = ? AND `document_type` = ?
+         ORDER BY `created_at` DESC, `id` DESC',
+        [$requestId, 'seal_removal_package']
+    )->fetchAll();
+}
+
 function latest_connection_request_document_by_types(int $requestId, array $documentTypes, bool $packageCompatibleOnly = true): ?array
 {
     $documentTypes = array_values(array_filter(array_unique(array_map('strval', $documentTypes))));
@@ -12409,6 +12617,11 @@ function latest_connection_request_execution_plan_document(int $requestId, bool 
 function latest_connection_request_technical_handover_document(int $requestId, bool $packageCompatibleOnly = true): ?array
 {
     return latest_connection_request_document_by_types($requestId, ['technical_handover'], $packageCompatibleOnly);
+}
+
+function latest_connection_request_seal_removal_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types($requestId, ['seal_removal'], $packageCompatibleOnly);
 }
 
 function latest_connection_request_technical_document(int $requestId, string $documentType, bool $packageCompatibleOnly = true): ?array
@@ -12534,6 +12747,24 @@ function connection_request_execution_plan_package_parts(int $requestId): array
     return $parts;
 }
 
+function connection_request_seal_removal_package_parts(int $requestId): array
+{
+    $parts = [];
+    $sealRemoval = latest_connection_request_seal_removal_document($requestId);
+
+    if ($sealRemoval !== null) {
+        $parts[] = connection_request_document_package_part($sealRemoval, 'Plombabontási engedély', 'Plombabontási engedély');
+    }
+
+    $authorization = latest_connection_request_authorization_package_part($requestId);
+
+    if ($authorization !== null) {
+        $parts[] = $authorization;
+    }
+
+    return $parts;
+}
+
 function connection_request_complete_package_missing_items(int $requestId): array
 {
     $missing = [];
@@ -12571,6 +12802,21 @@ function connection_request_execution_plan_package_missing_items(int $requestId)
 
     if (!connection_request_has_photo_file($requestId)) {
         $missing[] = 'Fotók';
+    }
+
+    return $missing;
+}
+
+function connection_request_seal_removal_package_missing_items(int $requestId): array
+{
+    $missing = [];
+
+    if (latest_connection_request_seal_removal_document($requestId) === null) {
+        $missing[] = 'Plombabontási engedély PDF';
+    }
+
+    if (latest_connection_request_authorization_package_part($requestId) === null) {
+        $missing[] = 'Meghatalmazás PDF vagy kép';
     }
 
     return $missing;
@@ -12674,6 +12920,87 @@ function connection_request_required_after_photo_labels(): array
         'roof_hook' => 'Tetőtartó',
         'seals' => 'Plombák',
     ];
+}
+
+function connection_request_file_package_part(array $file, string $group): array
+{
+    return [
+        'group' => $group,
+        'label' => (string) ($file['label'] ?? $group),
+        'original_name' => (string) $file['original_name'],
+        'path' => (string) $file['storage_path'],
+        'mime_type' => (string) $file['mime_type'],
+        'source' => 'request_file',
+        'file_type' => (string) ($file['file_type'] ?? ''),
+    ];
+}
+
+function latest_connection_request_authorization_package_part(int $requestId): ?array
+{
+    $candidates = [];
+
+    if (db_table_exists('connection_request_files')) {
+        $files = db_query(
+            'SELECT * FROM `connection_request_files`
+             WHERE `connection_request_id` = ? AND `file_type` = ?
+             ORDER BY `created_at` DESC, `id` DESC',
+            [$requestId, 'authorization']
+        )->fetchAll();
+
+        foreach ($files as $file) {
+            if (pdf_package_file_is_pdf($file) || pdf_package_file_is_image($file)) {
+                $candidates[] = [
+                    'created_at' => (string) ($file['created_at'] ?? ''),
+                    'id' => (int) ($file['id'] ?? 0),
+                    'part' => connection_request_file_package_part($file, 'Meghatalmazás'),
+                ];
+            }
+        }
+    }
+
+    $document = latest_connection_request_document_by_types($requestId, ['authorization'], true);
+
+    if ($document !== null) {
+        $candidates[] = [
+            'created_at' => (string) ($document['created_at'] ?? ''),
+            'id' => (int) ($document['id'] ?? 0),
+            'part' => connection_request_document_package_part($document, 'Meghatalmazás', 'Meghatalmazás'),
+        ];
+    }
+
+    if (db_table_exists('connection_request_work_files')) {
+        $workFiles = db_query(
+            'SELECT * FROM `connection_request_work_files`
+             WHERE `connection_request_id` = ? AND `file_type` = ?
+             ORDER BY `created_at` DESC, `id` DESC',
+            [$requestId, 'authorization']
+        )->fetchAll();
+
+        foreach ($workFiles as $file) {
+            if (pdf_package_file_is_pdf($file) || pdf_package_file_is_image($file)) {
+                $candidates[] = [
+                    'created_at' => (string) ($file['created_at'] ?? ''),
+                    'id' => (int) ($file['id'] ?? 0),
+                    'part' => connection_request_work_file_package_part($file, 'Meghatalmazás'),
+                ];
+            }
+        }
+    }
+
+    if ($candidates === []) {
+        return null;
+    }
+
+    usort(
+        $candidates,
+        static function (array $a, array $b): int {
+            $dateCompare = strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? ''));
+
+            return $dateCompare !== 0 ? $dateCompare : ((int) ($b['id'] ?? 0) <=> (int) ($a['id'] ?? 0));
+        }
+    );
+
+    return $candidates[0]['part'];
 }
 
 function connection_request_required_after_photo_missing_items(int $requestId): array
@@ -13430,6 +13757,82 @@ function generate_connection_request_technical_handover_package(int $requestId):
         return [
             'ok' => false,
             'message' => 'A műszaki átadás csomag generálása sikertelen: ' . $exception->getMessage(),
+            'document_id' => null,
+        ];
+    }
+}
+
+function generate_connection_request_seal_removal_package(int $requestId): array
+{
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $missingItems = connection_request_seal_removal_package_missing_items($requestId);
+
+    if ($missingItems !== []) {
+        return ['ok' => false, 'message' => 'A plombabontás csomaghoz még hiányzik: ' . implode(', ', $missingItems) . '.', 'document_id' => null];
+    }
+
+    $parts = connection_request_seal_removal_package_parts($requestId);
+
+    if ($parts === []) {
+        return ['ok' => false, 'message' => 'Nincs összefűzhető plombabontási dokumentum.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/seal-removal-package';
+    ensure_storage_dir($targetDir);
+
+    $storedName = 'plombabontas-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $finalPath = $targetDir . '/' . $storedName;
+
+    try {
+        $result = render_connection_request_complete_package_pdf($parts, $finalPath, 72);
+
+        if (!is_file((string) $result['path'])) {
+            return ['ok' => false, 'message' => 'A plombabontás PDF csomag nem készült el.', 'document_id' => null];
+        }
+
+        db_query(
+            'INSERT INTO `connection_request_documents`
+                (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+                 `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $requestId,
+                (int) $request['customer_id'],
+                'seal_removal_package',
+                'Plombabontás csomag',
+                $storedName,
+                $storedName,
+                $finalPath,
+                'application/pdf',
+                (int) filesize($finalPath),
+                is_array(current_user()) ? (int) current_user()['id'] : null,
+            ]
+        );
+
+        return [
+            'ok' => true,
+            'message' => 'A plombabontás csomag elkészült: ' . format_bytes((int) filesize($finalPath)) . '.',
+            'document_id' => (int) db()->lastInsertId(),
+        ];
+    } catch (Throwable $exception) {
+        if (is_file($finalPath)) {
+            unlink($finalPath);
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'A plombabontás csomag generálása sikertelen: ' . $exception->getMessage(),
             'document_id' => null,
         ];
     }
@@ -16960,8 +17363,16 @@ function minicrm_connection_request_document_type(array $file): ?string
         return preg_match('/alairt|elfogadott|mvm alairt/', $text) ? 'accepted_request' : 'submitted_request';
     }
 
+    if (preg_match('/meghatalmazas|alairt meghatalmazas/', $text)) {
+        return 'authorization';
+    }
+
     if (preg_match('/terv|kiviteli/', $text)) {
         return 'execution_plan';
+    }
+
+    if (preg_match('/plombabontas|plomba bontas|plombabontasi/', $text)) {
+        return 'seal_removal';
     }
 
     if (preg_match('/kesz.*beavatkozasi|beavatkozasi.*kesz/', $text)) {

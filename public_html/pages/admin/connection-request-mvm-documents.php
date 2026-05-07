@@ -60,8 +60,9 @@ $types = mvm_document_types();
 $uploadTypes = mvm_document_types();
 $errors = [];
 $mvmFormAction = is_post() ? (string) ($_POST['action'] ?? '') : '';
-$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf'], true);
+$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
 $isHandoverFormPost = in_array($mvmFormAction, ['generate_handover_docx', 'generate_handover_pdf'], true);
+$isSealRemovalFormPost = in_array($mvmFormAction, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
 $selectedType = (string) ($_POST['document_type'] ?? 'submitted_request');
 $title = trim((string) ($_POST['title'] ?? ''));
 $mvmFormValues = $isMvmFormPost
@@ -81,6 +82,7 @@ if ($isMvmFormPost && connection_request_mvm_source_birth_date_parts_submitted($
 $templateErrors = mvm_form_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $planTemplateErrors = mvm_plan_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $handoverTemplateErrors = mvm_technical_handover_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
+$sealRemovalTemplateErrors = mvm_seal_removal_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $mvmSubmissionApproved = connection_request_mvm_submission_is_allowed($request);
 $mvmSubmissionGuardMessage = connection_request_mvm_submission_guard_message($request);
 $mvmPaymentApproverLabel = $mvmSubmissionApproved ? connection_request_mvm_fee_payment_approver_label($request) : '';
@@ -96,9 +98,12 @@ if (is_post()) {
         'generate_plan_pdf',
         'generate_handover_docx',
         'generate_handover_pdf',
+        'generate_seal_removal_docx',
+        'generate_seal_removal_pdf',
         'build_package',
         'build_execution_plan_package',
         'build_handover_package',
+        'build_seal_removal_package',
         'generate_technical_declaration',
         'send_mvm_document',
     ], true);
@@ -111,7 +116,7 @@ if (is_post()) {
 
     if ($requiresMvmSubmissionApproval && !$mvmSubmissionApproved) {
         $errors[] = $mvmSubmissionGuardMessage;
-    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf'], true)) {
+    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf'], true)) {
         if ($mvmFormSchemaErrors !== []) {
             $errors = array_merge($errors, $mvmFormSchemaErrors);
         }
@@ -126,6 +131,10 @@ if (is_post()) {
 
         if (in_array($action, ['generate_handover_docx', 'generate_handover_pdf'], true) && $handoverTemplateErrors !== []) {
             $errors = array_merge($errors, $handoverTemplateErrors);
+        }
+
+        if (in_array($action, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true) && $sealRemovalTemplateErrors !== []) {
+            $errors = array_merge($errors, $sealRemovalTemplateErrors);
         }
 
         if ($errors === []) {
@@ -169,13 +178,23 @@ if (is_post()) {
                 } elseif ($action === 'generate_handover_docx') {
                     $result = generate_mvm_technical_handover_docx((int) $request['id']);
                     set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+                } elseif ($action === 'generate_seal_removal_pdf') {
+                    $result = generate_mvm_seal_removal_pdf((int) $request['id']);
+                    set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+                } elseif ($action === 'generate_seal_removal_docx') {
+                    $result = generate_mvm_seal_removal_docx((int) $request['id']);
+                    set_flash($result['ok'] ? 'success' : 'error', $result['message']);
                 } else {
                     set_flash('success', 'Az MVM űrlap adatai elmentve.');
                 }
 
-                $noticeTarget = in_array($action, ['generate_handover_docx', 'generate_handover_pdf'], true)
-                    ? '&handover_notice=1#technical-handover-section'
-                    : '&mvm_notice=1#mvm-generator-actions';
+                if (in_array($action, ['generate_handover_docx', 'generate_handover_pdf'], true)) {
+                    $noticeTarget = '&handover_notice=1#technical-handover-section';
+                } elseif (in_array($action, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true)) {
+                    $noticeTarget = '&seal_removal_notice=1#seal-removal-section';
+                } else {
+                    $noticeTarget = '&mvm_notice=1#mvm-generator-actions';
+                }
 
                 redirect($mvmRedirectPath . $noticeTarget);
             } catch (Throwable $exception) {
@@ -217,6 +236,19 @@ if (is_post()) {
             if ($result['ok']) {
                 set_flash('success', $result['message']);
                 redirect($mvmRedirectPath . '&handover_notice=1#technical-handover-section');
+            }
+
+            $errors[] = (string) $result['message'];
+        }
+    } elseif ($action === 'build_seal_removal_package') {
+        if ($schemaErrors !== []) {
+            $errors = array_merge($errors, $schemaErrors);
+        } else {
+            $result = generate_connection_request_seal_removal_package((int) $request['id']);
+
+            if ($result['ok']) {
+                set_flash('success', $result['message']);
+                redirect($mvmRedirectPath . '&seal_removal_notice=1#seal-removal-section');
             }
 
             $errors[] = (string) $result['message'];
@@ -288,9 +320,13 @@ if (is_post()) {
                 }
 
                 set_flash('success', $message);
-                $uploadTarget = in_array($selectedType, ['completed_intervention_sheet', 'construction_log'], true)
-                    ? '&handover_notice=1#technical-handover-section'
-                    : '';
+                if (in_array($selectedType, ['completed_intervention_sheet', 'construction_log'], true)) {
+                    $uploadTarget = '&handover_notice=1#technical-handover-section';
+                } elseif (in_array($selectedType, ['authorization', 'seal_removal'], true)) {
+                    $uploadTarget = '&seal_removal_notice=1#seal-removal-section';
+                } else {
+                    $uploadTarget = '';
+                }
                 redirect($mvmRedirectPath . $uploadTarget);
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az MVM dokumentum feltöltése sikertelen.';
@@ -303,13 +339,18 @@ $documents = connection_request_documents((int) $request['id']);
 $completePackages = connection_request_complete_packages((int) $request['id']);
 $executionPlanPackages = connection_request_execution_plan_packages((int) $request['id']);
 $technicalHandoverPackages = connection_request_technical_handover_packages((int) $request['id']);
+$sealRemovalPackages = connection_request_seal_removal_packages((int) $request['id']);
 $packageParts = connection_request_complete_package_parts((int) $request['id']);
 $missingItems = connection_request_complete_package_missing_items((int) $request['id']);
 $executionPlanPackageParts = connection_request_execution_plan_package_parts((int) $request['id']);
 $executionPlanMissingItems = connection_request_execution_plan_package_missing_items((int) $request['id']);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
+$sealRemovalPackageParts = connection_request_seal_removal_package_parts((int) $request['id']);
+$sealRemovalMissingItems = connection_request_seal_removal_package_missing_items((int) $request['id']);
 $technicalHandoverDocument = latest_connection_request_technical_handover_document((int) $request['id']);
+$sealRemovalDocument = latest_connection_request_seal_removal_document((int) $request['id']);
+$authorizationPart = latest_connection_request_authorization_package_part((int) $request['id']);
 $completedInterventionSheetDocument = latest_connection_request_technical_document((int) $request['id'], 'completed_intervention_sheet');
 $constructionLogDocument = latest_connection_request_technical_document((int) $request['id'], 'construction_log');
 $technicalDeclarationDocument = latest_connection_request_technical_document((int) $request['id'], 'technical_declaration');
@@ -362,6 +403,24 @@ $technicalHandoverChecklist = [
             : 'Hiányzik: ' . implode(', ', $afterWorkPhotoMissingItems) . '.',
     ],
 ];
+$sealRemovalChecklist = [
+    [
+        'key' => 'seal_removal',
+        'label' => 'Plombabontási engedély',
+        'source' => 'Generált Word/PDF dokumentum',
+        'status' => $sealRemovalDocument !== null ? 'Rendben' : 'Hiányzik',
+        'ok' => $sealRemovalDocument !== null,
+        'detail' => $sealRemovalDocument !== null ? (string) $sealRemovalDocument['original_name'] : 'A lenti Word/PDF gombokkal generálható.',
+    ],
+    [
+        'key' => 'authorization',
+        'label' => 'Meghatalmazás',
+        'source' => 'Ügyfél, szerelő vagy admin tölti fel',
+        'status' => $authorizationPart !== null ? 'Rendben' : 'Hiányzik',
+        'ok' => $authorizationPart !== null,
+        'detail' => $authorizationPart !== null ? (string) ($authorizationPart['original_name'] ?? '') : 'Elfogadjuk az ügyfél feltöltését, a szerelő által hozott fájlt vagy az admin feltöltést.',
+    ],
+];
 $mvmMailboxAutoSync = maybe_sync_mvm_mailbox_replies(40, 60);
 $mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
 $mvmThreadStatusLabels = mvm_email_thread_status_labels();
@@ -370,12 +429,15 @@ $pdfMergeAvailable = class_exists('\\setasign\\Fpdi\\Fpdi');
 $flash = get_flash();
 $mvmNoticeTarget = (string) ($_GET['mvm_notice'] ?? '') === '1';
 $handoverNoticeTarget = (string) ($_GET['handover_notice'] ?? '') === '1';
-$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget) ? null : $flash;
+$sealRemovalNoticeTarget = (string) ($_GET['seal_removal_notice'] ?? '') === '1';
+$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget || $sealRemovalNoticeTarget) ? null : $flash;
 $mvmFormFlash = $mvmNoticeTarget ? $flash : null;
 $technicalHandoverFlash = $handoverNoticeTarget ? $flash : null;
+$sealRemovalFlash = $sealRemovalNoticeTarget ? $flash : null;
 $topErrors = $isMvmFormPost ? [] : $errors;
-$mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost) ? $errors : [];
+$mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost && !$isSealRemovalFormPost) ? $errors : [];
 $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
+$sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
 ?>
 <section class="admin-section">
     <div class="container">
@@ -985,6 +1047,121 @@ $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
                     <h3>Elkészült műszaki átadás csomagok</h3>
                     <div class="inline-link-list">
                         <?php foreach ($technicalHandoverPackages as $package): ?>
+                            <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <section id="seal-removal-section" class="auth-panel form-block technical-handover-panel">
+            <div class="admin-header">
+                <div>
+                    <p class="eyebrow">Plombabontás</p>
+                    <h2>Plombabontási PDF csomag</h2>
+                    <p>A sorrend: generált plombabontási engedély, majd meghatalmazás. A meghatalmazás jöhet az ügyféltől, a szerelőtől vagy admin feltöltésből; a csomaghoz PDF vagy kép fájl szükséges.</p>
+                </div>
+                <div class="mvm-handover-action-stack">
+                    <div class="form-actions">
+                        <form method="post" action="<?= h($mvmPageUrl . '#seal-removal-section'); ?>">
+                            <?= csrf_field(); ?>
+                            <button class="button" name="action" value="build_seal_removal_package" type="submit" <?= ($sealRemovalMissingItems !== [] || !$pdfMergeAvailable || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Plombabontás csomag generálása</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <?php if ($sealRemovalFlash !== null): ?>
+                <div class="alert alert-<?= h((string) $sealRemovalFlash['type']); ?>"><p><?= h((string) $sealRemovalFlash['message']); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($sealRemovalErrors !== []): ?>
+                <div class="alert alert-error">
+                    <?php foreach ($sealRemovalErrors as $error): ?><p><?= h($error); ?></p><?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($sealRemovalTemplateErrors !== []): ?>
+                <div class="alert alert-info">
+                    <?php foreach ($sealRemovalTemplateErrors as $templateError): ?><p><?= h($templateError); ?></p><?php endforeach; ?>
+                    <p>A sablon hiánya csak a plombabontási Word/PDF generálását érinti. A meghatalmazás feltöltése ettől még használható.</p>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!$pdfMergeAvailable): ?>
+                <div class="alert alert-info">
+                    <p>Az automatikus PDF-összefűzéshez hiányzik az FPDI csomag az éles tárhely vendor mappájából.</p>
+                </div>
+            <?php endif; ?>
+
+            <div class="handover-checklist">
+                <?php foreach ($sealRemovalChecklist as $item): ?>
+                    <?php $isReady = (bool) ($item['ok'] ?? false); ?>
+                    <article class="handover-check-card <?= $isReady ? 'handover-check-card-ready' : 'handover-check-card-missing'; ?>">
+                        <div>
+                            <span class="portal-kicker"><?= h((string) ($item['source'] ?? '')); ?></span>
+                            <h3><?= h((string) ($item['label'] ?? '')); ?></h3>
+                            <p><?= h((string) ($item['detail'] ?? '')); ?></p>
+                        </div>
+                        <span class="status-badge <?= $isReady ? 'status-badge-sent' : 'status-badge-failed'; ?>"><?= h((string) ($item['status'] ?? '')); ?></span>
+
+                        <?php if (($item['key'] ?? '') === 'seal_removal'): ?>
+                            <div class="handover-card-actions">
+                                <button class="button button-secondary" form="mvm-docx-form" name="action" value="generate_seal_removal_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $sealRemovalTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Word generálás</button>
+                                <button class="button" form="mvm-docx-form" name="action" value="generate_seal_removal_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $sealRemovalTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálás</button>
+                            </div>
+                        <?php elseif (($item['key'] ?? '') === 'authorization'): ?>
+                            <form class="handover-card-upload-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl . '#seal-removal-section'); ?>">
+                                <?= csrf_field(); ?>
+                                <input type="hidden" name="document_type" value="authorization">
+                                <input type="hidden" name="title" value="Meghatalmazás">
+                                <label>
+                                    <span>Meghatalmazás feltöltése</span>
+                                    <input name="mvm_documents[]" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" required>
+                                </label>
+                                <button class="button button-secondary" name="action" value="upload" type="submit">Feltöltés</button>
+                            </form>
+                        <?php endif; ?>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+
+            <?php if ($sealRemovalMissingItems !== []): ?>
+                <div class="alert alert-info">
+                    <p>A generáláshoz még hiányzik: <?= h(implode(', ', $sealRemovalMissingItems)); ?>.</p>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($sealRemovalPackageParts !== []): ?>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Sorrend</th>
+                                <th>Dokumentum</th>
+                                <th>Fájl</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($sealRemovalPackageParts as $index => $part): ?>
+                                <tr>
+                                    <td><?= $index + 1; ?>. <?= h($part['group']); ?></td>
+                                    <td><strong><?= h($part['label']); ?></strong></td>
+                                    <td><?= h($part['original_name']); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <p class="muted-text">Még nincs összefűzhető plombabontási dokumentum.</p>
+            <?php endif; ?>
+
+            <?php if ($sealRemovalPackages !== []): ?>
+                <div class="portal-card-files existing-file-panel">
+                    <h3>Elkészült plombabontás csomagok</h3>
+                    <div class="inline-link-list">
+                        <?php foreach ($sealRemovalPackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
                         <?php endforeach; ?>
                     </div>
