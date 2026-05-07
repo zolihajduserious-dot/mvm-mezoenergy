@@ -8,6 +8,7 @@ $electricianSchemaErrors = electrician_schema_errors();
 $deps = dependency_status();
 $flash = get_flash();
 $importErrors = [];
+$showArchived = (string) ($_GET['show_archived'] ?? '') === '1';
 
 if (is_post() && in_array(($_POST['action'] ?? ''), ['import_minicrm_file', 'import_minicrm_files'], true)) {
     require_valid_csrf_token();
@@ -146,6 +147,8 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_request') {
     $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
     $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
     $confirmation = trim((string) ($_POST['delete_confirmation'] ?? ''));
+    $returnToArchived = !empty($_POST['return_to_archived']);
+    $returnBase = '/admin/minicrm-import' . ($returnToArchived ? '?show_archived=1' : '');
 
     if (!can_view_super_admin_overview()) {
         set_flash('error', 'Adatlapot törölni csak szuperadmin jogosultsággal lehet.');
@@ -154,12 +157,12 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_request') {
 
     if ($requestId <= 0) {
         set_flash('error', 'Hiányzó adatlap azonosító.');
-        redirect('/admin/minicrm-import#portal-works');
+        redirect($returnBase . '#portal-works');
     }
 
     if ($confirmation !== 'TORLES') {
         set_flash('error', 'A törléshez írd be pontosan: TORLES.');
-        redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+        redirect($redirectItemId > 0 ? $returnBase . ($returnToArchived ? '&' : '?') . 'item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : $returnBase . ($returnToArchived ? '&' : '?') . 'request=' . $requestId . '#portal-work-' . $requestId);
     }
 
     try {
@@ -173,10 +176,92 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_request') {
         );
     } catch (Throwable $exception) {
         set_flash('error', APP_DEBUG ? $exception->getMessage() : 'Az adatlap törlése sikertelen.');
-        redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+        redirect($redirectItemId > 0 ? $returnBase . ($returnToArchived ? '&' : '?') . 'item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : $returnBase . ($returnToArchived ? '&' : '?') . 'request=' . $requestId . '#portal-work-' . $requestId);
     }
 
-    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import#portal-works');
+    redirect($redirectItemId > 0 ? $returnBase . '#minicrm-works' : $returnBase . '#portal-works');
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'archive_portal_work_request') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $archiveState = (string) ($_POST['archive_state'] ?? 'archive');
+    $archive = $archiveState !== 'restore';
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó adatlap azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $result = set_connection_request_archived($requestId, $archive);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az archiválás sikertelen.'));
+
+    if ($archive) {
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'archive_minicrm_work_item') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $archiveState = (string) ($_POST['archive_state'] ?? 'archive');
+    $archive = $archiveState !== 'restore';
+
+    if ($workItemId <= 0) {
+        set_flash('error', 'Hiányzó MiniCRM adatlap azonosító.');
+        redirect('/admin/minicrm-import#minicrm-works');
+    }
+
+    $result = set_minicrm_work_item_archived($workItemId, $archive);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az archiválás sikertelen.'));
+
+    if ($archive) {
+        redirect('/admin/minicrm-import#minicrm-works');
+    }
+
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'delete_minicrm_work_item') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $confirmation = trim((string) ($_POST['delete_confirmation'] ?? ''));
+    $returnToArchived = !empty($_POST['return_to_archived']);
+
+    if (!can_view_super_admin_overview()) {
+        set_flash('error', 'MiniCRM adatlapot törölni csak szuperadmin jogosultsággal lehet.');
+        redirect('/admin/minicrm-import');
+    }
+
+    if ($workItemId <= 0) {
+        set_flash('error', 'Hiányzó MiniCRM adatlap azonosító.');
+        redirect('/admin/minicrm-import#minicrm-works');
+    }
+
+    if ($confirmation !== 'TORLES') {
+        set_flash('error', 'A törléshez írd be pontosan: TORLES.');
+        redirect('/admin/minicrm-import' . ($returnToArchived ? '?show_archived=1' : '') . '#minicrm-work-' . $workItemId);
+    }
+
+    try {
+        $deleteSummary = delete_minicrm_work_item_with_related_data($workItemId);
+        set_flash(
+            'success',
+            'A MiniCRM adatlap törölve: #' . (int) $deleteSummary['work_item_id'] . ' - ' . (string) $deleteSummary['card_name']
+                . '. Törölt fájlok: ' . (int) $deleteSummary['files'] . '.'
+                . (!empty($deleteSummary['linked_request_deleted']) ? ' A kapcsolt MVM adatlap is törölve lett.' : '')
+        );
+    } catch (Throwable $exception) {
+        set_flash('error', APP_DEBUG ? $exception->getMessage() : 'A MiniCRM adatlap törlése sikertelen.');
+        redirect('/admin/minicrm-import' . ($returnToArchived ? '?show_archived=1' : '') . '#minicrm-work-' . $workItemId);
+    }
+
+    redirect('/admin/minicrm-import' . ($returnToArchived ? '?show_archived=1' : '') . '#minicrm-works');
 }
 
 if (is_post() && ($_POST['action'] ?? '') === 'assign_portal_work_electrician') {
@@ -491,11 +576,11 @@ if (is_post() && ($_POST['action'] ?? '') === 'install_minicrm_schema') {
     redirect('/admin/minicrm-import');
 }
 
-$items = $schemaErrors === [] ? minicrm_work_items(1000) : [];
-$standaloneRequests = $schemaErrors === [] ? admin_standalone_connection_request_items(1000) : [];
+$items = $schemaErrors === [] ? minicrm_work_items(1000, $showArchived) : [];
+$standaloneRequests = $schemaErrors === [] ? admin_standalone_connection_request_items(1000, $showArchived) : [];
 $electricians = $electricianSchemaErrors === [] ? electrician_users(true) : [];
 $batches = $schemaErrors === [] ? minicrm_import_batches(8) : [];
-$statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts() : [];
+$statusCounts = $schemaErrors === [] ? minicrm_work_item_status_counts($showArchived) : [];
 $customerProfilesBySource = $schemaErrors === [] ? minicrm_customer_profiles_by_source_ids(array_column($items, 'source_id')) : [];
 $customerProfilesByRequest = $schemaErrors === [] ? minicrm_customer_profiles_by_connection_request_ids(array_column($standaloneRequests, 'id')) : [];
 $quoteStatusLabels = $schemaErrors === [] ? quote_status_labels() : [];
@@ -505,8 +590,10 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
 $workflowStages = admin_workflow_stage_definitions();
 $totalItems = count($items);
 $totalUnifiedItems = $totalItems + count($standaloneRequests);
-$localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count() : 0;
-$localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total() : 0;
+$activeUnifiedItems = $schemaErrors === [] ? minicrm_work_item_count(false) + admin_standalone_connection_request_count(false) : 0;
+$archivedUnifiedItems = $schemaErrors === [] ? minicrm_work_item_count(true) + admin_standalone_connection_request_count(true) : 0;
+$localDocumentFileCount = $schemaErrors === [] ? minicrm_work_item_file_count($showArchived) : 0;
+$localDocumentSizeTotal = $schemaErrors === [] ? minicrm_work_item_file_size_total($showArchived) : 0;
 $documentZipCandidates = minicrm_document_zip_candidates();
 $itemsByStatus = [];
 $selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
@@ -1008,8 +1095,11 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
 
         <?php if ($schemaErrors === [] && $items === [] && $standaloneRequests === []): ?>
             <div class="empty-state" data-minicrm-panel="works">
-                <h2>Még nincs importált MiniCRM munka</h2>
-                <p>Tölts fel egy MiniCRM Excel exportot, és a munkák itt jelennek meg.</p>
+                <h2><?= $showArchived ? 'Nincs archivált adatlap' : 'Nincs aktív adatlap a listában'; ?></h2>
+                <p><?= $showArchived ? 'Az archivált munkák később itt lesznek visszakereshetők és visszaállíthatók.' : 'Tölts fel egy MiniCRM Excel exportot, vagy nézd meg az archívumot, ha régebbi munkát keresel.'; ?></p>
+                <?php if (!$showArchived && $archivedUnifiedItems > 0): ?>
+                    <a class="button button-secondary" href="<?= h(url_path('/admin/minicrm-import') . '?show_archived=1'); ?>">Archívum megnyitása</a>
+                <?php endif; ?>
             </div>
         <?php elseif ($items !== [] || $standaloneRequests !== []): ?>
             <div class="admin-workflow-list minicrm-workspace" id="minicrm-works" data-minicrm-panel="works">
@@ -1017,16 +1107,22 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                     <div class="admin-workflow-stage-head minicrm-workspace-head">
                         <div>
                             <span class="portal-kicker">Munkák</span>
-                            <h2>MiniCRM munkaállomány</h2>
-                            <p>Státuszonként csoportosított, kompakt lista kereséssel és munkán belüli idővonallal.</p>
+                            <h2><?= $showArchived ? 'Archív munkaállomány' : 'MiniCRM munkaállomány'; ?></h2>
+                            <p><?= $showArchived ? 'Archivált, visszaállítható adatlapok. Ezek nem jelennek meg az aktív napi listában.' : 'Státuszonként csoportosított, kompakt lista kereséssel és munkán belüli idővonallal.'; ?></p>
                         </div>
-                        <strong><?= $totalUnifiedItems; ?> db</strong>
+                        <div class="minicrm-archive-switch">
+                            <strong><?= $totalUnifiedItems; ?> db</strong>
+                            <a class="button button-secondary" href="<?= h(url_path('/admin/minicrm-import') . ($showArchived ? '' : '?show_archived=1')); ?>">
+                                <?= $showArchived ? 'Aktív munkák' : 'Archívum'; ?>
+                            </a>
+                        </div>
                     </div>
 
                     <div class="minicrm-list-tools">
                         <label for="minicrm_search">Keresés a munkák között</label>
                         <input id="minicrm_search" type="search" placeholder="Név, azonosító, cím, felelős, státusz vagy mezőérték" data-minicrm-search>
                         <span data-minicrm-count><?= $totalUnifiedItems; ?> db</span>
+                        <span class="minicrm-archive-counts">Aktív: <?= $activeUnifiedItems; ?> · Archív: <?= $archivedUnifiedItems; ?></span>
                     </div>
 
                     <nav class="minicrm-status-nav" aria-label="MiniCRM státuszok">
@@ -1086,6 +1182,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         <span>Felelős</span>
                                         <span>Dátum</span>
                                         <span>Anyag</span>
+                                        <span>Művelet</span>
                                     </div>
                                     <?php foreach ($statusItems as $item): ?>
                             <?php
@@ -1160,6 +1257,25 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                     <span class="admin-workflow-request-badges">
                                         <strong><?= $isSelectedItem ? count($localFiles) . ' fájl' : 'Adatlap'; ?></strong>
                                         <small><?= $isSelectedItem ? count($rawFields) . ' mező · ' . count($documentLinks) . ' link' : $documentLinkCount . ' link'; ?></small>
+                                    </span>
+                                    <span class="minicrm-row-actions" onclick="event.stopPropagation();">
+                                        <form method="post" action="<?= h(url_path('/admin/minicrm-import') . '#minicrm-works'); ?>" onsubmit="event.stopPropagation(); return confirm('Biztosan <?= $showArchived ? 'visszaállítod az archívumból' : 'archiválod'; ?> ezt az adatlapot?');">
+                                            <?= csrf_field(); ?>
+                                            <input type="hidden" name="action" value="archive_minicrm_work_item">
+                                            <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                            <input type="hidden" name="archive_state" value="<?= $showArchived ? 'restore' : 'archive'; ?>">
+                                            <button class="table-action-button" type="submit"><?= $showArchived ? 'Visszaállítás' : 'Archiválás'; ?></button>
+                                        </form>
+                                        <?php if (can_view_super_admin_overview()): ?>
+                                            <form method="post" action="<?= h(url_path('/admin/minicrm-import') . ($showArchived ? '?show_archived=1' : '') . '#minicrm-works'); ?>" onsubmit="event.stopPropagation(); return confirm('Biztosan végleg törlöd ezt a MiniCRM adatlapot?') && confirm('A törlés a kapcsolódó fájlokat és MVM adatlapot is törli. Folytatod?');">
+                                                <?= csrf_field(); ?>
+                                                <input type="hidden" name="action" value="delete_minicrm_work_item">
+                                                <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                <input type="hidden" name="delete_confirmation" value="TORLES">
+                                                <input type="hidden" name="return_to_archived" value="<?= $showArchived ? '1' : '0'; ?>">
+                                                <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                            </form>
+                                        <?php endif; ?>
                                     </span>
                                 </summary>
 
@@ -1295,6 +1411,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <input type="hidden" name="action" value="delete_portal_work_request">
                                                         <input type="hidden" name="request_id" value="<?= (int) $linkedMvmRequest['id']; ?>">
                                                         <input type="hidden" name="redirect_item_id" value="<?= $itemId; ?>">
+                                                        <input type="hidden" name="return_to_archived" value="<?= $showArchived ? '1' : '0'; ?>">
                                                         <label for="delete_confirmation_minicrm_<?= $itemId; ?>">Megerősítés: TORLES</label>
                                                         <input id="delete_confirmation_minicrm_<?= $itemId; ?>" name="delete_confirmation" placeholder="TORLES" autocomplete="off" required>
                                                         <button class="table-action-button table-action-danger" type="submit">Adatlap törlése</button>
@@ -1649,6 +1766,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         <span>Szerel&#337;</span>
                                         <span>D&#225;tum</span>
                                         <span>Állapot</span>
+                                        <span>Művelet</span>
                                     </div>
                                     <?php foreach ($requestItems as $request): ?>
                                         <?php
@@ -1708,6 +1826,25 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                 <span class="admin-workflow-request-badges">
                                                     <strong><?= h($requestWorkflowLabel); ?></strong>
                                                     <small><?= h(($requestStatusLabels[$requestStatus] ?? $requestStatus) . ' / ' . ($electricianStatusLabels[$electricianStatus] ?? $electricianStatus)); ?></small>
+                                                </span>
+                                                <span class="minicrm-row-actions" onclick="event.stopPropagation();">
+                                                    <form method="post" action="<?= h(url_path('/admin/minicrm-import') . '#portal-works'); ?>" onsubmit="event.stopPropagation(); return confirm('Biztosan <?= $showArchived ? 'visszaállítod az archívumból' : 'archiválod'; ?> ezt az adatlapot?');">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="archive_portal_work_request">
+                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                        <input type="hidden" name="archive_state" value="<?= $showArchived ? 'restore' : 'archive'; ?>">
+                                                        <button class="table-action-button" type="submit"><?= $showArchived ? 'Visszaállítás' : 'Archiválás'; ?></button>
+                                                    </form>
+                                                    <?php if (can_view_super_admin_overview()): ?>
+                                                        <form method="post" action="<?= h(url_path('/admin/minicrm-import') . ($showArchived ? '?show_archived=1' : '') . '#portal-works'); ?>" onsubmit="event.stopPropagation(); return confirm('Biztosan végleg törlöd ezt az adatlapot?') && confirm('A törlés a képeket, dokumentumokat, ajánlatokat és email szálakat is törli. Folytatod?');">
+                                                            <?= csrf_field(); ?>
+                                                            <input type="hidden" name="action" value="delete_portal_work_request">
+                                                            <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                            <input type="hidden" name="delete_confirmation" value="TORLES">
+                                                            <input type="hidden" name="return_to_archived" value="<?= $showArchived ? '1' : '0'; ?>">
+                                                            <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                                        </form>
+                                                    <?php endif; ?>
                                                 </span>
                                             </summary>
 
@@ -1824,6 +1961,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                         <?= csrf_field(); ?>
                                                                         <input type="hidden" name="action" value="delete_portal_work_request">
                                                                         <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                        <input type="hidden" name="return_to_archived" value="<?= $showArchived ? '1' : '0'; ?>">
                                                                         <label for="delete_confirmation_request_<?= $requestId; ?>">Megerősítés: TORLES</label>
                                                                         <input id="delete_confirmation_request_<?= $requestId; ?>" name="delete_confirmation" placeholder="TORLES" autocomplete="off" required>
                                                                         <button class="table-action-button table-action-danger" type="submit">Adatlap törlése</button>

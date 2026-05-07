@@ -3891,7 +3891,7 @@ a.metric-card {
 .minicrm-work-table-head,
 .minicrm-work-row-summary {
     display: grid;
-    grid-template-columns: minmax(260px, 1.6fr) minmax(150px, 0.68fr) minmax(135px, 0.5fr) minmax(130px, 0.48fr);
+    grid-template-columns: minmax(260px, 1.45fr) minmax(150px, 0.62fr) minmax(125px, 0.42fr) minmax(130px, 0.42fr) minmax(150px, 0.4fr);
     align-items: center;
     gap: 12px;
 }
@@ -4278,6 +4278,37 @@ a.metric-card {
 .minicrm-bulk-fix-panel small {
     color: var(--color-muted);
     font-weight: 700;
+}
+
+.minicrm-archive-switch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.minicrm-archive-counts {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 850;
+}
+
+.minicrm-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+}
+
+.minicrm-row-actions form {
+    margin: 0;
+}
+
+.minicrm-row-actions .table-action-button {
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 0.78rem;
 }
 
 .minicrm-document-preview-panel .admin-request-doc-grid {
@@ -5395,14 +5426,14 @@ a.metric-card {
 }
 
 .minicrm-work-row > .minicrm-work-row-summary {
-    grid-template-columns: minmax(420px, 1.55fr) minmax(220px, 0.72fr) minmax(150px, 0.42fr) minmax(190px, 0.48fr);
+    grid-template-columns: minmax(360px, 1.42fr) minmax(200px, 0.62fr) minmax(130px, 0.36fr) minmax(170px, 0.42fr) minmax(150px, 0.36fr);
     gap: 18px;
     align-items: center;
     padding: 14px 22px;
 }
 
 .minicrm-work-table-head {
-    grid-template-columns: minmax(420px, 1.55fr) minmax(220px, 0.72fr) minmax(150px, 0.42fr) minmax(190px, 0.48fr);
+    grid-template-columns: minmax(360px, 1.42fr) minmax(200px, 0.62fr) minmax(130px, 0.36fr) minmax(170px, 0.42fr) minmax(150px, 0.36fr);
     padding-right: 22px;
     padding-left: 22px;
 }
@@ -6207,6 +6238,17 @@ a.metric-card {
     .minicrm-work-row-summary {
         gap: 7px;
         padding: 12px;
+    }
+
+    .minicrm-archive-switch,
+    .minicrm-row-actions {
+        justify-content: flex-start;
+    }
+
+    .minicrm-row-actions,
+    .minicrm-row-actions form,
+    .minicrm-row-actions .table-action-button {
+        width: 100%;
     }
 
     .portal-work-row .admin-workflow-request-main strong,

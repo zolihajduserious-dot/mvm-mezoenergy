@@ -52,12 +52,15 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    `archived_at` DATETIME DEFAULT NULL,
+    `archived_by_user_id` INT UNSIGNED NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `ux_minicrm_work_items_source_id` (`source_id`),
     KEY `idx_minicrm_work_items_status` (`minicrm_status`),
     KEY `idx_minicrm_work_items_responsible` (`responsible`),
     KEY `idx_minicrm_work_items_batch_id` (`batch_id`),
-    KEY `idx_minicrm_work_items_submitted_date` (`submitted_date`)
+    KEY `idx_minicrm_work_items_submitted_date` (`submitted_date`),
+    KEY `idx_minicrm_work_items_archived` (`archived_at`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;

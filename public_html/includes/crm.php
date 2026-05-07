@@ -1514,6 +1514,108 @@ function delete_connection_request_with_related_data(int $requestId): array
     ];
 }
 
+function work_archive_schema_errors(): array
+{
+    $errors = [];
+    $tables = [
+        'minicrm_work_items' => 'MiniCRM munkák',
+        'connection_requests' => 'portálos adatlapok',
+    ];
+
+    foreach ($tables as $table => $label) {
+        if (!db_table_exists($table)) {
+            continue;
+        }
+
+        $columns = [
+            'archived_at' => 'ALTER TABLE `' . $table . '` ADD COLUMN `archived_at` DATETIME DEFAULT NULL AFTER `updated_at`',
+            'archived_by_user_id' => 'ALTER TABLE `' . $table . '` ADD COLUMN `archived_by_user_id` INT UNSIGNED NULL AFTER `archived_at`',
+        ];
+
+        try {
+            foreach ($columns as $column => $sql) {
+                if (!db_column_exists($table, $column)) {
+                    db_query($sql);
+                }
+            }
+        } catch (Throwable $exception) {
+            $errors[] = APP_DEBUG
+                ? 'Az archiválási mezők létrehozása sikertelen (' . $label . '): ' . $exception->getMessage()
+                : 'Az archiválási adatbázis frissítés szükséges: ' . $label . '.';
+
+            continue;
+        }
+
+        try {
+            $indexName = $table === 'minicrm_work_items'
+                ? 'idx_minicrm_work_items_archived'
+                : 'idx_connection_requests_archived';
+            $indexExists = (bool) db_query(
+                'SELECT 1 FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+                [DB_NAME, $table, $indexName]
+            )->fetchColumn();
+
+            if (!$indexExists && db_column_exists($table, 'archived_at')) {
+                db_query('ALTER TABLE `' . $table . '` ADD KEY `' . $indexName . '` (`archived_at`)');
+            }
+        } catch (Throwable) {
+            // The columns are enough for correct behavior; the index only keeps large lists fast.
+        }
+    }
+
+    return $errors;
+}
+
+function connection_request_archive_columns_ready(): bool
+{
+    return db_table_exists('connection_requests')
+        && db_column_exists('connection_requests', 'archived_at')
+        && db_column_exists('connection_requests', 'archived_by_user_id');
+}
+
+function set_connection_request_archived(int $requestId, bool $archive): array
+{
+    if (!connection_request_archive_columns_ready()) {
+        return ['ok' => false, 'message' => 'Hiányoznak az adatlap archiválási mezői. Futtasd az adatbázis frissítést.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $user = current_user();
+    $userId = is_array($user) ? (int) ($user['id'] ?? 0) : 0;
+
+    if ($archive) {
+        db_query(
+            'UPDATE `connection_requests` SET `archived_at` = NOW(), `archived_by_user_id` = ? WHERE `id` = ?',
+            [$userId > 0 ? $userId : null, $requestId]
+        );
+    } else {
+        db_query(
+            'UPDATE `connection_requests` SET `archived_at` = NULL, `archived_by_user_id` = NULL WHERE `id` = ?',
+            [$requestId]
+        );
+    }
+
+    record_connection_request_activity(
+        $requestId,
+        'workflow',
+        $archive ? 'Adatlap archiválva' : 'Adatlap visszaállítva az archívumból',
+        $archive
+            ? 'Az adatlap lekerült az aktív munkalistáról.'
+            : 'Az adatlap újra megjelenik az aktív munkalistában.'
+    );
+
+    return [
+        'ok' => true,
+        'message' => $archive ? 'Az adatlap archiválva lett.' : 'Az adatlap visszaállítva az archívumból.',
+    ];
+}
+
 function actor_role_display_label(?string $role): string
 {
     $role = trim((string) $role);
@@ -5860,7 +5962,44 @@ function all_connection_requests(): array
     )->fetchAll();
 }
 
-function admin_standalone_connection_request_items(int $limit = 500): array
+function admin_standalone_connection_request_where(bool $archivedOnly, bool $hasMinicrmLinks): string
+{
+    $conditions = [];
+
+    if ($hasMinicrmLinks) {
+        $conditions[] = 'l.id IS NULL';
+    }
+
+    if (connection_request_archive_columns_ready()) {
+        $conditions[] = 'cr.`archived_at` IS ' . ($archivedOnly ? 'NOT NULL' : 'NULL');
+    } elseif ($archivedOnly) {
+        $conditions[] = '1 = 0';
+    }
+
+    return $conditions === [] ? '' : ' WHERE ' . implode(' AND ', $conditions);
+}
+
+function admin_standalone_connection_request_count(bool $archivedOnly = false): int
+{
+    if (!db_table_exists('connection_requests') || !db_table_exists('customers')) {
+        return 0;
+    }
+
+    $hasMinicrmLinks = minicrm_connection_request_link_schema_errors() === [];
+    $minicrmJoin = $hasMinicrmLinks
+        ? ' LEFT JOIN `minicrm_connection_request_links` l ON l.connection_request_id = cr.id'
+        : '';
+
+    return (int) db_query(
+        'SELECT COUNT(*)
+         FROM `connection_requests` cr
+         INNER JOIN `customers` c ON c.id = cr.customer_id'
+         . $minicrmJoin
+         . admin_standalone_connection_request_where($archivedOnly, $hasMinicrmLinks)
+    )->fetchColumn();
+}
+
+function admin_standalone_connection_request_items(int $limit = 500, bool $archivedOnly = false): array
 {
     if (!db_table_exists('connection_requests') || !db_table_exists('customers')) {
         return [];
@@ -5884,7 +6023,7 @@ function admin_standalone_connection_request_items(int $limit = 500): array
     $minicrmJoin = $hasMinicrmLinks
         ? ' LEFT JOIN `minicrm_connection_request_links` l ON l.connection_request_id = cr.id'
         : '';
-    $where = $hasMinicrmLinks ? ' WHERE l.id IS NULL' : '';
+    $where = admin_standalone_connection_request_where($archivedOnly, $hasMinicrmLinks);
 
     return db_query(
         'SELECT cr.*, c.requester_name, c.birth_name, c.company_name, c.tax_number, c.is_legal_entity,
@@ -13628,7 +13767,7 @@ function minicrm_import_schema_errors(): array
         }
     }
 
-    return $errors;
+    return array_merge($errors, work_archive_schema_errors());
 }
 
 function minicrm_import_document_column_map(): array
@@ -14687,12 +14826,15 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    `archived_at` DATETIME DEFAULT NULL,
+    `archived_by_user_id` INT UNSIGNED NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `ux_minicrm_work_items_source_id` (`source_id`),
     KEY `idx_minicrm_work_items_status` (`minicrm_status`),
     KEY `idx_minicrm_work_items_responsible` (`responsible`),
     KEY `idx_minicrm_work_items_batch_id` (`batch_id`),
-    KEY `idx_minicrm_work_items_submitted_date` (`submitted_date`)
+    KEY `idx_minicrm_work_items_submitted_date` (`submitted_date`),
+    KEY `idx_minicrm_work_items_archived` (`archived_at`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
@@ -15769,7 +15911,23 @@ function minicrm_import_batches(int $limit = 10): array
     )->fetchAll();
 }
 
-function minicrm_work_items(int $limit = 500): array
+function minicrm_work_item_archive_columns_ready(): bool
+{
+    return db_table_exists('minicrm_work_items')
+        && db_column_exists('minicrm_work_items', 'archived_at')
+        && db_column_exists('minicrm_work_items', 'archived_by_user_id');
+}
+
+function minicrm_work_item_archive_where(bool $archivedOnly): string
+{
+    if (!minicrm_work_item_archive_columns_ready()) {
+        return $archivedOnly ? ' WHERE 1 = 0' : '';
+    }
+
+    return $archivedOnly ? ' WHERE `archived_at` IS NOT NULL' : ' WHERE `archived_at` IS NULL';
+}
+
+function minicrm_work_items(int $limit = 500, bool $archivedOnly = false): array
 {
     if (!db_table_exists('minicrm_work_items')) {
         return [];
@@ -15778,6 +15936,7 @@ function minicrm_work_items(int $limit = 500): array
     return db_query(
         'SELECT *
          FROM `minicrm_work_items`
+         ' . minicrm_work_item_archive_where($archivedOnly) . '
          ORDER BY COALESCE(`updated_at`, `created_at`) DESC, `id` DESC
          LIMIT ' . max(1, min(1000, $limit))
     )->fetchAll();
@@ -15851,6 +16010,94 @@ function minicrm_work_item_connection_request_id(int $workItemId): ?int
     $request = find_connection_request((int) $link['connection_request_id']);
 
     return $request !== null ? (int) $request['id'] : null;
+}
+
+function set_minicrm_work_item_archived(int $workItemId, bool $archive): array
+{
+    if (!minicrm_work_item_archive_columns_ready()) {
+        return ['ok' => false, 'message' => 'Hiányoznak a MiniCRM archiválási mezői. Futtasd az adatbázis frissítést.'];
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM adatlap nem található.'];
+    }
+
+    $user = current_user();
+    $userId = is_array($user) ? (int) ($user['id'] ?? 0) : 0;
+
+    if ($archive) {
+        db_query(
+            'UPDATE `minicrm_work_items` SET `archived_at` = NOW(), `archived_by_user_id` = ? WHERE `id` = ?',
+            [$userId > 0 ? $userId : null, $workItemId]
+        );
+    } else {
+        db_query(
+            'UPDATE `minicrm_work_items` SET `archived_at` = NULL, `archived_by_user_id` = NULL WHERE `id` = ?',
+            [$workItemId]
+        );
+    }
+
+    $linkedRequestId = minicrm_work_item_connection_request_id($workItemId);
+
+    if ($linkedRequestId !== null && connection_request_archive_columns_ready()) {
+        set_connection_request_archived($linkedRequestId, $archive);
+    }
+
+    return [
+        'ok' => true,
+        'message' => $archive ? 'A MiniCRM adatlap archiválva lett.' : 'A MiniCRM adatlap visszaállítva az archívumból.',
+    ];
+}
+
+function delete_minicrm_work_item_with_related_data(int $workItemId, bool $deleteLinkedRequest = true): array
+{
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        throw new RuntimeException('A MiniCRM adatlap nem található.');
+    }
+
+    $filePaths = db_table_exists('minicrm_work_item_files')
+        ? collect_string_column('SELECT `storage_path` FROM `minicrm_work_item_files` WHERE `work_item_id` = ?', [$workItemId])
+        : [];
+    $linkedRequestId = $deleteLinkedRequest ? minicrm_work_item_connection_request_id($workItemId) : null;
+    $linkedDeleteSummary = null;
+
+    if ($linkedRequestId !== null) {
+        $linkedDeleteSummary = delete_connection_request_with_related_data($linkedRequestId);
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        if (db_table_exists('minicrm_work_item_files')) {
+            db_query('DELETE FROM `minicrm_work_item_files` WHERE `work_item_id` = ?', [$workItemId]);
+        }
+
+        if (db_table_exists('minicrm_connection_request_links')) {
+            db_query('DELETE FROM `minicrm_connection_request_links` WHERE `work_item_id` = ?', [$workItemId]);
+        }
+
+        db_query('DELETE FROM `minicrm_work_items` WHERE `id` = ?', [$workItemId]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+
+    return [
+        'work_item_id' => $workItemId,
+        'card_name' => (string) ($item['card_name'] ?? ('MiniCRM #' . $workItemId)),
+        'files' => delete_storage_files($filePaths) + (int) ($linkedDeleteSummary['files'] ?? 0),
+        'linked_request_id' => $linkedRequestId,
+        'linked_request_deleted' => $linkedDeleteSummary !== null,
+    ];
 }
 
 function minicrm_work_item_raw_value_by_patterns(array $item, array $patterns): string
@@ -16732,13 +16979,13 @@ function ensure_minicrm_work_item_connection_request(int $workItemId): array
     ];
 }
 
-function minicrm_work_item_count(): int
+function minicrm_work_item_count(bool $archivedOnly = false): int
 {
     if (!db_table_exists('minicrm_work_items')) {
         return 0;
     }
 
-    return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn();
+    return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`' . minicrm_work_item_archive_where($archivedOnly))->fetchColumn();
 }
 
 function minicrm_customer_profiles_for_customer(int $customerId): array
@@ -17034,25 +17281,51 @@ function minicrm_customer_profile_display_value(array $profile, string $column, 
     return minicrm_customer_profile_raw_value_by_labels($profile, $labels);
 }
 
-function minicrm_work_item_file_count(): int
+function minicrm_work_item_file_count(bool $archivedOnly = false): int
 {
     if (!db_table_exists('minicrm_work_item_files')) {
+        return 0;
+    }
+
+    if (minicrm_work_item_archive_columns_ready()) {
+        return (int) db_query(
+            'SELECT COUNT(*)
+             FROM `minicrm_work_item_files` f
+             INNER JOIN `minicrm_work_items` w ON w.id = f.work_item_id
+             WHERE w.`archived_at` IS ' . ($archivedOnly ? 'NOT NULL' : 'NULL')
+        )->fetchColumn();
+    }
+
+    if ($archivedOnly) {
         return 0;
     }
 
     return (int) db_query('SELECT COUNT(*) FROM `minicrm_work_item_files`')->fetchColumn();
 }
 
-function minicrm_work_item_file_size_total(): int
+function minicrm_work_item_file_size_total(bool $archivedOnly = false): int
 {
     if (!db_table_exists('minicrm_work_item_files')) {
+        return 0;
+    }
+
+    if (minicrm_work_item_archive_columns_ready()) {
+        return (int) db_query(
+            'SELECT COALESCE(SUM(f.`file_size`), 0)
+             FROM `minicrm_work_item_files` f
+             INNER JOIN `minicrm_work_items` w ON w.id = f.work_item_id
+             WHERE w.`archived_at` IS ' . ($archivedOnly ? 'NOT NULL' : 'NULL')
+        )->fetchColumn();
+    }
+
+    if ($archivedOnly) {
         return 0;
     }
 
     return (int) db_query('SELECT COALESCE(SUM(`file_size`), 0) FROM `minicrm_work_item_files`')->fetchColumn();
 }
 
-function minicrm_work_item_status_counts(): array
+function minicrm_work_item_status_counts(bool $archivedOnly = false): array
 {
     if (!db_table_exists('minicrm_work_items')) {
         return [];
@@ -17061,6 +17334,7 @@ function minicrm_work_item_status_counts(): array
     $rows = db_query(
         'SELECT COALESCE(NULLIF(`minicrm_status`, \'\'), \'Nincs státusz\') AS status_name, COUNT(*) AS item_count
          FROM `minicrm_work_items`
+         ' . minicrm_work_item_archive_where($archivedOnly) . '
          GROUP BY COALESCE(NULLIF(`minicrm_status`, \'\'), \'Nincs státusz\')
          ORDER BY item_count DESC, status_name ASC'
     )->fetchAll();
