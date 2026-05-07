@@ -31,10 +31,12 @@ if ($request !== null && !connection_request_is_editable($request)) {
 $errors = [];
 $uploadMessages = [];
 $flash = get_flash();
+$customerForm = normalize_customer_data($customer);
 $form = normalize_connection_request_data($request ?? [], $customer);
 $existingFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
+$requestAlreadyFinalized = $request !== null && (string) ($request['request_status'] ?? '') === 'finalized';
 
 if (is_post()) {
     require_valid_csrf_token();
@@ -48,9 +50,17 @@ if (is_post()) {
     }
 
     $action = (string) ($_POST['action'] ?? 'save');
-    $finalize = $action === 'finalize';
-    $form = normalize_connection_request_data($_POST, $customer);
-    $errors = validate_connection_request_data($form, $_FILES, $finalize, $requestId ?: null);
+    $finalize = $action === 'finalize' && !$requestAlreadyFinalized;
+    $customerForm = normalize_customer_data(array_merge($customer, $_POST));
+    $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : (string) ($customer['source'] ?? 'Ügyfélportál');
+    $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : (string) ($customer['status'] ?? 'Mérőhelyi igény');
+    $customerForm['contact_data_accepted'] = (int) ($customer['contact_data_accepted'] ?? 0);
+    $customerForm['notes'] = (string) ($customer['notes'] ?? '');
+    $form = normalize_connection_request_data($_POST, $customerForm);
+    $errors = array_merge(
+        validate_customer_data($customerForm, false),
+        validate_connection_request_data($form, $_FILES, $finalize, $requestId ?: null)
+    );
 
     if ($finalize) {
         foreach ([
@@ -59,7 +69,7 @@ if (is_post()) {
             'birth_place' => 'Születési hely',
             'birth_date' => 'Születési idő',
         ] as $key => $label) {
-            if (trim((string) ($customer[$key] ?? '')) === '') {
+            if (trim((string) ($customerForm[$key] ?? '')) === '') {
                 $errors[] = $label . ' hiányzik az ügyféladatlapról. Előbb pótold az Adataim oldalon.';
             }
         }
@@ -68,6 +78,8 @@ if (is_post()) {
     if ($errors === []) {
         try {
             $wasNewRequest = !$requestId;
+            update_customer((int) $customer['id'], $customerForm);
+            $customer = find_customer((int) $customer['id']) ?: $customer;
             $savedRequestId = save_connection_request((int) $customer['id'], $form, $requestId ?: null);
             $requestId = $savedRequestId;
             $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, !$finalize);
@@ -101,7 +113,7 @@ if (is_post()) {
                         null,
                         'Ügyfél igény mentés'
                     );
-                    set_flash('success', 'Az igényt mentettük. Később folytathatod, amíg le nem zárod.');
+                    set_flash('success', $requestAlreadyFinalized ? 'A módosításokat mentettük.' : 'Az igényt mentettük. Később folytathatod, amíg le nem zárod.');
                     redirect('/customer/work-request?id=' . $savedRequestId);
                 }
             }
@@ -120,7 +132,7 @@ if (is_post()) {
             <div>
                 <p class="eyebrow">Ügyfélportál</p>
                 <h1><?= $requestId ? 'Igény módosítása' : 'Új igény rögzítése'; ?></h1>
-                <p>Az igényt bármikor mentheted és folytathatod. A lezárás után már nem módosítható, és végleges igénybejelentésként értesítjük az admint.</p>
+                <p>Az igényt addig módosíthatod, amíg az MVM ügyintézés Folyamatban státuszba nem kerül. A beküldött módosításokról értesítjük az admint.</p>
             </div>
             <div class="form-actions">
                 <a class="button button-secondary" href="<?= h(url_path('/customer/work-requests')); ?>">Igényeim</a>
@@ -172,7 +184,22 @@ if (is_post()) {
             <div class="form-grid two">
                 <section class="auth-panel">
                     <h2>Saját adatok</h2>
-                    <div class="status-list">
+                    <input type="hidden" name="is_legal_entity" value="0">
+                    <label class="checkbox-row"><input type="checkbox" name="is_legal_entity" value="1" <?= (int) $customerForm['is_legal_entity'] === 1 ? 'checked' : ''; ?>><span>Jogi személy</span></label>
+                    <label>Név</label><input name="requester_name" value="<?= h($customerForm['requester_name']); ?>" required>
+                    <label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>">
+                    <label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>">
+                    <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
+                    <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
+                    <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
+                    <label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
+                    <label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required>
+                    <label>Levelezési cím</label><input name="mailing_address" value="<?= h($customerForm['mailing_address']); ?>">
+                    <label>Születési név</label><input name="birth_name" value="<?= h($customerForm['birth_name']); ?>">
+                    <label>Anyja neve</label><input name="mother_name" value="<?= h($customerForm['mother_name']); ?>">
+                    <label>Születési hely</label><input name="birth_place" value="<?= h($customerForm['birth_place']); ?>">
+                    <label>Születési idő</label><input name="birth_date" type="date" value="<?= h($customerForm['birth_date']); ?>">
+                    <div class="status-list" hidden>
                         <li><span class="status-label">Név</span><span class="status-value"><?= h($customer['requester_name']); ?></span></li>
                         <li><span class="status-label">Születési név</span><span class="status-value"><?= h($customer['birth_name'] ?? '-'); ?></span></li>
                         <li><span class="status-label">Telefon</span><span class="status-value"><?= h($customer['phone']); ?></span></li>
@@ -247,8 +274,12 @@ if (is_post()) {
             </section>
 
             <div class="form-actions">
-                <button class="button button-secondary" name="action" value="save" type="submit" formnovalidate>Mentés piszkozatként</button>
-                <button class="button" name="action" value="finalize" type="submit">Lezárom és beküldöm</button>
+                <?php if ($requestAlreadyFinalized): ?>
+                    <button class="button" name="action" value="save" type="submit" formnovalidate>Módosítás mentése</button>
+                <?php else: ?>
+                    <button class="button button-secondary" name="action" value="save" type="submit" formnovalidate>Mentés piszkozatként</button>
+                    <button class="button" name="action" value="finalize" type="submit">Lezárom és beküldöm</button>
+                <?php endif; ?>
             </div>
         </form>
     </div>

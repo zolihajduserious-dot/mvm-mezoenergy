@@ -42,6 +42,7 @@ $quoteForm = [
     'customer_message' => '',
 ];
 $quoteSurveyForm = normalize_survey_data([]);
+$customer = null;
 
 if ($request !== null) {
     $customer = find_customer((int) $request['customer_id']);
@@ -50,6 +51,13 @@ if ($request !== null) {
     $quoteForm['subject'] = APP_NAME . ' árajánlat' . (!empty($request['project_name']) ? ' - ' . (string) $request['project_name'] : '');
     $quoteSurveyForm = normalize_survey_data(connection_request_quote_survey_seed($request));
 }
+
+$acceptedQuote = $request !== null ? accepted_quote_for_connection_request((int) $request['id']) : null;
+$latestQuote = $request !== null ? latest_quote_for_connection_request((int) $request['id']) : null;
+$requestDocuments = $request !== null ? connection_request_documents((int) $request['id']) : [];
+$initialDataEditable = $request !== null
+    ? connection_request_initial_data_is_editable($request, $latestQuote, $acceptedQuote, $requestDocuments)
+    : true;
 
 foreach ($priceItems as $item) {
     $category = quote_effective_category((string) $item['category'], (string) $item['name']);
@@ -159,6 +167,41 @@ if (is_post() && $schemaErrors === []) {
         $result = sync_mvm_mailbox_replies();
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A válaszok frissítése sikertelen.'));
         redirect('/electrician/work-request?id=' . (int) $request['id'] . '#electrician-communication');
+    }
+
+    if ($request !== null && $action === 'save_initial_data') {
+        if (!$initialDataEditable) {
+            $errors[] = 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók.';
+        }
+
+        $customerForm = normalize_customer_data(array_merge($customer ?? [], $_POST));
+        $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : (string) (($customer['source'] ?? '') ?: 'Szerelői felmérés');
+        $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : (string) (($customer['status'] ?? '') ?: 'Szerelői felmérés');
+        $customerForm['contact_data_accepted'] = (int) (($customer['contact_data_accepted'] ?? 0) ?: 1);
+        $customerForm['notes'] = (string) ($customer['notes'] ?? '');
+        $workForm = normalize_connection_request_data($_POST, $customerForm);
+        $errors = array_merge(
+            $errors,
+            validate_customer_data($customerForm, false),
+            validate_connection_request_data($workForm, $_FILES, false, (int) $request['id'])
+        );
+
+        if ($errors === []) {
+            try {
+                update_customer((int) $request['customer_id'], $customerForm);
+                save_connection_request((int) $request['customer_id'], $workForm, (int) $request['id'], (int) $user['id'], true);
+                record_connection_request_activity(
+                    (int) $request['id'],
+                    'request_update',
+                    'Szerelő adatlapot módosított',
+                    'A szerelő az ügyfél vagy a munka alapadatait javította.'
+                );
+                set_flash('success', 'Az adatlap alapadatai mentve lettek.');
+                redirect('/electrician/work-request?id=' . (int) $request['id']);
+            } catch (Throwable $exception) {
+                $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az adatlap mentése sikertelen.';
+            }
+        }
     }
 
     if ($action === 'create_survey') {
@@ -816,6 +859,54 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                     </div>
                     <strong><?= h((string) $quoteState['amount']); ?></strong>
                 </div>
+
+                <?php if ($initialDataEditable): ?>
+                    <section class="admin-request-panel admin-request-panel-wide">
+                        <div class="admin-request-section-title">
+                            <h3>Adatlap alapadatok javítása</h3>
+                            <span>Folyamatban előtt</span>
+                        </div>
+                        <form class="form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="save_initial_data">
+                            <div class="form-grid two compact">
+                                <div><input type="hidden" name="is_legal_entity" value="0"><label class="checkbox-row"><input type="checkbox" name="is_legal_entity" value="1" <?= (int) $customerForm['is_legal_entity'] === 1 ? 'checked' : ''; ?>><span>Jogi személy</span></label></div>
+                                <div><label>Név</label><input name="requester_name" value="<?= h($customerForm['requester_name']); ?>" required></div>
+                                <div><label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>"></div>
+                                <div><label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>"></div>
+                                <div><label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required></div>
+                                <div><label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required></div>
+                                <div><label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required></div>
+                                <div><label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required></div>
+                                <div><label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required></div>
+                                <div><label>Levelezési cím</label><input name="mailing_address" value="<?= h($customerForm['mailing_address']); ?>"></div>
+                                <div><label>Születési név</label><input name="birth_name" value="<?= h($customerForm['birth_name']); ?>"></div>
+                                <div><label>Anyja neve</label><input name="mother_name" value="<?= h($customerForm['mother_name']); ?>"></div>
+                                <div><label>Születési hely</label><input name="birth_place" value="<?= h($customerForm['birth_place']); ?>"></div>
+                                <div><label>Születési idő</label><input name="birth_date" type="date" value="<?= h($customerForm['birth_date']); ?>"></div>
+                                <div><label>Igénytípus</label><select name="request_type" required><?php foreach ($requestTypeOptions as $typeKey => $typeLabel): ?><option value="<?= h($typeKey); ?>" <?= $workForm['request_type'] === $typeKey ? 'selected' : ''; ?>><?= h($typeLabel); ?></option><?php endforeach; ?></select></div>
+                                <div><label>Igény megnevezése</label><input name="project_name" value="<?= h($workForm['project_name']); ?>"></div>
+                                <div><label>Kivitelezés irányítószáma</label><input name="site_postal_code" value="<?= h($workForm['site_postal_code']); ?>"></div>
+                                <div><label>Kivitelezés címe</label><input name="site_address" value="<?= h($workForm['site_address']); ?>"></div>
+                                <div><label>HRSZ</label><input name="hrsz" value="<?= h($workForm['hrsz']); ?>"></div>
+                                <div><label>Mérő gyári száma</label><input name="meter_serial" value="<?= h($workForm['meter_serial']); ?>"></div>
+                                <div><label>Fogyasztási hely azonosító</label><input name="consumption_place_id" value="<?= h($workForm['consumption_place_id']); ?>"></div>
+                                <div><label>Meglévő teljesítmény</label><input name="existing_general_power" value="<?= h($workForm['existing_general_power']); ?>"></div>
+                                <div><label>Igényelt teljesítmény</label><input name="requested_general_power" value="<?= h($workForm['requested_general_power']); ?>"></div>
+                                <div><label>Meglévő H tarifa</label><input name="existing_h_tariff_power" value="<?= h($workForm['existing_h_tariff_power']); ?>"></div>
+                                <div><label>Igényelt H tarifa</label><input name="requested_h_tariff_power" value="<?= h($workForm['requested_h_tariff_power']); ?>"></div>
+                                <div><label>Meglévő vezérelt</label><input name="existing_controlled_power" value="<?= h($workForm['existing_controlled_power']); ?>"></div>
+                                <div><label>Igényelt vezérelt</label><input name="requested_controlled_power" value="<?= h($workForm['requested_controlled_power']); ?>"></div>
+                            </div>
+                            <label>Megjegyzés</label><textarea name="notes" rows="3"><?= h($workForm['notes']); ?></textarea>
+                            <div class="form-actions">
+                                <button class="button" type="submit">Alapadatok mentése</button>
+                            </div>
+                        </form>
+                    </section>
+                <?php else: ?>
+                    <div class="alert alert-info"><p>Az adatlap már Folyamatban vagy későbbi státuszban van, ezért az MVM-beadás alapadatai itt nem módosíthatók.</p></div>
+                <?php endif; ?>
 
                 <?php if ((float) ($electricianDueBreakdown['total'] ?? 0) > 0): ?>
                     <section class="admin-request-panel workflow-stage-panel">

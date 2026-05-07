@@ -46,6 +46,7 @@ $workForm = normalize_connection_request_data($request ?? []);
 $existingFiles = $isEdit ? connection_request_files((int) $request['id']) : [];
 $downloads = download_documents(true);
 $requestTypeOptions = connection_request_type_options();
+$requestAlreadyFinalized = $request !== null && (string) ($request['request_status'] ?? '') === 'finalized';
 
 if (is_post()) {
     require_valid_csrf_token();
@@ -59,10 +60,13 @@ if (is_post()) {
     }
 
     $action = (string) ($_POST['action'] ?? 'save');
-    $finalize = $action === 'finalize';
+    $finalize = $action === 'finalize' && !$requestAlreadyFinalized;
     $customerForm = normalize_customer_data($_POST);
     $customerForm['source'] = $customerForm['source'] !== '' ? $customerForm['source'] : 'Generálkivitelező';
     $customerForm['status'] = $customerForm['status'] !== '' ? $customerForm['status'] : 'Mérőhelyi igény';
+    if ($managedCustomer !== null) {
+        $customerForm['notes'] = (string) ($managedCustomer['notes'] ?? '');
+    }
     $workForm = normalize_connection_request_data($_POST);
 
     $errors = array_merge(
@@ -114,7 +118,7 @@ if (is_post()) {
                         null,
                         'Generálkivitelező igény mentés'
                     );
-                    set_flash('success', 'Az igényt piszkozatként mentettük. Később folytatható, amíg le nem zárod.');
+                    set_flash('success', $requestAlreadyFinalized ? 'A módosításokat mentettük.' : 'Az igényt piszkozatként mentettük. Később folytatható, amíg le nem zárod.');
                     redirect('/contractor/work-request?id=' . $savedRequestId);
                 }
             }
@@ -133,7 +137,7 @@ if (is_post()) {
             <div>
                 <p class="eyebrow">Generálkivitelező portál</p>
                 <h1><?= $isEdit ? 'Igény módosítása' : 'Új ügyfél + igény'; ?></h1>
-                <p>Az igényt piszkozatként mentheted, és később folytathatod. Lezárás után végleges igénybejelentésként értesítjük az admint, és már nem módosítható.</p>
+                <p>Az igényt addig módosíthatod, amíg az MVM ügyintézés Folyamatban státuszba nem kerül. A beküldött módosításokról értesítjük az admint.</p>
             </div>
             <a class="button button-secondary" href="<?= h(url_path('/contractor/work-requests')); ?>">Igények</a>
         </div>
@@ -192,6 +196,7 @@ if (is_post()) {
 
                 <section class="auth-panel">
                     <h2>Végügyfél adatok</h2>
+                    <input type="hidden" name="is_legal_entity" value="0">
                     <label class="checkbox-row">
                         <input type="checkbox" name="is_legal_entity" value="1" <?= (int) $customerForm['is_legal_entity'] === 1 ? 'checked' : ''; ?>>
                         <span>Jogi személyként jár el</span>
@@ -311,8 +316,12 @@ if (is_post()) {
             </section>
 
             <div class="form-actions">
-                <button class="button button-secondary" name="action" value="save" type="submit" formnovalidate>Mentés piszkozatként</button>
-                <button class="button" name="action" value="finalize" type="submit">Lezárom és beküldöm</button>
+                <?php if ($requestAlreadyFinalized): ?>
+                    <button class="button" name="action" value="save" type="submit" formnovalidate>Módosítás mentése</button>
+                <?php else: ?>
+                    <button class="button button-secondary" name="action" value="save" type="submit" formnovalidate>Mentés piszkozatként</button>
+                    <button class="button" name="action" value="finalize" type="submit">Lezárom és beküldöm</button>
+                <?php endif; ?>
             </div>
         </form>
     </div>

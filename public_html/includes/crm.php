@@ -3700,6 +3700,18 @@ function connection_request_admin_workflow_stage(array $request, ?array $latestQ
 
 function connection_request_initial_data_is_editable(array $request, ?array $latestQuote = null, ?array $acceptedQuote = null, array $documents = []): bool
 {
+    $requestId = (int) ($request['id'] ?? 0);
+
+    if ($requestId > 0) {
+        $latestQuote ??= latest_quote_for_connection_request($requestId);
+        $acceptedQuote ??= accepted_quote_for_connection_request($requestId)
+            ?? accepted_quote_for_registration_duplicate_request($requestId);
+
+        if ($documents === []) {
+            $documents = connection_request_documents($requestId);
+        }
+    }
+
     $stage = connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $documents);
     $lockedStages = [
         'in_progress',
@@ -5798,7 +5810,7 @@ function create_connection_request(int $customerId, array $data, ?int $submitted
 
 function connection_request_is_editable(array $request): bool
 {
-    return (string) ($request['request_status'] ?? 'finalized') !== 'finalized';
+    return connection_request_initial_data_is_editable($request);
 }
 
 function connection_request_has_file_type(?int $requestId, string $fileType): bool
@@ -7381,6 +7393,10 @@ function finalize_connection_request(int $requestId): array
 
     if ($request === null) {
         return ['ok' => false, 'message' => 'Az igény nem található.'];
+    }
+
+    if ((string) ($request['request_status'] ?? '') === 'finalized') {
+        return ['ok' => true, 'message' => 'Az igény már korábban be lett küldve. A módosítások mentése után nem küldünk új lezárási értesítést.'];
     }
 
     if (!connection_request_is_editable($request)) {
