@@ -4272,6 +4272,23 @@ a.metric-card {
     margin-top: 12px;
 }
 
+.portal-work-upload-form {
+    padding: 12px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #f8fcfb;
+}
+
+.portal-work-upload-form summary {
+    cursor: pointer;
+    color: var(--color-primary-dark);
+    font-weight: 900;
+}
+
+.portal-work-upload-form .form {
+    margin-top: 14px;
+}
+
 .minicrm-manual-upload-form > div {
     grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.42fr) auto;
 }

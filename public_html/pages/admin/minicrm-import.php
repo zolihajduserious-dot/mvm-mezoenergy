@@ -97,6 +97,49 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_file') {
     redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'upload_portal_work_files') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $request = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($request === null) {
+        set_flash('error', 'A munka nem talĂˇlhatĂł, a fĂˇjlokat nem lehet feltĂ¶lteni.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $hasAnyUpload = false;
+
+    foreach (connection_request_upload_definitions() as $key => $definition) {
+        foreach (uploaded_files_for_key($_FILES, 'file_' . (string) $key) as $file) {
+            if (uploaded_file_is_present($file)) {
+                $hasAnyUpload = true;
+                break 2;
+            }
+        }
+    }
+
+    if (!$hasAnyUpload) {
+        set_flash('error', 'VĂˇlassz legalĂˇbb egy feltĂ¶ltendĹ‘ fotĂłt vagy dokumentumot.');
+        redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+    }
+
+    $uploadErrors = validate_connection_request_data(normalize_connection_request_data($request), $_FILES, false, $requestId);
+
+    if ($uploadErrors !== []) {
+        set_flash('error', implode(' ', $uploadErrors));
+        redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+    }
+
+    $uploadMessages = handle_connection_request_uploads($requestId, $_FILES, false);
+
+    set_flash(
+        $uploadMessages === [] ? 'success' : 'error',
+        $uploadMessages === [] ? 'A fotĂłk Ă©s dokumentumok mentve lettek.' : 'NĂ©hĂˇny fĂˇjl nem lett mentve: ' . implode(' ', $uploadMessages)
+    );
+    redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_request') {
     require_valid_csrf_token();
 
@@ -1825,6 +1868,35 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <h3>Dokumentumok &#233;s fot&#243;k</h3>
                                                                     <span><?= count($requestFiles) + count($requestWorkFiles) + count($requestDocuments); ?> f&#225;jl</span>
                                                                 </div>
+                                                                <details class="minicrm-manual-upload-form portal-work-upload-form">
+                                                                    <summary>Ăšj fotĂł vagy dokumentum feltĂ¶ltĂ©se</summary>
+                                                                    <form class="form" method="post" enctype="multipart/form-data" action="<?= h($requestDetailUrl); ?>">
+                                                                        <?= csrf_field(); ?>
+                                                                        <input type="hidden" name="action" value="upload_portal_work_files">
+                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                        <div class="file-upload-grid">
+                                                                            <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
+                                                                                <?php
+                                                                                $isImage = ($definition['kind'] ?? '') === 'image';
+                                                                                $accept = $isImage ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+                                                                                $isHTariffOnly = !empty($definition['h_tariff_required']);
+
+                                                                                if ($isHTariffOnly && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
+                                                                                    continue;
+                                                                                }
+                                                                                ?>
+                                                                                <label class="file-upload-item">
+                                                                                    <span><?= h((string) $definition['label']); ?></span>
+                                                                                    <small><?= connection_request_has_file_type($requestId, (string) $key) ? 'MĂˇr van ilyen feltĂ¶ltĂ©s, de Ăşj fĂˇjlt is hozzĂˇadhatsz.' : 'OpcionĂˇlis, tĂ¶bb fĂˇjl is feltĂ¶lthetĹ‘.'; ?></small>
+                                                                                    <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?>>
+                                                                                </label>
+                                                                            <?php endforeach; ?>
+                                                                        </div>
+                                                                        <div class="form-actions">
+                                                                            <button class="button button-secondary" type="submit">FĂˇjlok mentĂ©se</button>
+                                                                        </div>
+                                                                    </form>
+                                                                </details>
                                                                 <?php if ($requestFiles === [] && $requestWorkFiles === [] && $requestDocuments === []): ?>
                                                                     <p class="request-admin-empty">Ehhez a munk&#225;hoz m&#233;g nincs felt&#246;lt&#246;tt f&#225;jl vagy gener&#225;lt MVM dokumentum.</p>
                                                                 <?php else: ?>
