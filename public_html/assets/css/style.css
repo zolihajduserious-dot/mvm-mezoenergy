@@ -1099,8 +1099,21 @@ a.metric-card {
     gap: 10px;
 }
 
+.file-link-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.inline-link-list form,
+.file-link-row form {
+    margin: 0;
+}
+
 .inline-link-list a,
 .inline-link-list button,
+.table-action-button,
 .table-actions a,
 .table-actions .table-action-button {
     display: inline-flex;
@@ -1122,6 +1135,8 @@ a.metric-card {
 .inline-link-list a:focus,
 .inline-link-list button:hover,
 .inline-link-list button:focus,
+.table-action-button:hover,
+.table-action-button:focus,
 .table-actions a:hover,
 .table-actions a:focus,
 .table-actions .table-action-button:hover,
@@ -1130,6 +1145,27 @@ a.metric-card {
     background: var(--color-primary);
     color: #ffffff;
     transform: translateY(-1px);
+}
+
+.inline-link-list .table-action-danger,
+.file-link-row .table-action-danger,
+.table-action-button.table-action-danger,
+.table-actions .table-action-danger {
+    border-color: rgba(179, 38, 58, 0.28);
+    color: #8f1f31;
+}
+
+.inline-link-list .table-action-danger:hover,
+.inline-link-list .table-action-danger:focus,
+.file-link-row .table-action-danger:hover,
+.file-link-row .table-action-danger:focus,
+.table-action-button.table-action-danger:hover,
+.table-action-button.table-action-danger:focus,
+.table-actions .table-action-danger:hover,
+.table-actions .table-action-danger:focus {
+    border-color: #b3263a;
+    background: #b3263a;
+    color: #ffffff;
 }
 
 .status-badge {

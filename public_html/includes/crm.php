@@ -774,6 +774,20 @@ function find_download_document(int $id, bool $onlyActive = true): ?array
     return is_array($document) ? $document : null;
 }
 
+function delete_download_document(int $id): array
+{
+    $document = find_download_document($id, false);
+
+    if ($document === null) {
+        return ['ok' => false, 'message' => 'A törlendő dokumentum nem található.'];
+    }
+
+    db_query('DELETE FROM `download_documents` WHERE `id` = ?', [$id]);
+    delete_storage_files([(string) ($document['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'A dokumentum törölve.'];
+}
+
 function normalize_download_document_email_data(array $source): array
 {
     return [
@@ -4330,6 +4344,20 @@ function find_quote_photo(int $photoId): ?array
     $photo = $statement->fetch();
 
     return is_array($photo) ? $photo : null;
+}
+
+function delete_quote_photo(int $photoId, ?int $quoteId = null): array
+{
+    $photo = find_quote_photo($photoId);
+
+    if ($photo === null || ($quoteId !== null && (int) ($photo['quote_id'] ?? 0) !== $quoteId)) {
+        return ['ok' => false, 'message' => 'A törlendő ajánlati fotó nem található.'];
+    }
+
+    db_query('DELETE FROM `quote_photos` WHERE `id` = ?', [$photoId]);
+    delete_storage_files([(string) ($photo['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'Az ajánlati fotó törölve.'];
 }
 
 function quote_pdf_html(array $quote, array $lines): string
@@ -9912,6 +9940,35 @@ function save_connection_request_mvm_form(int $requestId, array $source, ?array 
     );
 
     return $data;
+}
+
+function delete_connection_request_mvm_form_sketch(int $requestId): array
+{
+    if (!db_table_exists('connection_request_mvm_forms')) {
+        return ['ok' => false, 'message' => 'Az MVM űrlap adatbázistáblája nem elérhető.'];
+    }
+
+    $row = connection_request_mvm_form($requestId);
+
+    if ($row === null || empty($row['sketch_storage_path'])) {
+        return ['ok' => false, 'message' => 'Nincs törölhető skicc kép ehhez az adatlaphoz.'];
+    }
+
+    db_query(
+        'UPDATE `connection_request_mvm_forms`
+         SET `sketch_original_name` = NULL,
+             `sketch_stored_name` = NULL,
+             `sketch_storage_path` = NULL,
+             `sketch_mime_type` = NULL,
+             `sketch_file_size` = NULL,
+             `updated_at` = CURRENT_TIMESTAMP
+         WHERE `connection_request_id` = ?',
+        [$requestId]
+    );
+    delete_storage_files([(string) $row['sketch_storage_path']]);
+    record_connection_request_activity($requestId, 'file_delete', 'MVM skicc kép törölve', (string) ($row['sketch_original_name'] ?? ''));
+
+    return ['ok' => true, 'message' => 'A skicc kép törölve.'];
 }
 
 function mvm_docx_template_path(?string $contractorKey = null): ?string
@@ -18092,6 +18149,20 @@ function store_minicrm_work_item_files(int $workItemId, array $files, string $la
     }
 
     return ['ok' => true, 'message' => $message, 'saved' => $saved];
+}
+
+function delete_minicrm_work_item_file(int $fileId, ?int $workItemId = null): array
+{
+    $file = find_minicrm_work_item_file($fileId);
+
+    if ($file === null || ($workItemId !== null && (int) ($file['work_item_id'] ?? 0) !== $workItemId)) {
+        return ['ok' => false, 'message' => 'A törlendő MiniCRM fájl nem található.'];
+    }
+
+    db_query('DELETE FROM `minicrm_work_item_files` WHERE `id` = ?', [$fileId]);
+    delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+
+    return ['ok' => true, 'message' => 'A MiniCRM fájl törölve.'];
 }
 
 function minicrm_import_clean_field_value(mixed $value): string

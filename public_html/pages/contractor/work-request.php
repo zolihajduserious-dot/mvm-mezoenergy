@@ -50,6 +50,14 @@ $requestTypeOptions = connection_request_type_options();
 if (is_post()) {
     require_valid_csrf_token();
 
+    $deleteFileId = filter_input(INPUT_POST, 'delete_request_file_id', FILTER_VALIDATE_INT);
+
+    if ($request !== null && $deleteFileId) {
+        $result = delete_connection_request_file((int) $deleteFileId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+        redirect('/contractor/work-request?id=' . (int) $request['id']);
+    }
+
     $action = (string) ($_POST['action'] ?? 'save');
     $finalize = $action === 'finalize';
     $customerForm = normalize_customer_data($_POST);
@@ -275,7 +283,10 @@ if (is_post()) {
                         <h3>Már feltöltött fájlok</h3>
                         <div class="inline-link-list">
                             <?php foreach ($existingFiles as $file): ?>
-                                <a href="<?= h(url_path('/contractor/work-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h($file['label']); ?>: <?= h($file['original_name']); ?></a>
+                                <span class="file-link-row">
+                                    <a href="<?= h(url_path('/contractor/work-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h($file['label']); ?>: <?= h($file['original_name']); ?></a>
+                                    <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" formnovalidate onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                </span>
                             <?php endforeach; ?>
                         </div>
                     </div>

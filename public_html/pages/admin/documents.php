@@ -15,6 +15,18 @@ if ($tableReady) {
 if (is_post()) {
     require_valid_csrf_token();
 
+    $deleteDocumentId = filter_input(INPUT_POST, 'delete_document_id', FILTER_VALIDATE_INT);
+
+    if ($deleteDocumentId) {
+        if (!$tableReady) {
+            set_flash('error', 'A dokumentumtár adatbázistáblája még hiányzik.');
+        } else {
+            $result = delete_download_document((int) $deleteDocumentId);
+            set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A dokumentum törlése sikertelen.'));
+        }
+        redirect('/admin/documents');
+    }
+
     $form = normalize_download_document_data($_POST);
     $file = $_FILES['document_file'] ?? null;
 
@@ -116,6 +128,7 @@ $documents = $tableReady ? download_documents(false) : [];
                                 <th>Kategória</th>
                                 <th>Státusz</th>
                                 <th>Fájl</th>
+                                <th>Művelet</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -129,6 +142,12 @@ $documents = $tableReady ? download_documents(false) : [];
                                     <td><?= (int) $document['is_active'] === 1 ? 'Aktív' : 'Inaktív'; ?></td>
                                     <td>
                                         <a href="<?= h(url_path('/documents/file') . '?id=' . (int) $document['id']); ?>" target="_blank"><?= h($document['original_name']); ?></a>
+                                    </td>
+                                    <td>
+                                        <form method="post" action="<?= h(url_path('/admin/documents')); ?>">
+                                            <?= csrf_field(); ?>
+                                            <button class="table-action-button table-action-danger" name="delete_document_id" value="<?= (int) $document['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

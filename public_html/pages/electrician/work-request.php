@@ -60,6 +60,20 @@ if (is_post() && $schemaErrors === []) {
     require_valid_csrf_token();
 
     $action = (string) ($_POST['action'] ?? '');
+    $deleteRequestFileId = filter_input(INPUT_POST, 'delete_request_file_id', FILTER_VALIDATE_INT);
+    $deleteWorkFileId = filter_input(INPUT_POST, 'delete_work_file_id', FILTER_VALIDATE_INT);
+
+    if ($request !== null && $deleteRequestFileId) {
+        $result = delete_connection_request_file((int) $deleteRequestFileId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
+    if ($request !== null && $deleteWorkFileId) {
+        $result = delete_connection_request_work_file((int) $deleteWorkFileId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munkafájl törlése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
 
     if ($request !== null && in_array($action, ['schedule_open_day', 'schedule_book_day', 'schedule_close_day'], true)) {
         $date = trim((string) ($_POST['work_date'] ?? ''));
@@ -943,6 +957,10 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                             <strong><?= h((string) $file['label']); ?></strong>
                                             <span><?= h((string) $file['original_name']); ?></span>
                                             <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                            <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                                                <?= csrf_field(); ?>
+                                                <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                            </form>
                                         </div>
                                     </article>
                                 <?php endforeach; ?>
@@ -1147,6 +1165,10 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                         <strong><?= h((string) $file['label']); ?></strong>
                                         <span><?= h((string) $file['original_name']); ?></span>
                                         <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                        <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                                            <?= csrf_field(); ?>
+                                            <button class="table-action-button table-action-danger" name="delete_work_file_id" value="<?= (int) $file['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a munkafotót?');">Törlés</button>
+                                        </form>
                                     </div>
                                 </article>
                             <?php endforeach; ?>

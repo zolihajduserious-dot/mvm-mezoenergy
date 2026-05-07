@@ -47,6 +47,14 @@ $actionUrl = $requestId
 if (is_post()) {
     require_valid_csrf_token();
 
+    $deleteFileId = filter_input(INPUT_POST, 'delete_request_file_id', FILTER_VALIDATE_INT);
+
+    if ($request !== null && $deleteFileId) {
+        $result = delete_connection_request_file((int) $deleteFileId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+        redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
+    }
+
     $user = current_user();
     $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
     $isNewCustomerRequest = $customer === null;
@@ -232,7 +240,10 @@ $pageSubtitle = $customer !== null
                         <h3>Már feltöltött fájlok</h3>
                         <div class="inline-link-list">
                             <?php foreach ($existingFiles as $file): ?>
-                                <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) $file['label']); ?>: <?= h((string) $file['original_name']); ?> - <?= h(portal_file_uploader_label($file)); ?></a>
+                                <span class="file-link-row">
+                                    <a href="<?= h(url_path('/admin/connection-requests/file') . '?id=' . (int) $file['id']); ?>" target="_blank"><?= h((string) $file['label']); ?>: <?= h((string) $file['original_name']); ?> - <?= h(portal_file_uploader_label($file)); ?></a>
+                                    <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" formnovalidate onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                </span>
                             <?php endforeach; ?>
                         </div>
                     </div>

@@ -94,6 +94,27 @@ function quick_quote_request_context_url(?array $request): string
     return '';
 }
 
+function quick_quote_current_redirect_path(?array $quote, ?array $request, ?array $customer, ?int $minicrmItemId = null): string
+{
+    if ($quote !== null) {
+        return '/quick-quote?quote_id=' . (int) $quote['id'];
+    }
+
+    if ($request !== null) {
+        return '/quick-quote?request_id=' . (int) $request['id'];
+    }
+
+    if ($customer !== null) {
+        return '/quick-quote?customer_id=' . (int) $customer['id'];
+    }
+
+    if ($minicrmItemId !== null && $minicrmItemId > 0) {
+        return '/quick-quote?minicrm_item=' . (int) $minicrmItemId;
+    }
+
+    return '/quick-quote';
+}
+
 function quick_quote_render_connection_request_upload_panel(?int $requestId, array $existingFiles, string $requestType): void
 {
     ?>
@@ -106,9 +127,12 @@ function quick_quote_render_connection_request_upload_panel(?int $requestId, arr
                 <h3>Már feltöltött fájlok</h3>
                 <div class="inline-link-list">
                     <?php foreach ($existingFiles as $file): ?>
+                        <span class="file-link-row">
                         <a href="<?= h(quick_quote_request_file_url($file)); ?>" target="_blank">
                             <?= h((string) ($file['label'] ?? 'Fájl')); ?>: <?= h((string) ($file['original_name'] ?? '-')); ?> - <?= h(portal_file_uploader_label($file)); ?>
                         </a>
+                        <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" formnovalidate onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                        </span>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -304,6 +328,15 @@ if ($customRows === []) {
 
 if (is_post()) {
     require_valid_csrf_token();
+
+    $deleteFileId = filter_input(INPUT_POST, 'delete_request_file_id', FILTER_VALIDATE_INT);
+
+    if ($request !== null && $deleteFileId) {
+        $result = delete_connection_request_file((int) $deleteFileId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+        redirect(quick_quote_current_redirect_path($quote, $request, $customer, $minicrmItemId ? (int) $minicrmItemId : null));
+    }
+
     $action = (string) ($_POST['quick_action'] ?? 'save_quote');
 
     if ($quote !== null && in_array($action, ['pdf', 'send'], true)) {

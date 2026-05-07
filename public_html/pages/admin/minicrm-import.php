@@ -72,6 +72,19 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'delete_minicrm_work_file') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $fileId = max(0, (int) ($_POST['file_id'] ?? 0));
+    $result = $workItemId > 0 && $fileId > 0
+        ? delete_minicrm_work_item_file($fileId, $workItemId)
+        : ['ok' => false, 'message' => 'Hiányzó MiniCRM munka vagy fájl azonosító.'];
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A MiniCRM fájl törlése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'delete_portal_work_file') {
     require_valid_csrf_token();
 
@@ -1667,6 +1680,13 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <strong><?= h((string) $localFile['label']); ?></strong>
                                                                     <span><?= h((string) $localFile['original_name']); ?></span>
                                                                     <a href="<?= h($localFileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                    <form method="post" action="<?= h(url_path('/admin/minicrm-import') . '?item=' . $itemId . '#minicrm-work-' . $itemId); ?>">
+                                                                        <?= csrf_field(); ?>
+                                                                        <input type="hidden" name="action" value="delete_minicrm_work_file">
+                                                                        <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                                        <input type="hidden" name="file_id" value="<?= (int) $localFile['id']; ?>">
+                                                                        <button class="table-action-button table-action-danger" type="submit" onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                                                    </form>
                                                                 </div>
                                                             </article>
                                                         <?php endforeach; ?>

@@ -91,6 +91,21 @@ if (is_post()) {
     require_valid_csrf_token();
 
     $action = (string) ($_POST['action'] ?? 'upload');
+    $deleteSketch = isset($_POST['delete_mvm_sketch']);
+    $deleteDocumentId = filter_input(INPUT_POST, 'delete_mvm_document_id', FILTER_VALIDATE_INT);
+
+    if ($deleteSketch) {
+        $result = delete_connection_request_mvm_form_sketch((int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A skicc kép törlése sikertelen.'));
+        redirect($mvmRedirectPath . '&mvm_notice=1#mvm-generator-actions');
+    }
+
+    if ($deleteDocumentId) {
+        $result = delete_connection_request_document((int) $deleteDocumentId, (int) $request['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A dokumentum törlése sikertelen.'));
+        redirect($mvmRedirectPath . '#mvm-documents-list');
+    }
+
     $requiresMvmSubmissionApproval = in_array($action, [
         'generate_mvm_docx',
         'generate_mvm_pdf',
@@ -744,6 +759,7 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                         <input id="sketch_image" name="sketch_image" type="file" accept="image/jpeg,image/png,image/webp">
                         <?php if ($mvmFormRow !== null && !empty($mvmFormRow['sketch_original_name'])): ?>
                             <p class="muted-text">Jelenlegi kép: <strong><?= h($mvmFormRow['sketch_original_name']); ?></strong></p>
+                            <button class="table-action-button table-action-danger" name="delete_mvm_sketch" value="1" type="submit" formnovalidate onclick="return confirm('Biztosan törlöd a skicc képet?');">Skicc kép törlése</button>
                         <?php else: ?>
                             <p class="muted-text">Még nincs feltöltött skicc kép ehhez az igényhez.</p>
                         <?php endif; ?>
@@ -866,6 +882,10 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                                 <input type="hidden" name="document_id" value="<?= (int) $package['id']; ?>">
                                 <button class="button button-secondary" name="action" value="send_package" type="submit">Email küldése ügyfélnek</button>
                             </form>
+                            <form method="post" action="<?= h($mvmPageUrl); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="table-action-button table-action-danger" name="delete_mvm_document_id" value="<?= (int) $package['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                            </form>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -928,6 +948,10 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                     <div class="inline-link-list">
                         <?php foreach ($executionPlanPackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
+                            <form method="post" action="<?= h($mvmPageUrl); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="table-action-button table-action-danger" name="delete_mvm_document_id" value="<?= (int) $package['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                            </form>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -1048,6 +1072,10 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                     <div class="inline-link-list">
                         <?php foreach ($technicalHandoverPackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
+                            <form method="post" action="<?= h($mvmPageUrl); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="table-action-button table-action-danger" name="delete_mvm_document_id" value="<?= (int) $package['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                            </form>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -1163,6 +1191,10 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                     <div class="inline-link-list">
                         <?php foreach ($sealRemovalPackages as $package): ?>
                             <a href="<?= h(url_path('/admin/connection-requests/mvm-file') . '?id=' . (int) $package['id']); ?>" target="_blank"><?= h($package['title']); ?> - <?= h(format_bytes((int) $package['file_size'])); ?></a>
+                            <form method="post" action="<?= h($mvmPageUrl); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="table-action-button table-action-danger" name="delete_mvm_document_id" value="<?= (int) $package['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                            </form>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -1226,7 +1258,7 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section class="form-block">
+        <section id="mvm-documents-list" class="form-block">
             <?php if ($documents === []): ?>
                 <div class="empty-state">
                     <h2>Még nincs MVM dokumentum</h2>
@@ -1242,6 +1274,7 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                                 <th>Datum</th>
                                 <th>Fájl</th>
                                 <th>MVM küldés</th>
+                                <th>Művelet</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1268,6 +1301,12 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                                         <?php else: ?>
                                             <span class="muted-text">MVM-nek csak PDF csomagot kuldunk.</span>
                                         <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <form method="post" action="<?= h($mvmPageUrl); ?>">
+                                            <?= csrf_field(); ?>
+                                            <button class="table-action-button table-action-danger" name="delete_mvm_document_id" value="<?= (int) $document['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a dokumentumot?');">Törlés</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

@@ -110,6 +110,15 @@ $surveyForm = normalize_survey_data($surveySeed);
 
 if (is_post()) {
     require_valid_csrf_token();
+
+    $deleteQuotePhotoId = filter_input(INPUT_POST, 'delete_quote_photo_id', FILTER_VALIDATE_INT);
+
+    if ($quote !== null && $deleteQuotePhotoId) {
+        $result = delete_quote_photo((int) $deleteQuotePhotoId, (int) $quote['id']);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ajánlati fotó törlése sikertelen.'));
+        redirect('/admin/quotes/edit?id=' . (int) $quote['id']);
+    }
+
     $postedRequestId = filter_input(INPUT_POST, 'connection_request_id', FILTER_VALIDATE_INT);
 
     if ($postedRequestId) {
@@ -345,7 +354,10 @@ if ($customRows === []) {
                 <?php if ($photos !== []): ?>
                     <div class="photo-grid">
                         <?php foreach ($photos as $photo): ?>
-                            <a href="<?= h(url_path('/admin/quotes/photo') . '?id=' . (int) $photo['id']); ?>" target="_blank"><?= h($photo['original_name']); ?></a>
+                            <span class="file-link-row">
+                                <a href="<?= h(url_path('/admin/quotes/photo') . '?id=' . (int) $photo['id']); ?>" target="_blank"><?= h($photo['original_name']); ?></a>
+                                <button class="table-action-button table-action-danger" name="delete_quote_photo_id" value="<?= (int) $photo['id']; ?>" type="submit" formnovalidate onclick="return confirm('Biztosan törlöd ezt a fotót?');">Törlés</button>
+                            </span>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>

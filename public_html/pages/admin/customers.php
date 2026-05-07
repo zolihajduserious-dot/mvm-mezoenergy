@@ -73,6 +73,36 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_customer') {
     redirect('/admin/customers');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'delete_customer_request_file') {
+    require_valid_csrf_token();
+
+    $customerId = max(0, (int) ($_POST['customer_id'] ?? 0));
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $fileId = max(0, (int) ($_POST['file_id'] ?? 0));
+    $fileSource = (string) ($_POST['file_source'] ?? '');
+    $request = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($request === null || $fileId <= 0 || ($customerId > 0 && (int) ($request['customer_id'] ?? 0) !== $customerId)) {
+        set_flash('error', 'A törlendő fájl vagy adatlap nem található.');
+        redirect('/admin/customers');
+    }
+
+    $customerId = (int) $request['customer_id'];
+
+    if ($fileSource === 'request_file') {
+        $result = delete_connection_request_file($fileId, $requestId);
+    } elseif ($fileSource === 'work_file') {
+        $result = delete_connection_request_work_file($fileId, $requestId);
+    } elseif ($fileSource === 'mvm_document') {
+        $result = delete_connection_request_document($fileId, $requestId);
+    } else {
+        $result = ['ok' => false, 'message' => 'Ismeretlen fájltípus, a törlés nem futott le.'];
+    }
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A fájl törlése sikertelen.'));
+    redirect('/admin/customers?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId);
+}
+
 try {
     $customers = all_customers();
 
@@ -652,6 +682,15 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                     <span><?= h((string) $document['original_name']); ?></span>
                                                                                                     <span>Létrehozó: <?= h(portal_file_uploader_label($document, 'Létrehozó ismeretlen')); ?></span>
                                                                                                     <a href="<?= h($documentUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                                    <form method="post" action="<?= h(url_path('/admin/customers') . '?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId); ?>">
+                                                                                                        <?= csrf_field(); ?>
+                                                                                                        <input type="hidden" name="action" value="delete_customer_request_file">
+                                                                                                        <input type="hidden" name="customer_id" value="<?= $customerId; ?>">
+                                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                                        <input type="hidden" name="file_source" value="mvm_document">
+                                                                                                        <input type="hidden" name="file_id" value="<?= (int) $document['id']; ?>">
+                                                                                                        <button class="table-action-button table-action-danger" type="submit" onclick="return confirm('Biztosan törlöd ezt az MVM dokumentumot?');">Törlés</button>
+                                                                                                    </form>
                                                                                                 </div>
                                                                                             </article>
                                                                                         <?php endforeach; ?>
@@ -689,6 +728,15 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                     <span><?= h((string) $file['original_name']); ?></span>
                                                                                                     <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                                    <form method="post" action="<?= h(url_path('/admin/customers') . '?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId); ?>">
+                                                                                                        <?= csrf_field(); ?>
+                                                                                                        <input type="hidden" name="action" value="delete_customer_request_file">
+                                                                                                        <input type="hidden" name="customer_id" value="<?= $customerId; ?>">
+                                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                                        <input type="hidden" name="file_source" value="request_file">
+                                                                                                        <input type="hidden" name="file_id" value="<?= (int) $file['id']; ?>">
+                                                                                                        <button class="table-action-button table-action-danger" type="submit" onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                                                                                    </form>
                                                                                                 </div>
                                                                                             </article>
                                                                                         <?php endforeach; ?>
@@ -710,6 +758,15 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                     <span><?= h((string) $workFile['original_name']); ?></span>
                                                                                                     <span>Feltöltő: <?= h(portal_file_uploader_label($workFile)); ?></span>
                                                                                                     <a href="<?= h($workFileUrl); ?>" target="_blank">Megnyitás</a>
+                                                                                                    <form method="post" action="<?= h(url_path('/admin/customers') . '?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId); ?>">
+                                                                                                        <?= csrf_field(); ?>
+                                                                                                        <input type="hidden" name="action" value="delete_customer_request_file">
+                                                                                                        <input type="hidden" name="customer_id" value="<?= $customerId; ?>">
+                                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                                        <input type="hidden" name="file_source" value="work_file">
+                                                                                                        <input type="hidden" name="file_id" value="<?= (int) $workFile['id']; ?>">
+                                                                                                        <button class="table-action-button table-action-danger" type="submit" onclick="return confirm('Biztosan törlöd ezt a munka fájlt?');">Törlés</button>
+                                                                                                    </form>
                                                                                                 </div>
                                                                                             </article>
                                                                                         <?php endforeach; ?>
