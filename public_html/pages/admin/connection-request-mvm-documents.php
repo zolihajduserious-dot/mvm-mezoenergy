@@ -119,6 +119,23 @@ if (is_post()) {
 
         if ($errors === []) {
             try {
+                if ($action === 'save_mvm_form') {
+                    save_connection_request_mvm_form((int) $request['id'], $_POST, $_FILES['sketch_image'] ?? null);
+                    $sourceSaveWarning = '';
+
+                    try {
+                        save_connection_request_mvm_source_data((int) $request['id'], $_POST, true);
+                        $request = find_connection_request((int) $request['id']) ?? $request;
+                    } catch (Throwable $sourceException) {
+                        $sourceSaveWarning = APP_DEBUG
+                            ? ' Az adatlap alapadatainak frissítése nem sikerült: ' . $sourceException->getMessage()
+                            : ' Az adatlap alapadatai közül nem mindent sikerült frissíteni, de az MVM űrlap piszkozat mentve lett.';
+                    }
+
+                    set_flash('success', 'Az MVM űrlap piszkozatként elmentve.' . $sourceSaveWarning);
+                    redirect($mvmRedirectPath . '&mvm_notice=1#mvm-generator-actions');
+                }
+
                 save_connection_request_mvm_source_data((int) $request['id'], $_POST);
                 $request = find_connection_request((int) $request['id']) ?? $request;
                 save_connection_request_mvm_form((int) $request['id'], $_POST, $_FILES['sketch_image'] ?? null);
@@ -605,7 +622,7 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                     <?php endif; ?>
 
                     <div class="form-actions">
-                    <button class="button button-secondary" name="action" value="save_mvm_form" type="submit" <?= $mvmFormSchemaErrors !== [] ? 'disabled' : ''; ?>>Adatok mentése</button>
+                    <button class="button button-secondary" name="action" value="save_mvm_form" type="submit" formnovalidate <?= $mvmFormSchemaErrors !== [] ? 'disabled' : ''; ?>>Adatok mentése</button>
                     <button class="button button-secondary" name="action" value="generate_mvm_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Kitöltött Word dokumentum generálása</button>
                     <button class="button" name="action" value="generate_mvm_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $templateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálása Word dokumentumból</button>
                     <button class="button button-secondary" name="action" value="generate_plan_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Terv Word dokumentum generálása</button>

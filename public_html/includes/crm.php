@@ -9216,7 +9216,7 @@ function normalize_connection_request_mvm_source_date(string $value): string
     return sprintf('%04d-%02d-%02d', $year, $month, $day);
 }
 
-function save_connection_request_mvm_source_data(int $requestId, array $source): array
+function save_connection_request_mvm_source_data(int $requestId, array $source, bool $allowPartial = false): array
 {
     $request = find_connection_request($requestId);
 
@@ -9229,19 +9229,41 @@ function save_connection_request_mvm_source_data(int $requestId, array $source):
     $values['birth_date'] = normalize_connection_request_mvm_source_date($birthDateRaw);
 
     if ($birthDateRaw !== '' && $values['birth_date'] === '') {
-        throw new RuntimeException('A születési idő formátuma legyen ÉÉÉÉ-HH-NN.');
+        if (!$allowPartial) {
+            throw new RuntimeException('A születési idő formátuma legyen ÉÉÉÉ-HH-NN.');
+        }
+
+        $values['birth_date'] = (string) ($request['birth_date'] ?? '');
     }
 
     if (trim($values['requester_name']) === '') {
-        throw new RuntimeException('Az ügyfél neve kötelező.');
+        if (!$allowPartial) {
+            throw new RuntimeException('Az ügyfél neve kötelező.');
+        }
+
+        $values['requester_name'] = (string) ($request['requester_name'] ?? '');
     }
 
     if (trim($values['project_name']) === '') {
-        throw new RuntimeException('A munka megnevezése kötelező.');
+        if (!$allowPartial) {
+            throw new RuntimeException('A munka megnevezése kötelező.');
+        }
+
+        $values['project_name'] = (string) ($request['project_name'] ?? '');
     }
 
     if (trim($values['site_postal_code']) === '' || trim($values['site_address']) === '') {
-        throw new RuntimeException('A kivitelezési irányítószám és cím kötelező.');
+        if (!$allowPartial) {
+            throw new RuntimeException('A kivitelezési irányítószám és cím kötelező.');
+        }
+
+        if (trim($values['site_postal_code']) === '') {
+            $values['site_postal_code'] = (string) ($request['site_postal_code'] ?? '');
+        }
+
+        if (trim($values['site_address']) === '') {
+            $values['site_address'] = (string) ($request['site_address'] ?? '');
+        }
     }
 
     $labels = [
