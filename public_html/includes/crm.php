@@ -12390,6 +12390,17 @@ function latest_connection_request_mvm_request_pdf_document(int $requestId): ?ar
     return null;
 }
 
+function latest_connection_request_technical_declaration_source_document(int $requestId): ?array
+{
+    $mvmRequest = latest_connection_request_mvm_request_pdf_document($requestId);
+
+    if ($mvmRequest !== null) {
+        return $mvmRequest;
+    }
+
+    return latest_connection_request_document_by_types($requestId, ['complete_package'], true);
+}
+
 function latest_connection_request_execution_plan_document(int $requestId, bool $packageCompatibleOnly = true): ?array
 {
     return latest_connection_request_document_by_types($requestId, ['execution_plan'], $packageCompatibleOnly);
@@ -12573,23 +12584,7 @@ function latest_completed_intervention_sheet_part(int $requestId): ?array
         return connection_request_document_package_part($document, 'Kész beavatkozási lap', 'Kész beavatkozási lap');
     }
 
-    if (!db_table_exists('connection_request_work_files')) {
-        return null;
-    }
-
-    $file = db_query(
-        'SELECT * FROM `connection_request_work_files`
-         WHERE `connection_request_id` = ? AND `stage` = ? AND `file_type` = ?
-         ORDER BY `created_at` DESC, `id` DESC
-         LIMIT 1',
-        [$requestId, 'after', 'completed_intervention_sheet']
-    )->fetch();
-
-    if (!is_array($file) || (!pdf_package_file_is_pdf($file) && !pdf_package_file_is_image($file))) {
-        return null;
-    }
-
-    return connection_request_work_file_package_part($file, 'Kész beavatkozási lap');
+    return null;
 }
 
 function connection_request_after_work_photo_parts(int $requestId): array
@@ -12623,7 +12618,7 @@ function connection_request_after_work_photo_parts(int $requestId): array
 
     foreach ($orderedTypes as $fileType) {
         foreach ($byType[$fileType] ?? [] as $file) {
-            $parts[] = connection_request_work_file_package_part($file, 'Fotók');
+            $parts[] = connection_request_work_file_package_part($file, 'Kivitelezési fotók');
         }
     }
 
@@ -12633,7 +12628,7 @@ function connection_request_after_work_photo_parts(int $requestId): array
         }
 
         foreach ($typedFiles as $file) {
-            $parts[] = connection_request_work_file_package_part($file, 'Fotók');
+            $parts[] = connection_request_work_file_package_part($file, 'Kivitelezési fotók');
         }
     }
 
@@ -12643,6 +12638,12 @@ function connection_request_after_work_photo_parts(int $requestId): array
 function connection_request_technical_handover_package_parts(int $requestId): array
 {
     $parts = [];
+    $technicalHandover = latest_connection_request_technical_handover_document($requestId);
+
+    if ($technicalHandover !== null) {
+        $parts[] = connection_request_document_package_part($technicalHandover, 'Műszaki átadási dokumentum', 'Műszaki átadás-átvételi jegyzőkönyv');
+    }
+
     $completedInterventionSheet = latest_completed_intervention_sheet_part($requestId);
 
     if ($completedInterventionSheet !== null) {
@@ -12655,24 +12656,46 @@ function connection_request_technical_handover_package_parts(int $requestId): ar
         $parts[] = connection_request_document_package_part($constructionLog, 'Építési napló', 'Építési napló');
     }
 
-    $technicalHandover = latest_connection_request_technical_handover_document($requestId);
-
-    if ($technicalHandover !== null) {
-        $parts[] = connection_request_document_package_part($technicalHandover, 'Műszaki átadás', 'Műszaki átadás-átvételi jegyzőkönyv');
-    }
-
     $technicalDeclaration = latest_connection_request_technical_document($requestId, 'technical_declaration');
 
     if ($technicalDeclaration !== null) {
-        $parts[] = connection_request_document_package_part($technicalDeclaration, 'Nyilatkozatok adatlap', 'Nyilatkozatok adatlap');
+        $parts[] = connection_request_document_package_part($technicalDeclaration, 'Nyilatkozat adatlap', 'Nyilatkozat adatlap');
     }
 
     return array_merge($parts, connection_request_after_work_photo_parts($requestId));
 }
 
+function connection_request_required_after_photo_labels(): array
+{
+    return [
+        'meter_far' => 'Mérő távolról',
+        'meter_close' => 'Mérő közelről',
+        'utility_pole' => 'Villanyoszlop',
+        'roof_hook' => 'Tetőtartó',
+        'seals' => 'Plombák',
+    ];
+}
+
+function connection_request_required_after_photo_missing_items(int $requestId): array
+{
+    $missing = [];
+
+    foreach (connection_request_required_after_photo_labels() as $fileType => $label) {
+        if (!connection_request_has_work_file_type($requestId, 'after', $fileType)) {
+            $missing[] = $label;
+        }
+    }
+
+    return $missing;
+}
+
 function connection_request_technical_handover_package_missing_items(int $requestId): array
 {
     $missing = [];
+
+    if (latest_connection_request_technical_handover_document($requestId) === null) {
+        $missing[] = 'Műszaki átadási dokumentum PDF';
+    }
 
     if (latest_completed_intervention_sheet_part($requestId) === null) {
         $missing[] = 'Kész beavatkozási lap';
@@ -12682,29 +12705,15 @@ function connection_request_technical_handover_package_missing_items(int $reques
         $missing[] = 'Építési napló';
     }
 
-    if (latest_connection_request_technical_handover_document($requestId) === null) {
-        $missing[] = 'Műszaki átadás PDF';
-    }
-
     if (
         latest_connection_request_technical_document($requestId, 'technical_declaration') === null
-        && latest_connection_request_mvm_request_pdf_document($requestId) === null
+        && latest_connection_request_technical_declaration_source_document($requestId) === null
     ) {
-        $missing[] = 'Nyilatkozatok adatlaphoz MVM igénybejelentő PDF (9-11. oldal)';
+        $missing[] = 'Nyilatkozat adatlaphoz MVM jóváhagyási dokumentum';
     }
 
-    $requiredAfterPhotos = [
-        'meter_far' => 'Mérő távolról',
-        'meter_close' => 'Mérő közelről',
-        'utility_pole' => 'Villanyoszlop',
-        'roof_hook' => 'Tetőtartó',
-        'seals' => 'Plombák',
-    ];
-
-    foreach ($requiredAfterPhotos as $fileType => $label) {
-        if (!connection_request_has_work_file_type($requestId, 'after', $fileType)) {
-            $missing[] = 'Kivitelezés utáni fotó: ' . $label;
-        }
+    foreach (connection_request_required_after_photo_missing_items($requestId) as $label) {
+        $missing[] = 'Kivitelezési fotó: ' . $label;
     }
 
     return $missing;
@@ -12712,13 +12721,16 @@ function connection_request_technical_handover_package_missing_items(int $reques
 
 function pdf_package_file_is_pdf(array $part): bool
 {
-    return strtolower(pathinfo((string) $part['path'], PATHINFO_EXTENSION)) === 'pdf'
+    $path = (string) ($part['path'] ?? $part['storage_path'] ?? '');
+
+    return strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'pdf'
         || str_contains(strtolower((string) ($part['mime_type'] ?? '')), 'pdf');
 }
 
 function pdf_package_file_is_image(array $part): bool
 {
-    $extension = strtolower(pathinfo((string) $part['path'], PATHINFO_EXTENSION));
+    $path = (string) ($part['path'] ?? $part['storage_path'] ?? '');
+    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
     return in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true)
         || str_starts_with(strtolower((string) ($part['mime_type'] ?? '')), 'image/');
@@ -13072,14 +13084,14 @@ function extract_connection_request_pdf_pages(array $sourceDocument, string $tar
     $sourcePath = (string) ($sourceDocument['storage_path'] ?? '');
 
     if ($sourcePath === '' || !is_file($sourcePath) || !pdf_package_file_is_pdf($sourceDocument)) {
-        throw new RuntimeException('A forrás MVM igénybejelentő PDF nem található.');
+        throw new RuntimeException('A forrás MVM jóváhagyási PDF nem található.');
     }
 
     $pdf = new \setasign\Fpdi\Fpdi();
     $pageCount = $pdf->setSourceFile($sourcePath);
 
     if ($pageCount < $endPage) {
-        throw new RuntimeException('Az MVM igénybejelentő PDF csak ' . $pageCount . ' oldalas, ezért a 9-11. oldal nem nyerhető ki.');
+        throw new RuntimeException('A forrás MVM jóváhagyási PDF csak ' . $pageCount . ' oldalas, ezért a 9-11. oldal nem nyerhető ki.');
     }
 
     for ($page = $startPage; $page <= $endPage; $page++) {
@@ -13107,16 +13119,16 @@ function generate_connection_request_technical_declaration(int $requestId): arra
         return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
     }
 
-    $sourceDocument = latest_connection_request_mvm_request_pdf_document($requestId);
+    $sourceDocument = latest_connection_request_technical_declaration_source_document($requestId);
 
     if ($sourceDocument === null) {
-        return ['ok' => false, 'message' => 'A nyilatkozatok adatlap kinyeréséhez előbb legyen MVM igénybejelentő PDF az igényhez.', 'document_id' => null];
+        return ['ok' => false, 'message' => 'A nyilatkozat adatlap kinyeréséhez előbb legyen MVM jóváhagyási dokumentum PDF az igényhez.', 'document_id' => null];
     }
 
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/technical-declaration';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'nyilatkozatok-adatlap-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = 'nyilatkozat-adatlap-' . $requestId . '-' . date('Ymd-His') . '.pdf';
     $targetPath = $targetDir . '/' . $storedName;
 
     try {
@@ -13135,7 +13147,7 @@ function generate_connection_request_technical_declaration(int $requestId): arra
                 $requestId,
                 (int) $request['customer_id'],
                 'technical_declaration',
-                'Nyilatkozatok adatlap - igénybejelentőből kinyerve',
+                'Nyilatkozat adatlap - jóváhagyási dokumentumból kinyerve',
                 $storedName,
                 $storedName,
                 $targetPath,
@@ -13147,7 +13159,7 @@ function generate_connection_request_technical_declaration(int $requestId): arra
 
         return [
             'ok' => true,
-            'message' => 'A nyilatkozatok adatlap elkészült az MVM igénybejelentő 9-11. oldalából.',
+            'message' => 'A nyilatkozat adatlap elkészült az MVM jóváhagyási dokumentum 9-11. oldalából.',
             'document_id' => (int) db()->lastInsertId(),
         ];
     } catch (Throwable $exception) {
@@ -13157,7 +13169,7 @@ function generate_connection_request_technical_declaration(int $requestId): arra
 
         return [
             'ok' => false,
-            'message' => 'A nyilatkozatok adatlap kinyerése sikertelen: ' . $exception->getMessage(),
+            'message' => 'A nyilatkozat adatlap kinyerése sikertelen: ' . $exception->getMessage(),
             'document_id' => null,
         ];
     }

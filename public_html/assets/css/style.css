@@ -6017,6 +6017,67 @@ a.metric-card {
     margin-bottom: 12px;
 }
 
+.technical-handover-panel {
+    scroll-margin-top: 96px;
+}
+
+.mvm-handover-action-stack {
+    display: grid;
+    gap: 10px;
+    justify-items: end;
+}
+
+.mvm-handover-action-stack .form-actions {
+    justify-content: flex-end;
+    margin-top: 0;
+}
+
+.mvm-handover-action-stack form {
+    margin: 0;
+}
+
+.handover-checklist {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+    margin: 18px 0;
+}
+
+.handover-check-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 146px;
+    padding: 16px;
+    border: 1px solid rgba(223, 230, 238, 0.92);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.handover-check-card-ready {
+    border-color: rgba(0, 140, 115, 0.28);
+    background: linear-gradient(135deg, #f7fffc, #ffffff);
+}
+
+.handover-check-card-missing {
+    border-color: rgba(173, 39, 62, 0.18);
+    background: #fffafa;
+}
+
+.handover-check-card h3 {
+    margin: 6px 0 8px;
+    color: var(--color-text);
+    font-size: 1rem;
+}
+
+.handover-check-card p {
+    margin: 0;
+    color: var(--color-muted);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
 .mvm-mail-panel {
     scroll-margin-top: 96px;
 }
@@ -6248,6 +6309,22 @@ a.metric-card {
     .admin-calendar-filter-grid,
     .admin-calendar-grid {
         grid-template-columns: 1fr;
+    }
+
+    .mvm-handover-action-stack {
+        justify-items: stretch;
+    }
+
+    .mvm-handover-action-stack .form-actions {
+        justify-content: stretch;
+    }
+
+    .mvm-handover-action-stack form {
+        width: 100%;
+    }
+
+    .handover-check-card {
+        flex-direction: column;
     }
 
     .mvm-performance-board {
