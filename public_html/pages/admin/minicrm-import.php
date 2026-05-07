@@ -512,6 +512,7 @@ $itemsByStatus = [];
 $selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
 $selectedRequestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
 $standaloneRequestsByWorkflowStage = [];
+$standaloneRequestWorkflowStages = minicrm_import_request_list_workflow_stages($standaloneRequests);
 
 foreach ($items as $item) {
     if ($selectedItemId === 0 && $selectedRequestId === 0) {
@@ -541,7 +542,8 @@ foreach ($standaloneRequests as $request) {
         $selectedRequestId = (int) ($request['id'] ?? 0);
     }
 
-    $workflowStage = minicrm_import_request_list_workflow_stage($request);
+    $requestId = (int) ($request['id'] ?? 0);
+    $workflowStage = $standaloneRequestWorkflowStages[$requestId] ?? minicrm_import_request_list_workflow_stage($request);
     $standaloneRequestsByWorkflowStage[$workflowStage][] = $request;
 }
 
@@ -625,14 +627,91 @@ function minicrm_import_compare_rows_chronologically(array $a, array $b, array $
     return $dateComparison !== 0 ? $dateComparison : ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
 }
 
-function minicrm_import_request_list_workflow_stage(array $request): string
+function minicrm_import_connection_request_document_type_map(array $requestIds): array
 {
+    $requestIds = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+
+    if ($requestIds === [] || !db_table_exists('connection_request_documents')) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT `connection_request_id`, `document_type`
+         FROM `connection_request_documents`
+         WHERE `connection_request_id` IN (' . db_in_placeholders($requestIds) . ')
+         GROUP BY `connection_request_id`, `document_type`',
+        $requestIds
+    )->fetchAll();
+    $map = [];
+
+    foreach ($rows as $row) {
+        $requestId = (int) ($row['connection_request_id'] ?? 0);
+        $documentType = trim((string) ($row['document_type'] ?? ''));
+
+        if ($requestId > 0 && $documentType !== '') {
+            $map[$requestId][$documentType] = true;
+        }
+    }
+
+    return $map;
+}
+
+function minicrm_import_request_list_workflow_stages(array $requests): array
+{
+    $documentTypesByRequest = minicrm_import_connection_request_document_type_map(array_column($requests, 'id'));
+    $stages = [];
+
+    foreach ($requests as $request) {
+        $requestId = (int) ($request['id'] ?? 0);
+
+        if ($requestId > 0) {
+            $stages[$requestId] = minicrm_import_request_list_workflow_stage($request, array_keys($documentTypesByRequest[$requestId] ?? []));
+        }
+    }
+
+    return $stages;
+}
+
+function minicrm_import_request_list_workflow_stage(array $request, array $documentTypes = []): string
+{
+    $manualStage = normalize_admin_workflow_stage((string) ($request['admin_workflow_stage'] ?? ''));
+
+    if ($manualStage !== null) {
+        return $manualStage;
+    }
+
     if ((string) ($request['electrician_status'] ?? '') === 'completed' || !empty($request['after_photos_completed_at'])) {
         return 'completed';
     }
 
-    // Keep the list query light; opened cards recalculate the document-based stage in detail.
-    return normalize_admin_workflow_stage((string) ($request['admin_workflow_stage'] ?? '')) ?? 'case_starting';
+    $documentTypeSet = array_fill_keys(array_map('strval', $documentTypes), true);
+    $hasAnyDocumentType = static function (array $types) use ($documentTypeSet): bool {
+        foreach ($types as $type) {
+            if (isset($documentTypeSet[$type])) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    if ($hasAnyDocumentType(['intervention_sheet', 'completed_intervention_sheet'])) {
+        return 'under_construction';
+    }
+
+    if ($hasAnyDocumentType(['execution_plan_package', 'execution_plan'])) {
+        return 'waiting_intervention_sheet';
+    }
+
+    if ($hasAnyDocumentType(['accepted_request'])) {
+        return 'waiting_plan';
+    }
+
+    if ($hasAnyDocumentType(['complete_package', 'submitted_request'])) {
+        return 'in_progress';
+    }
+
+    return 'case_starting';
 }
 
 function minicrm_import_portal_group_dom_id(string $workflowStage, int $index): string
