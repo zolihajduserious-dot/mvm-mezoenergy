@@ -5952,6 +5952,45 @@ function document_prefill_model(): string
     return trim(mvm_config_value('DOCUMENT_PREFILL_MODEL', 'gpt-4o-mini'));
 }
 
+function document_prefill_instruction_text(): string
+{
+    return implode("\n", [
+        'Olvasd ki a feltöltött magyar villanyszámla, személyi igazolvány és lakcímkártya dokumentumokból az MVM ügyindításhoz szükséges mezőket.',
+        'A fotók lehetnek oldalra fordítva, fejjel lefelé, részben ferde perspektívában vagy rossz fényben. Gondolatban forgasd el és olvasd végig a teljes képet.',
+        'Csak a dokumentumokon látható adatot add vissza. Ha valami nem egyértelmű, üres string legyen.',
+        'Ne adj vissza személyi okmányszámot, személyi azonosítót, igazolványszámot vagy adóazonosító jelet.',
+        'A születési dátum mindig YYYY-MM-DD formátumú legyen.',
+        'Személyi igazolvány: requester_name = név, birth_name = születési név, birth_place = születési hely, birth_date = születési idő vagy születési dátum.',
+        'Lakcímkártya: mother_name = Anyja neve; postal_code/city/postal_address = Lakóhely vagy Bejelentett lakóhely címe. Ha csak tartózkodási hely olvasható, azt használd lakcímként.',
+        'Villanyszámla: site_postal_code/site_address = Felhasználási hely, Fogyasztási hely vagy Számlázási/fogyasztási cím.',
+        'Villanyszámla: consumption_place_id = Vevő (fizető) azonosító, Fogyasztási hely azonosító vagy Felhasználási hely azonosító. Elsősorban a 10 jegyű számsort add vissza. A HU-val kezdődő mérési pont azonosítót csak akkor használd, ha nincs külön vevő/fogyasztási/felhasználási azonosító.',
+        'Villanyszámla: meter_serial = Mérő gyártási száma, Mérő gyári száma vagy Mérőóra gyári száma. Ha ugyanaz a mérő több sorban szerepel, egyszer add vissza. Ha több eltérő mérő van, a legaktuálisabb vagy legjobban olvasható saját mérőt válaszd.',
+        'A confidence_notes mezőbe röviden írd be, ha egy fontos mezőt nem találtál vagy bizonytalan volt.',
+    ]);
+}
+
+function document_prefill_file_context(array $file): string
+{
+    $label = trim((string) ($file['label'] ?? 'Dokumentum'));
+    $originalName = trim((string) ($file['original_name'] ?? ''));
+
+    $typeHints = [
+        'utility_bill' => 'villanyszámla vagy közüzemi számla',
+        'identity_card' => 'személyi igazolvány',
+        'address_card' => 'lakcímkártya',
+    ];
+    $fileType = (string) ($file['file_type'] ?? '');
+    $hint = (string) ($typeHints[$fileType] ?? 'dokumentum');
+
+    $parts = ['Következő dokumentum típusa: ' . $label . ' (' . $hint . ').'];
+
+    if ($originalName !== '') {
+        $parts[] = 'Fájlnév: ' . $originalName . '.';
+    }
+
+    return implode(' ', $parts);
+}
+
 function document_prefill_schema(): array
 {
     $fields = [
@@ -6116,7 +6155,7 @@ function document_prefill_extract_from_files(array $files): array
 
     $content = [[
         'type' => 'input_text',
-        'text' => 'Olvasd ki a feltöltött magyar villanyszámla, személyi igazolvány és lakcímkártya dokumentumokból az MVM ügyindításhoz szükséges mezőket. Csak a dokumentumokon látható adatot add vissza. Ha valami nem egyértelmű, üres string legyen. A születési dátum YYYY-MM-DD formátumú legyen. A címnél a postal_code/city/postal_address a lakcím, a site_postal_code/site_address a fogyasztási vagy felhasználási hely legyen. Ne adj vissza személyi okmányszámot vagy személyi azonosítót.',
+        'text' => document_prefill_instruction_text(),
     ]];
 
     foreach ($files as $file) {
@@ -6127,6 +6166,10 @@ function document_prefill_extract_from_files(array $files): array
         }
 
         $extension = strtolower(pathinfo((string) ($file['storage_path'] ?? ''), PATHINFO_EXTENSION));
+        $content[] = [
+            'type' => 'input_text',
+            'text' => document_prefill_file_context($file),
+        ];
 
         if ($extension === 'pdf') {
             $content[] = [
