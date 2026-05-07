@@ -7567,6 +7567,7 @@ function mvm_document_types(bool $includeSystemTypes = true): array
         'construction_log' => 'Építési napló',
         'technical_handover' => 'Műszaki átadás-átvételi jegyzőkönyv',
         'technical_declaration' => 'Nyilatkozatok adatlap',
+        'h_tariff_declaration' => 'H tarifa nyilatkozat',
         'seal_removal' => 'Plombabontási engedély',
     ];
 
@@ -7592,6 +7593,7 @@ function mvm_document_type_keys(): array
         'construction_log',
         'technical_handover',
         'technical_declaration',
+        'h_tariff_declaration',
         'seal_removal',
         'complete_package',
         'execution_plan_package',
@@ -8945,6 +8947,44 @@ function mvm_seal_removal_template_errors(?string $contractorKey = null): array
         : [];
 }
 
+function mvm_h_tariff_template_path(): ?string
+{
+    $candidate = APP_ROOT . '/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx';
+
+    return is_file($candidate) ? $candidate : null;
+}
+
+function mvm_h_tariff_template_errors(): array
+{
+    return mvm_h_tariff_template_path() === null
+        ? ['Hiányzik a H tarifa nyilatkozat DOCX sablon a templates/mvm/h-tariff-templates mappából.']
+        : [];
+}
+
+function mvm_h_tariff_operating_system_options(): array
+{
+    return [
+        '' => 'Nincs kiválasztva',
+        'levego_levego' => 'levegő - levegő',
+        'levego_viz' => 'levegő - víz',
+        'talaj_levego' => 'talaj - levegő',
+        'talaj_viz' => 'talaj - víz',
+        'viz_levego' => 'víz - levegő',
+        'viz_viz' => 'víz - víz',
+    ];
+}
+
+function mvm_h_tariff_operating_system_label(?string $value): string
+{
+    if ((string) $value === '') {
+        return '';
+    }
+
+    $options = mvm_h_tariff_operating_system_options();
+
+    return (string) ($options[(string) $value] ?? '');
+}
+
 function mvm_form_field_sections(): array
 {
     return [
@@ -9099,6 +9139,21 @@ function mvm_form_field_sections(): array
                 'legvezetekes_tobbletkoltseg' => ['label' => 'Légvezetékes többletköltség', 'type' => 'text'],
                 'muszaki_tobbletkoltseg' => ['label' => 'Műszaki többletköltség', 'type' => 'text'],
                 'meroora_helye_jelenleg' => ['label' => 'Mérőóra helye jelenleg', 'type' => 'text'],
+            ],
+        ],
+        'h_tariff_declaration' => [
+            'title' => 'H tarifa nyilatkozat',
+            'description' => 'A H tarifa igényhez szükséges berendezés- és hőszivattyú adatok. Ha itt adatot adsz meg, a rendszer a nyilatkozatot a jóváhagyási csomagba is beemeli.',
+            'fields' => [
+                'h_tarifa_gyarto' => ['label' => 'Berendezés gyártója', 'type' => 'text'],
+                'h_tarifa_tipus' => ['label' => 'Berendezés típusjelzése', 'type' => 'text'],
+                'h_tarifa_nevleges_villamos_kw' => ['label' => 'Névleges villamos teljesítmény (kW)', 'type' => 'text'],
+                'h_tarifa_futesi_teljesitmeny_kw' => ['label' => 'Fűtési teljesítmény (kW)', 'type' => 'text'],
+                'h_tarifa_scop' => ['label' => 'Jósági tényező / SCOP érték', 'type' => 'text'],
+                'h_tarifa_mukodesi_rendszer' => ['label' => 'Hőszivattyú működési rendszere', 'type' => 'select', 'options' => mvm_h_tariff_operating_system_options()],
+                'h_tarifa_teljes_egyideju_kw' => ['label' => 'Teljes egyidejű villamos teljesítmény (kW)', 'type' => 'text'],
+                'h_tarifa_futesi_fogyasztas_kwh' => ['label' => 'Várható fogyasztás fűtési időszakban (kWh)', 'type' => 'text'],
+                'h_tarifa_nyari_fogyasztas_kwh' => ['label' => 'Várható fogyasztás nyári időszakban (kWh)', 'type' => 'text'],
             ],
         ],
         'mvm_points' => [
@@ -9905,6 +9960,43 @@ function connection_request_mvm_form_values(array $request): array
     return mvm_recalculate_power_financials(mvm_apply_plan_field_defaults($values));
 }
 
+function mvm_h_tariff_form_field_keys(): array
+{
+    return [
+        'h_tarifa_gyarto',
+        'h_tarifa_tipus',
+        'h_tarifa_nevleges_villamos_kw',
+        'h_tarifa_futesi_teljesitmeny_kw',
+        'h_tarifa_scop',
+        'h_tarifa_mukodesi_rendszer',
+        'h_tarifa_teljes_egyideju_kw',
+        'h_tarifa_futesi_fogyasztas_kwh',
+        'h_tarifa_nyari_fogyasztas_kwh',
+    ];
+}
+
+function mvm_h_tariff_form_values_are_filled(array $values): bool
+{
+    foreach (mvm_h_tariff_form_field_keys() as $key) {
+        if (trim((string) ($values[$key] ?? '')) !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function connection_request_h_tariff_section_is_filled(int $requestId): bool
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return false;
+    }
+
+    return mvm_h_tariff_form_values_are_filled(connection_request_mvm_form_values($request));
+}
+
 function save_connection_request_mvm_form(int $requestId, array $source, ?array $sketchFile = null): array
 {
     if (!db_table_exists('connection_request_mvm_forms')) {
@@ -10250,6 +10342,14 @@ function mvm_docx_placeholder_map(array $request, array $values): array
     $addProject('LegvezetekesTobbletkoltseg', $field('legvezetekes_tobbletkoltseg'));
     $addProject('MuszakiTobbletkoltseg', $field('muszaki_tobbletkoltseg'));
     $addProject('MerooraHelyeJelenleg', $field('meroora_helye_jelenleg'));
+    $addProject('Gyarto', $field('h_tarifa_gyarto'));
+    $addProject('Tipus', $field('h_tarifa_tipus'));
+    $addProject('NevlegesVillamosTeljesitmeny', $field('h_tarifa_nevleges_villamos_kw'));
+    $addProject('FutesiTeljesitmeny', $field('h_tarifa_futesi_teljesitmeny_kw'));
+    $addProject('ScopErtek', $field('h_tarifa_scop'));
+    $addProject('TeljesEgyidejuVillamosTeljesitmeny', $field('h_tarifa_teljes_egyideju_kw'));
+    $addProject('VarhatoFogyasztasFutesiIdoszak', $field('h_tarifa_futesi_fogyasztas_kwh'));
+    $addProject('VarhatoFogyasztasNyariIdoszak', $field('h_tarifa_nyari_fogyasztas_kwh'));
     $leadDate = $field('leadas_datuma') !== '' ? $field('leadas_datuma') : $field('datum');
     $addProject('Laed', format_mvm_docx_date($leadDate));
     $addProject('Kva', $field('igenyelt_osszes_kva'));
@@ -10578,6 +10678,169 @@ function normalize_mvm_docx_placeholder_token(string $token): string
     $token = (string) preg_replace('/^\{\{?d\./i', '{d.', $token);
 
     return $token;
+}
+
+function replace_docx_placeholders_in_xml_dom(string $xml, array $placeholderMap): string
+{
+    if (!class_exists('DOMDocument') || !class_exists('DOMXPath')) {
+        return replace_docx_placeholders_in_xml($xml, $placeholderMap);
+    }
+
+    $dom = new DOMDocument();
+    $previousUseInternalErrors = libxml_use_internal_errors(true);
+    $loaded = $dom->loadXML($xml, LIBXML_NONET);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previousUseInternalErrors);
+
+    if (!$loaded) {
+        return strtr($xml, array_map('mvm_docx_xml_value', $placeholderMap));
+    }
+
+    $xpath = new DOMXPath($dom);
+    $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+    $paragraphs = $xpath->query('//w:p');
+
+    if ($paragraphs === false) {
+        return (string) $dom->saveXML();
+    }
+
+    foreach ($paragraphs as $paragraph) {
+        $textNodes = $xpath->query('.//w:t', $paragraph);
+
+        if ($textNodes === false || $textNodes->length === 0) {
+            continue;
+        }
+
+        $textNodeList = [];
+        $nodeValues = [];
+        $fullText = '';
+
+        foreach ($textNodes as $textNode) {
+            $textNodeList[] = $textNode;
+            $value = (string) $textNode->nodeValue;
+            $nodeValues[] = $value;
+            $fullText .= $value;
+        }
+
+        preg_match_all('/\{\{?\s*d\s*\.\s*[^}]{1,220}\}/i', $fullText, $matches, PREG_OFFSET_CAPTURE);
+
+        if (empty($matches[0])) {
+            continue;
+        }
+
+        $replacements = [];
+
+        foreach ($matches[0] as [$token, $position]) {
+            $mapToken = normalize_mvm_docx_placeholder_token((string) $token);
+
+            if (!array_key_exists($mapToken, $placeholderMap)) {
+                continue;
+            }
+
+            $replacements[] = [
+                'start' => (int) $position,
+                'end' => (int) $position + strlen((string) $token),
+                'value' => (string) $placeholderMap[$mapToken],
+            ];
+        }
+
+        if ($replacements === []) {
+            continue;
+        }
+
+        $replacementIndex = 0;
+        $offset = 0;
+        $replacementCount = count($replacements);
+        $newNodeValues = [];
+
+        foreach ($nodeValues as $nodeIndex => $original) {
+            $nodeStart = $offset;
+            $nodeLength = strlen($original);
+            $nodeEnd = $nodeStart + $nodeLength;
+            $cursor = $nodeStart;
+            $newValue = '';
+
+            while ($replacementIndex < $replacementCount && $replacements[$replacementIndex]['end'] <= $nodeStart) {
+                $replacementIndex++;
+            }
+
+            $scanIndex = $replacementIndex;
+
+            while ($scanIndex < $replacementCount) {
+                $replacement = $replacements[$scanIndex];
+
+                if ($replacement['start'] >= $nodeEnd) {
+                    break;
+                }
+
+                if ($replacement['start'] < $nodeStart && $replacement['end'] > $nodeStart) {
+                    $cursor = max($cursor, min($nodeEnd, $replacement['end']));
+                    $scanIndex++;
+                    continue;
+                }
+
+                if ($replacement['start'] >= $nodeStart && $replacement['start'] < $nodeEnd) {
+                    $newValue .= substr($fullText, $cursor, $replacement['start'] - $cursor);
+                    $newValue .= $replacement['value'];
+                    $cursor = max($cursor, min($nodeEnd, $replacement['end']));
+                }
+
+                $scanIndex++;
+            }
+
+            if ($cursor < $nodeEnd) {
+                $newValue .= substr($fullText, $cursor, $nodeEnd - $cursor);
+            }
+
+            $newNodeValues[$nodeIndex] = $newValue;
+            $offset = $nodeEnd;
+        }
+
+        foreach ($textNodeList as $nodeIndex => $textNode) {
+            $textNode->nodeValue = $newNodeValues[$nodeIndex] ?? $nodeValues[$nodeIndex] ?? '';
+        }
+    }
+
+    return (string) $dom->saveXML();
+}
+
+function mvm_docx_add_underline_to_run(string $runXml): string
+{
+    if (str_contains($runXml, '<w:u')) {
+        return $runXml;
+    }
+
+    if (preg_match('/<w:rPr\b[^>]*>/', $runXml, $matches, PREG_OFFSET_CAPTURE)) {
+        $insertAt = (int) $matches[0][1] + strlen($matches[0][0]);
+
+        return substr($runXml, 0, $insertAt) . '<w:u w:val="single"/>' . substr($runXml, $insertAt);
+    }
+
+    return (string) preg_replace(
+        '/(<w:r\b[^>]*>)/',
+        '$1<w:rPr><w:u w:val="single"/></w:rPr>',
+        $runXml,
+        1
+    );
+}
+
+function mvm_docx_underline_text_in_xml(string $xml, string $text): string
+{
+    $text = trim($text);
+
+    if ($text === '') {
+        return $xml;
+    }
+
+    $encodedText = preg_quote(mvm_docx_xml_value($text), '/');
+    $plainText = preg_quote($text, '/');
+    $pattern = '/<w:r\b[^>]*>(?:(?!<\/w:r>).)*(?:' . $encodedText . '|' . $plainText . ')(?:(?!<\/w:r>).)*<\/w:r>/su';
+
+    return (string) preg_replace_callback(
+        $pattern,
+        static fn (array $matches): string => mvm_docx_add_underline_to_run((string) $matches[0]),
+        $xml
+    );
 }
 
 function prepare_mvm_docx_sketch_png(string $sourcePath): string
@@ -12462,6 +12725,175 @@ function generate_mvm_seal_removal_pdf(int $requestId): array
     ];
 }
 
+function generate_mvm_h_tariff_docx(int $requestId): array
+{
+    $guard = connection_request_mvm_submission_guard_result($requestId);
+
+    if ($guard !== null) {
+        return $guard;
+    }
+
+    if (!class_exists('ZipArchive')) {
+        return ['ok' => false, 'message' => 'A Word dokumentum generálásához hiányzik a PHP ZIP bővítmény.', 'document_id' => null];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $form = connection_request_mvm_form($requestId);
+
+    if ($form === null) {
+        return ['ok' => false, 'message' => 'Előbb mentsd az MVM űrlap adatait.', 'document_id' => null];
+    }
+
+    $values = connection_request_mvm_form_values($request);
+
+    if (!mvm_h_tariff_form_values_are_filled($values)) {
+        return ['ok' => false, 'message' => 'A H tarifa nyilatkozathoz tölts ki legalább egy H tarifa mezőt.', 'document_id' => null];
+    }
+
+    $templatePath = mvm_h_tariff_template_path();
+
+    if ($templatePath === null) {
+        return ['ok' => false, 'message' => 'Hiányzik a H tarifa nyilatkozat DOCX sablon a templates/mvm/h-tariff-templates mappából.', 'document_id' => null];
+    }
+
+    $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-h-tariff-docx';
+    ensure_storage_dir($targetDir);
+
+    $storedName = 'h-tarifa-nyilatkozat-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $targetPath = $targetDir . '/' . $storedName;
+
+    if (!copy($templatePath, $targetPath)) {
+        return ['ok' => false, 'message' => 'A H tarifa Word sablont nem sikerült előkészíteni.', 'document_id' => null];
+    }
+
+    $zip = new ZipArchive();
+
+    if ($zip->open($targetPath) !== true) {
+        return ['ok' => false, 'message' => 'A H tarifa Word dokumentumot nem sikerült megnyitni szerkesztésre.', 'document_id' => null];
+    }
+
+    try {
+        $placeholderMap = mvm_docx_placeholder_map($request, $values);
+        $selectedSystemLabel = mvm_h_tariff_operating_system_label($values['h_tarifa_mukodesi_rendszer'] ?? '');
+        $zipFileCount = $zip->numFiles;
+
+        for ($index = 0; $index < $zipFileCount; $index++) {
+            $name = $zip->getNameIndex($index);
+
+            if (!is_string($name) || !preg_match('#^word/(document|header\d+|footer\d+)\.xml$#', $name)) {
+                continue;
+            }
+
+            $xml = $zip->getFromName($name);
+
+            if ($xml === false) {
+                continue;
+            }
+
+            $xml = replace_docx_placeholders_in_xml_dom($xml, $placeholderMap);
+            $xml = strtr($xml, array_map('mvm_docx_xml_value', $placeholderMap));
+            $xml = mvm_docx_underline_text_in_xml($xml, $selectedSystemLabel);
+            $zip->addFromString($name, $xml);
+        }
+
+        $zip->close();
+    } catch (Throwable $exception) {
+        $zip->close();
+
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+
+        return ['ok' => false, 'message' => 'A H tarifa Word dokumentum generálása sikertelen: ' . $exception->getMessage(), 'document_id' => null];
+    }
+
+    clearstatcache(true, $targetPath);
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'h_tariff_declaration',
+            'H tarifa nyilatkozat - kitöltött Word dokumentum',
+            $storedName,
+            $storedName,
+            $targetPath,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            is_file($targetPath) ? (int) filesize($targetPath) : 0,
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött H tarifa Word dokumentum elkészült.',
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
+function generate_mvm_h_tariff_pdf(int $requestId): array
+{
+    $docxResult = generate_mvm_h_tariff_docx($requestId);
+
+    if (!$docxResult['ok']) {
+        return $docxResult;
+    }
+
+    $document = find_connection_request_document((int) $docxResult['document_id']);
+
+    if ($document === null) {
+        return ['ok' => false, 'message' => 'A H tarifa Word dokumentum elkészült, de a mentett dokumentumrekord nem található.', 'document_id' => null];
+    }
+
+    $pdfResult = convert_mvm_docx_document_to_pdf($document);
+
+    if (!$pdfResult['ok'] || empty($pdfResult['path']) || !is_file((string) $pdfResult['path'])) {
+        return ['ok' => false, 'message' => $pdfResult['message'], 'document_id' => (int) $document['id']];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    $pdfPath = (string) $pdfResult['path'];
+    $storedName = basename($pdfPath);
+
+    db_query(
+        'INSERT INTO `connection_request_documents`
+            (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
+             `storage_path`, `mime_type`, `file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $requestId,
+            (int) $request['customer_id'],
+            'h_tariff_declaration',
+            'H tarifa nyilatkozat - kitöltött PDF',
+            $storedName,
+            $storedName,
+            $pdfPath,
+            'application/pdf',
+            (int) filesize($pdfPath),
+            is_array(current_user()) ? (int) current_user()['id'] : null,
+        ]
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'A kitöltött H tarifa PDF dokumentum elkészült.',
+        'document_id' => (int) db()->lastInsertId(),
+    ];
+}
+
 function validate_connection_request_document_upload(string $documentType, array $files): array
 {
     $errors = [];
@@ -12495,7 +12927,7 @@ function validate_connection_request_document_upload(string $documentType, array
             }
         }
 
-        if (in_array($documentType, ['authorization', 'completed_intervention_sheet', 'construction_log', 'technical_declaration', 'technical_handover_package', 'seal_removal_package'], true)) {
+        if (in_array($documentType, ['authorization', 'completed_intervention_sheet', 'construction_log', 'technical_declaration', 'h_tariff_declaration', 'technical_handover_package', 'seal_removal_package'], true)) {
             $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
 
             if (!in_array($extension, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true)) {
@@ -12726,6 +13158,11 @@ function latest_connection_request_seal_removal_document(int $requestId, bool $p
     return latest_connection_request_document_by_types($requestId, ['seal_removal'], $packageCompatibleOnly);
 }
 
+function latest_connection_request_h_tariff_declaration_document(int $requestId, bool $packageCompatibleOnly = true): ?array
+{
+    return latest_connection_request_document_by_types($requestId, ['h_tariff_declaration'], $packageCompatibleOnly);
+}
+
 function latest_connection_request_technical_document(int $requestId, string $documentType, bool $packageCompatibleOnly = true): ?array
 {
     return latest_connection_request_document_by_types($requestId, [$documentType], $packageCompatibleOnly);
@@ -12763,6 +13200,12 @@ function connection_request_complete_package_parts(int $requestId): array
 
     if ($mvmDocument !== null) {
         $parts[] = connection_request_document_package_part($mvmDocument, 'MVM dokumentum', 'MVM dokumentum');
+    }
+
+    $hTariffDeclaration = latest_connection_request_h_tariff_declaration_document($requestId);
+
+    if ($hTariffDeclaration !== null) {
+        $parts[] = connection_request_document_package_part($hTariffDeclaration, 'H tarifa nyilatkozat', 'H tarifa nyilatkozat');
     }
 
     $definitions = connection_request_upload_definitions();
@@ -12873,6 +13316,13 @@ function connection_request_complete_package_missing_items(int $requestId): arra
 
     if (latest_connection_request_mvm_source_document($requestId) === null) {
         $missing[] = 'MVM dokumentum PDF vagy kép formátumban';
+    }
+
+    if (connection_request_h_tariff_section_is_filled($requestId)
+        && latest_connection_request_h_tariff_declaration_document($requestId) === null
+        && mvm_h_tariff_template_errors() !== []
+    ) {
+        $missing[] = 'H tarifa nyilatkozat sablon';
     }
 
     if (!connection_request_has_file_type($requestId, 'authorization')) {
@@ -13616,6 +14066,18 @@ function generate_connection_request_complete_package(int $requestId): array
 
     if ($request === null) {
         return ['ok' => false, 'message' => 'Az igény nem található.', 'document_id' => null];
+    }
+
+    if (connection_request_h_tariff_section_is_filled($requestId)) {
+        $hTariffResult = generate_mvm_h_tariff_pdf($requestId);
+
+        if (!$hTariffResult['ok']) {
+            return [
+                'ok' => false,
+                'message' => 'A H tarifa nyilatkozatot nem sikerült elkészíteni a jóváhagyási csomaghoz. ' . (string) $hTariffResult['message'],
+                'document_id' => null,
+            ];
+        }
     }
 
     $missingItems = connection_request_complete_package_missing_items($requestId);

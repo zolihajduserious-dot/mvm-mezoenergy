@@ -60,9 +60,10 @@ $types = mvm_document_types();
 $uploadTypes = mvm_document_types();
 $errors = [];
 $mvmFormAction = is_post() ? (string) ($_POST['action'] ?? '') : '';
-$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
+$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
 $isHandoverFormPost = in_array($mvmFormAction, ['generate_handover_docx', 'generate_handover_pdf'], true);
 $isSealRemovalFormPost = in_array($mvmFormAction, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
+$isHTariffFormPost = in_array($mvmFormAction, ['generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
 $selectedType = (string) ($_POST['document_type'] ?? 'submitted_request');
 $title = trim((string) ($_POST['title'] ?? ''));
 $mvmFormValues = $isMvmFormPost
@@ -83,6 +84,7 @@ $templateErrors = mvm_form_template_errors((string) ($mvmFormValues['mvm_contrac
 $planTemplateErrors = mvm_plan_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $handoverTemplateErrors = mvm_technical_handover_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $sealRemovalTemplateErrors = mvm_seal_removal_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
+$hTariffTemplateErrors = mvm_h_tariff_template_errors();
 $mvmSubmissionApproved = connection_request_mvm_submission_is_allowed($request);
 $mvmSubmissionGuardMessage = connection_request_mvm_submission_guard_message($request);
 $mvmPaymentApproverLabel = $mvmSubmissionApproved ? connection_request_mvm_fee_payment_approver_label($request) : '';
@@ -115,6 +117,8 @@ if (is_post()) {
         'generate_handover_pdf',
         'generate_seal_removal_docx',
         'generate_seal_removal_pdf',
+        'generate_h_tariff_docx',
+        'generate_h_tariff_pdf',
         'build_package',
         'build_execution_plan_package',
         'build_handover_package',
@@ -131,7 +135,7 @@ if (is_post()) {
 
     if ($requiresMvmSubmissionApproval && !$mvmSubmissionApproved) {
         $errors[] = $mvmSubmissionGuardMessage;
-    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf'], true)) {
+    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true)) {
         if ($mvmFormSchemaErrors !== []) {
             $errors = array_merge($errors, $mvmFormSchemaErrors);
         }
@@ -150,6 +154,10 @@ if (is_post()) {
 
         if (in_array($action, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true) && $sealRemovalTemplateErrors !== []) {
             $errors = array_merge($errors, $sealRemovalTemplateErrors);
+        }
+
+        if (in_array($action, ['generate_h_tariff_docx', 'generate_h_tariff_pdf'], true) && $hTariffTemplateErrors !== []) {
+            $errors = array_merge($errors, $hTariffTemplateErrors);
         }
 
         if ($errors === []) {
@@ -199,6 +207,12 @@ if (is_post()) {
                 } elseif ($action === 'generate_seal_removal_docx') {
                     $result = generate_mvm_seal_removal_docx((int) $request['id']);
                     set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+                } elseif ($action === 'generate_h_tariff_pdf') {
+                    $result = generate_mvm_h_tariff_pdf((int) $request['id']);
+                    set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+                } elseif ($action === 'generate_h_tariff_docx') {
+                    $result = generate_mvm_h_tariff_docx((int) $request['id']);
+                    set_flash($result['ok'] ? 'success' : 'error', $result['message']);
                 } else {
                     set_flash('success', 'Az MVM űrlap adatai elmentve.');
                 }
@@ -207,6 +221,8 @@ if (is_post()) {
                     $noticeTarget = '&handover_notice=1#technical-handover-section';
                 } elseif (in_array($action, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true)) {
                     $noticeTarget = '&seal_removal_notice=1#seal-removal-section';
+                } elseif (in_array($action, ['generate_h_tariff_docx', 'generate_h_tariff_pdf'], true)) {
+                    $noticeTarget = '&h_tariff_notice=1#h-tariff-section';
                 } else {
                     $noticeTarget = '&mvm_notice=1#mvm-generator-actions';
                 }
@@ -339,6 +355,8 @@ if (is_post()) {
                     $uploadTarget = '&handover_notice=1#technical-handover-section';
                 } elseif (in_array($selectedType, ['authorization', 'seal_removal'], true)) {
                     $uploadTarget = '&seal_removal_notice=1#seal-removal-section';
+                } elseif ($selectedType === 'h_tariff_declaration') {
+                    $uploadTarget = '&h_tariff_notice=1#h-tariff-section';
                 } else {
                     $uploadTarget = '';
                 }
@@ -365,6 +383,8 @@ $sealRemovalPackageParts = connection_request_seal_removal_package_parts((int) $
 $sealRemovalMissingItems = connection_request_seal_removal_package_missing_items((int) $request['id']);
 $technicalHandoverDocument = latest_connection_request_technical_handover_document((int) $request['id']);
 $sealRemovalDocument = latest_connection_request_seal_removal_document((int) $request['id']);
+$hTariffDeclarationDocument = latest_connection_request_h_tariff_declaration_document((int) $request['id'], false);
+$hTariffSectionFilled = mvm_h_tariff_form_values_are_filled($mvmFormValues);
 $authorizationPart = latest_connection_request_authorization_package_part((int) $request['id']);
 $completedInterventionSheetDocument = latest_connection_request_technical_document((int) $request['id'], 'completed_intervention_sheet');
 $constructionLogDocument = latest_connection_request_technical_document((int) $request['id'], 'construction_log');
@@ -445,14 +465,17 @@ $flash = get_flash();
 $mvmNoticeTarget = (string) ($_GET['mvm_notice'] ?? '') === '1';
 $handoverNoticeTarget = (string) ($_GET['handover_notice'] ?? '') === '1';
 $sealRemovalNoticeTarget = (string) ($_GET['seal_removal_notice'] ?? '') === '1';
-$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget || $sealRemovalNoticeTarget) ? null : $flash;
+$hTariffNoticeTarget = (string) ($_GET['h_tariff_notice'] ?? '') === '1';
+$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget || $sealRemovalNoticeTarget || $hTariffNoticeTarget) ? null : $flash;
 $mvmFormFlash = $mvmNoticeTarget ? $flash : null;
 $technicalHandoverFlash = $handoverNoticeTarget ? $flash : null;
 $sealRemovalFlash = $sealRemovalNoticeTarget ? $flash : null;
+$hTariffFlash = $hTariffNoticeTarget ? $flash : null;
 $topErrors = $isMvmFormPost ? [] : $errors;
-$mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost && !$isSealRemovalFormPost) ? $errors : [];
+$mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost && !$isSealRemovalFormPost && !$isHTariffFormPost) ? $errors : [];
 $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
 $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
+$hTariffErrors = $isHTariffFormPost ? $errors : [];
 ?>
 <section class="admin-section">
     <div class="container">
@@ -785,6 +808,40 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                     <button class="button" name="action" value="generate_plan_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $planTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Terv PDF generálása Word dokumentumból</button>
                     </div>
                 </div>
+
+                <section id="h-tariff-section" class="mvm-form-section">
+                    <div>
+                        <h3>H tarifa nyilatkozat generálása</h3>
+                        <p>Ha a H tarifa nyilatkozat mezői ki vannak töltve, a PDF automatikusan bekerül az MVM jóváhagyási csomagba. A kiválasztott hőszivattyú működési rendszer a Word sablonban aláhúzva jelenik meg.</p>
+                    </div>
+                    <div>
+                        <?php if ($hTariffFlash !== null): ?>
+                            <div class="alert alert-<?= h((string) $hTariffFlash['type']); ?>"><p><?= h((string) $hTariffFlash['message']); ?></p></div>
+                        <?php endif; ?>
+
+                        <?php if ($hTariffErrors !== []): ?>
+                            <div class="alert alert-error">
+                                <?php foreach ($hTariffErrors as $error): ?><p><?= h($error); ?></p><?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ($hTariffTemplateErrors !== []): ?>
+                            <div class="alert alert-info">
+                                <?php foreach ($hTariffTemplateErrors as $templateError): ?><p><?= h($templateError); ?></p><?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <p class="muted-text">
+                            <?= $hTariffDeclarationDocument !== null
+                                ? 'Jelenlegi H tarifa dokumentum: ' . h((string) $hTariffDeclarationDocument['original_name'])
+                                : ($hTariffSectionFilled ? 'A H tarifa adatok ki vannak töltve, a dokumentum generálható.' : 'A H tarifa dokumentum csak akkor kerül a csomagba, ha a fenti H tarifa mezők közül legalább egy ki van töltve.'); ?>
+                        </p>
+                        <div class="form-actions">
+                            <button class="button button-secondary" name="action" value="generate_h_tariff_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $hTariffTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>H tarifa Word generálása</button>
+                            <button class="button" name="action" value="generate_h_tariff_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $hTariffTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>H tarifa PDF generálása</button>
+                        </div>
+                    </div>
+                </section>
             </form>
         </section>
 
@@ -826,7 +883,7 @@ $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">1. csomag</p>
                     <h2>MVM jóváhagyási PDF csomag</h2>
-                    <p>Sorrend: MVM dokumentum, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
+                    <p>Sorrend: MVM dokumentum, H tarifa nyilatkozat ha ki van töltve, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
