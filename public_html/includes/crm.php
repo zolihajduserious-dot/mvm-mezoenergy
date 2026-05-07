@@ -5831,6 +5831,12 @@ function document_prefill_clear_session(string $token): void
 
 function document_prefill_attach_session_files(int $requestId, string $token): array
 {
+    if (!document_prefill_enabled()) {
+        document_prefill_clear_session($token);
+
+        return [];
+    }
+
     $files = document_prefill_session_files($token);
 
     if ($files === []) {
@@ -5945,6 +5951,11 @@ function document_prefill_session_file_summary(array $files): string
 function document_prefill_openai_api_key(): string
 {
     return trim(mvm_config_value('DOCUMENT_PREFILL_OPENAI_API_KEY', mvm_config_value('OPENAI_API_KEY', '')));
+}
+
+function document_prefill_enabled(): bool
+{
+    return filter_var(mvm_config_value('DOCUMENT_PREFILL_ENABLED', '0'), FILTER_VALIDATE_BOOLEAN);
 }
 
 function document_prefill_model(): string
@@ -6399,6 +6410,19 @@ function document_prefill_apply_to_forms(array $data, array $customerForm, array
 
 function handle_connection_request_document_prefill(string $token, array $files, array $customerForm, array $requestForm): array
 {
+    if (!document_prefill_enabled()) {
+        document_prefill_clear_session($token);
+
+        return [
+            'ok' => false,
+            'message' => 'A dokumentumokból automatikus kitöltés átmenetileg ki van kapcsolva.',
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+            'no_files' => true,
+        ];
+    }
+
     $storeResult = document_prefill_store_uploads($token, $files);
 
     if (($storeResult['messages'] ?? []) !== []) {
@@ -6444,6 +6468,17 @@ function handle_connection_request_document_prefill(string $token, array $files,
 
 function handle_connection_request_document_prefill_from_regular_uploads(array $files, array $customerForm, array $requestForm, bool $overwrite = true): array
 {
+    if (!document_prefill_enabled()) {
+        return [
+            'ok' => false,
+            'message' => '',
+            'customer_form' => $customerForm,
+            'request_form' => $requestForm,
+            'data' => [],
+            'no_files' => true,
+        ];
+    }
+
     $collectResult = document_prefill_collect_uploaded_files($files, false, true);
     $collectedFiles = (array) ($collectResult['files'] ?? []);
 
@@ -6504,6 +6539,12 @@ function handle_connection_request_document_prefill_from_regular_uploads(array $
 
 function render_connection_request_document_prefill_panel(string $token, ?array $prefillResult = null): void
 {
+    if (!document_prefill_enabled()) {
+        document_prefill_clear_session($token);
+
+        return;
+    }
+
     $sessionFiles = document_prefill_session_files($token);
     ?>
     <section class="auth-panel form-block document-prefill-panel">
