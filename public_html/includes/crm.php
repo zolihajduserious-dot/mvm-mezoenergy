@@ -5794,8 +5794,8 @@ function document_prefill_store_uploads(string $token, array $files): array
 
     if ($storedFiles !== []) {
         $sessionKey = document_prefill_session_key($token);
-        $existing = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
-        $_SESSION[$sessionKey] = array_values(array_merge($existing, $storedFiles));
+        document_prefill_clear_session($token);
+        $_SESSION[$sessionKey] = array_values($storedFiles);
     }
 
     return [
@@ -5919,6 +5919,29 @@ function document_prefill_attach_session_files(int $requestId, string $token): a
     return $attached;
 }
 
+function document_prefill_session_file_summary(array $files): string
+{
+    $counts = [];
+
+    foreach ($files as $file) {
+        $label = trim((string) ($file['label'] ?? $file['original_name'] ?? 'dokumentum'));
+
+        if ($label === '') {
+            $label = 'dokumentum';
+        }
+
+        $counts[$label] = ($counts[$label] ?? 0) + 1;
+    }
+
+    $parts = [];
+
+    foreach ($counts as $label => $count) {
+        $parts[] = $count > 1 ? $label . ' (' . $count . ' fájl)' : $label;
+    }
+
+    return implode(', ', $parts);
+}
+
 function document_prefill_openai_api_key(): string
 {
     return trim(mvm_config_value('DOCUMENT_PREFILL_OPENAI_API_KEY', mvm_config_value('OPENAI_API_KEY', '')));
@@ -6029,6 +6052,50 @@ function document_prefill_decode_json_text(string $text): ?array
     return null;
 }
 
+function document_prefill_retry_after_seconds(?string $rawResponse): float
+{
+    if (!is_string($rawResponse) || $rawResponse === '') {
+        return 0.0;
+    }
+
+    $decoded = json_decode($rawResponse, true);
+    $message = is_array($decoded) ? (string) ($decoded['error']['message'] ?? '') : $rawResponse;
+
+    if (preg_match('/try again in\s+([0-9]+(?:\.[0-9]+)?)s/i', $message, $matches)) {
+        return (float) $matches[1];
+    }
+
+    return 0.0;
+}
+
+function document_prefill_api_error_message(int $statusCode, ?string $rawResponse, string $curlError = ''): string
+{
+    if ($statusCode === 429) {
+        $retryAfter = document_prefill_retry_after_seconds($rawResponse);
+
+        return $retryAfter > 0
+            ? 'Az adatkiolvasó szolgáltatás pillanatnyi percenkénti kerete betelt. Várj kb. ' . max(1, (int) ceil($retryAfter)) . ' másodpercet, majd próbáld újra.'
+            : 'Az adatkiolvasó szolgáltatás pillanatnyi percenkénti kerete betelt. Várj pár másodpercet, majd próbáld újra.';
+    }
+
+    $message = 'Az adatkiolvasás sikertelen.';
+
+    if ($curlError !== '') {
+        return $message . ' Kapcsolódási hiba: ' . $curlError;
+    }
+
+    if (is_string($rawResponse) && $rawResponse !== '') {
+        $decodedError = json_decode($rawResponse, true);
+        $apiMessage = is_array($decodedError) ? trim((string) ($decodedError['error']['message'] ?? '')) : '';
+
+        if ($apiMessage !== '') {
+            return $message . ' OpenAI hiba: ' . $apiMessage;
+        }
+    }
+
+    return $message . ' HTTP: ' . $statusCode;
+}
+
 function document_prefill_extract_from_files(array $files): array
 {
     $files = array_values(array_filter($files, static fn (array $file): bool => is_file((string) ($file['storage_path'] ?? ''))));
@@ -6107,38 +6174,49 @@ function document_prefill_extract_from_files(array $files): array
         'store' => false,
     ];
 
-    $curl = curl_init('https://api.openai.com/v1/responses');
-    curl_setopt_array($curl, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 90,
-        CURLOPT_CONNECTTIMEOUT => 15,
-    ]);
+    $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $rawResponse = false;
+    $statusCode = 0;
+    $curlError = '';
 
-    $rawResponse = curl_exec($curl);
-    $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($curl);
-    curl_close($curl);
+    for ($attempt = 1; $attempt <= 2; $attempt++) {
+        $curl = curl_init('https://api.openai.com/v1/responses');
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payloadJson,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $apiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 90,
+            CURLOPT_CONNECTTIMEOUT => 15,
+        ]);
+
+        $rawResponse = curl_exec($curl);
+        $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curl);
+        curl_close($curl);
+
+        if ($statusCode !== 429 || $attempt >= 2) {
+            break;
+        }
+
+        $retryAfter = document_prefill_retry_after_seconds(is_string($rawResponse) ? $rawResponse : '');
+
+        if ($retryAfter <= 0 || $retryAfter > 10) {
+            break;
+        }
+
+        sleep(max(1, (int) ceil($retryAfter) + 1));
+    }
 
     if ($rawResponse === false || $statusCode < 200 || $statusCode >= 300) {
-        $message = 'Az adatkiolvasás sikertelen.';
-
-        if ($curlError !== '') {
-            $message .= ' cURL: ' . $curlError;
-        }
-
-        if (is_string($rawResponse) && $rawResponse !== '') {
-            $decodedError = json_decode($rawResponse, true);
-            $apiMessage = is_array($decodedError) ? (string) ($decodedError['error']['message'] ?? '') : '';
-            $message .= ' HTTP: ' . $statusCode . ($apiMessage !== '' ? ' - ' . $apiMessage : '');
-        }
-
-        return ['ok' => false, 'message' => $message, 'data' => []];
+        return [
+            'ok' => false,
+            'message' => document_prefill_api_error_message($statusCode, is_string($rawResponse) ? $rawResponse : null, $curlError),
+            'data' => [],
+        ];
     }
 
     $response = json_decode((string) $rawResponse, true);
@@ -6340,7 +6418,7 @@ function render_connection_request_document_prefill_panel(string $token, ?array 
         <?php endif; ?>
 
         <?php if ($sessionFiles !== []): ?>
-            <p class="muted-text">Kiolvasásra előkészítve: <?= h(implode(', ', array_map(static fn (array $file): string => (string) ($file['label'] ?? $file['original_name'] ?? 'dokumentum'), $sessionFiles))); ?>. Mentéskor ezek az adatlap fájljai közé is bekerülnek.</p>
+            <p class="muted-text">Kiolvasásra előkészítve: <?= h(document_prefill_session_file_summary($sessionFiles)); ?>. Új feltöltéskor a rendszer ezt a csomagot lecseréli, mentéskor pedig az adatlap fájljai közé is beteszi.</p>
         <?php endif; ?>
 
         <div class="file-upload-grid">
