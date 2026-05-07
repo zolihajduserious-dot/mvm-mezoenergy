@@ -12322,6 +12322,205 @@ function prepare_pdf_package_image(string $sourcePath, int $quality): string
     return $targetPath;
 }
 
+function pdf_package_file_starts_with_pdf_signature(string $path): bool
+{
+    if (!is_file($path)) {
+        return false;
+    }
+
+    $handle = fopen($path, 'rb');
+    $signature = $handle ? fread($handle, 4) : '';
+
+    if (is_resource($handle)) {
+        fclose($handle);
+    }
+
+    return $signature === '%PDF';
+}
+
+function normalize_pdf_package_pdf_with_command(string $sourcePath, string $targetPath, array $candidates, callable $commandBuilder): array
+{
+    if (!function_exists('exec')) {
+        return ['ok' => false, 'message' => 'Az exec futtatás nem engedélyezett.', 'path' => null];
+    }
+
+    $lastOutput = [];
+
+    foreach (array_values(array_filter($candidates)) as $binary) {
+        $command = $commandBuilder((string) $binary, $sourcePath, $targetPath);
+        $output = [];
+        $exitCode = 1;
+        exec($command, $output, $exitCode);
+        $lastOutput = $output;
+        clearstatcache(true, $targetPath);
+
+        if ($exitCode === 0 && pdf_package_file_starts_with_pdf_signature($targetPath)) {
+            return ['ok' => true, 'message' => basename((string) $binary) . ' PDF normalizálás sikeres.', 'path' => $targetPath];
+        }
+
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+    }
+
+    return [
+        'ok' => false,
+        'message' => trim(implode(' ', $lastOutput)) ?: 'Nem érhető el megfelelő helyi PDF normalizáló eszköz.',
+        'path' => null,
+    ];
+}
+
+function normalize_pdf_package_pdf_with_qpdf(string $sourcePath, string $targetPath): array
+{
+    $configuredBinary = trim(mvm_config_value('QPDF_BIN', ''));
+    $candidates = array_values(array_filter([$configuredBinary, 'qpdf']));
+
+    return normalize_pdf_package_pdf_with_command(
+        $sourcePath,
+        $targetPath,
+        $candidates,
+        static fn (string $binary, string $source, string $target): string => escapeshellcmd($binary)
+            . ' --object-streams=disable --stream-data=uncompress --force-version=1.4 '
+            . escapeshellarg($source) . ' ' . escapeshellarg($target) . ' 2>&1'
+    );
+}
+
+function normalize_pdf_package_pdf_with_ghostscript(string $sourcePath, string $targetPath): array
+{
+    $configuredBinary = trim(mvm_config_value('GHOSTSCRIPT_BIN', ''));
+    $candidates = array_values(array_filter([$configuredBinary, 'gs', 'gswin64c', 'gswin32c']));
+
+    return normalize_pdf_package_pdf_with_command(
+        $sourcePath,
+        $targetPath,
+        $candidates,
+        static fn (string $binary, string $source, string $target): string => escapeshellcmd($binary)
+            . ' -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dNOPAUSE -dBATCH -dSAFER '
+            . '-sOutputFile=' . escapeshellarg($target) . ' '
+            . escapeshellarg($source) . ' 2>&1'
+    );
+}
+
+function normalize_pdf_package_pdf_with_convertapi(string $sourcePath, string $targetPath): array
+{
+    $secret = defined('CONVERTAPI_SECRET') ? CONVERTAPI_SECRET : '';
+
+    if ($secret === '') {
+        return ['ok' => false, 'message' => 'Nincs beállítva CONVERTAPI_SECRET.', 'path' => null];
+    }
+
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'message' => 'A PHP cURL bővítmény nem elérhető.', 'path' => null];
+    }
+
+    $targetFile = fopen($targetPath, 'wb');
+
+    if ($targetFile === false) {
+        return ['ok' => false, 'message' => 'Nem sikerült létrehozni az ideiglenes PDF fájlt.', 'path' => null];
+    }
+
+    $endpoint = defined('CONVERTAPI_ENDPOINT') ? CONVERTAPI_ENDPOINT : 'https://v2.convertapi.com';
+    $curl = curl_init(rtrim($endpoint, '/') . '/convert/pdf/to/pdf');
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => [
+            'File' => new CURLFile($sourcePath, 'application/pdf', basename($sourcePath)),
+            'PdfVersion' => '1.4',
+            'StoreFile' => 'false',
+        ],
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $secret,
+        ],
+        CURLOPT_FILE => $targetFile,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_CONNECTTIMEOUT => 20,
+        CURLOPT_FAILONERROR => false,
+    ]);
+
+    $success = curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+    fclose($targetFile);
+    clearstatcache(true, $targetPath);
+
+    if (!$success || $statusCode < 200 || $statusCode >= 300 || !is_file($targetPath) || filesize($targetPath) === 0) {
+        $responseBody = is_file($targetPath) ? (string) file_get_contents($targetPath) : '';
+
+        if (is_file($targetPath)) {
+            unlink($targetPath);
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'ConvertAPI PDF normalizálás sikertelen. HTTP: ' . $statusCode . '. ' . ($curlError !== '' ? 'cURL: ' . $curlError . '. ' : '') . trim($responseBody),
+            'path' => null,
+        ];
+    }
+
+    if (pdf_package_file_starts_with_pdf_signature($targetPath)) {
+        return ['ok' => true, 'message' => 'ConvertAPI PDF normalizálás sikeres.', 'path' => $targetPath];
+    }
+
+    $responseBody = (string) file_get_contents($targetPath);
+    $decoded = json_decode($responseBody, true);
+
+    if (is_array($decoded) && isset($decoded['Files'][0]['FileData'])) {
+        $pdfBytes = base64_decode((string) $decoded['Files'][0]['FileData'], true);
+
+        if (is_string($pdfBytes) && str_starts_with($pdfBytes, '%PDF')) {
+            file_put_contents($targetPath, $pdfBytes);
+
+            return ['ok' => true, 'message' => 'ConvertAPI PDF normalizálás sikeres.', 'path' => $targetPath];
+        }
+    }
+
+    if (is_file($targetPath)) {
+        unlink($targetPath);
+    }
+
+    return [
+        'ok' => false,
+        'message' => 'A ConvertAPI PDF normalizálás válasza nem PDF fájl. ' . substr($responseBody, 0, 300),
+        'path' => null,
+    ];
+}
+
+function normalize_pdf_package_pdf_for_fpdi(string $sourcePath, string $label): array
+{
+    $targetPath = tempnam(sys_get_temp_dir(), 'mezo_package_pdf_') . '.pdf';
+    $messages = [];
+    $normalizers = [
+        'qpdf' => 'normalize_pdf_package_pdf_with_qpdf',
+        'ghostscript' => 'normalize_pdf_package_pdf_with_ghostscript',
+        'convertapi' => 'normalize_pdf_package_pdf_with_convertapi',
+    ];
+
+    foreach ($normalizers as $normalizerName => $normalizer) {
+        $result = $normalizer($sourcePath, $targetPath);
+
+        if (($result['ok'] ?? false) && !empty($result['path']) && is_file((string) $result['path'])) {
+            return [
+                'ok' => true,
+                'message' => (string) ($result['message'] ?? ($normalizerName . ' normalizálás sikeres.')),
+                'path' => (string) $result['path'],
+            ];
+        }
+
+        $messages[] = $normalizerName . ': ' . (string) ($result['message'] ?? 'sikertelen');
+    }
+
+    if (is_file($targetPath)) {
+        unlink($targetPath);
+    }
+
+    return [
+        'ok' => false,
+        'message' => 'A(z) "' . $label . '" PDF automatikus kompatibilissé mentése nem sikerült. ' . implode(' ', array_filter($messages)),
+        'path' => null,
+    ];
+}
+
 function render_connection_request_complete_package_pdf(array $parts, string $targetPath, int $imageQuality): array
 {
     if (!class_exists('\\setasign\\Fpdi\\Fpdi')) {
@@ -12344,11 +12543,19 @@ function render_connection_request_complete_package_pdf(array $parts, string $ta
                 try {
                     $pageCount = $pdf->setSourceFile($path);
                 } catch (Throwable $exception) {
-                    throw new RuntimeException(
+                    $normalizeResult = normalize_pdf_package_pdf_for_fpdi($path, $label);
+
+                    if (($normalizeResult['ok'] ?? false) && !empty($normalizeResult['path'])) {
+                        $path = (string) $normalizeResult['path'];
+                        $temporaryFiles[] = $path;
+                        $pageCount = $pdf->setSourceFile($path);
+                    } else {
+                        throw new RuntimeException(
                         'A(z) "' . $label . '" PDF nem fűzhető be. Nyisd meg, mentsd vagy nyomtasd új PDF-be, majd töltsd fel újra. Részletek: ' . $exception->getMessage(),
                         0,
                         $exception
-                    );
+                        );
+                    }
                 }
 
                 for ($page = 1; $page <= $pageCount; $page++) {
