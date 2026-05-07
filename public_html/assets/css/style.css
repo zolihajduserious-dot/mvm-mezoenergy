@@ -4264,6 +4264,22 @@ a.metric-card {
     background: #ffffff;
 }
 
+.minicrm-bulk-fix-panel {
+    margin: 12px 0;
+}
+
+.minicrm-bulk-fix-panel form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+}
+
+.minicrm-bulk-fix-panel small {
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
 .minicrm-document-preview-panel .admin-request-doc-grid {
     margin-top: 12px;
 }

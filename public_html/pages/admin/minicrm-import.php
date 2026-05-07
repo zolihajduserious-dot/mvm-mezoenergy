@@ -297,6 +297,19 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'fix_szabo_dezso_5_apartment_power') {
+    require_valid_csrf_token();
+
+    if (!can_view_super_admin_overview()) {
+        set_flash('error', 'Ezt a csoportos adatjavítást csak szuperadmin indíthatja.');
+        redirect('/admin/minicrm-import#minicrm-status-szab-dezs-5');
+    }
+
+    $result = apply_minicrm_szabo_dezso_5_apartment_power_fix();
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A Szabó Dezső 5 teljesítményjavítás sikertelen.'));
+    redirect('/admin/minicrm-import#minicrm-status-szab-dezs-5');
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'assign_minicrm_electricians') {
     require_valid_csrf_token();
 
@@ -970,6 +983,23 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                     </div>
                                     <span data-minicrm-status-count><?= count($statusItems); ?> látható</span>
                                 </header>
+
+                                <?php if (can_view_super_admin_overview() && minicrm_import_key((string) $statusName) === 'szabo dezso 5'): ?>
+                                    <?php $szaboPowerPreview = minicrm_szabo_dezso_5_apartment_power_preview($statusItems); ?>
+                                    <section class="minicrm-document-preview-panel minicrm-bulk-fix-panel">
+                                        <div class="admin-request-section-title">
+                                            <h3>Szabó Dezső 5 lakás teljesítményjavítás</h3>
+                                            <span><?= (int) $szaboPowerPreview['pending']; ?> javítandó / <?= (int) $szaboPowerPreview['target']; ?> cél</span>
+                                        </div>
+                                        <p class="muted-text">A pontosan beazonosított 20 lakás igényelt mindennapszaki teljesítménye 1x32 A helyett 3x16 A lesz. Az üzletek és garázsok kimaradnak.</p>
+                                        <form method="post" action="<?= h(url_path('/admin/minicrm-import') . '#minicrm-status-szab-dezs-5'); ?>" onsubmit="return confirm('Biztosan átállítod a 20 Szabó Dezső 5 lakás igényelt teljesítményét 3x16 A-re?');">
+                                            <?= csrf_field(); ?>
+                                            <input type="hidden" name="action" value="fix_szabo_dezso_5_apartment_power">
+                                            <button class="button" type="submit" <?= (int) $szaboPowerPreview['pending'] === 0 ? 'disabled' : ''; ?>>20 lakás átállítása 3x16 A-re</button>
+                                            <small><?= (int) $szaboPowerPreview['found']; ?> cél adatlap található ebben a csoportban, <?= (int) $szaboPowerPreview['already_fixed']; ?> már 3x16 A.</small>
+                                        </form>
+                                    </section>
+                                <?php endif; ?>
 
                                 <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $statusName); ?> munkák">
                                     <div class="minicrm-work-table-head" role="row">

@@ -15581,6 +15581,101 @@ function minicrm_work_item_raw_value_by_patterns(array $item, array $patterns): 
     return '';
 }
 
+function minicrm_work_item_phase_power_value(array $item, array $phasePatterns, array $fallbackPatterns): string
+{
+    $phaseValues = [1 => '', 2 => '', 3 => ''];
+
+    foreach (minicrm_work_item_raw_fields($item) as $field) {
+        $labelKey = minicrm_import_key((string) ($field['label'] ?? ''));
+        $value = trim((string) ($field['value'] ?? ''));
+
+        if ($value === '' || $value === '-') {
+            continue;
+        }
+
+        foreach ($phasePatterns as $phase => $patterns) {
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $labelKey)) {
+                    $phaseValues[(int) $phase] = $value;
+                    continue 3;
+                }
+            }
+        }
+    }
+
+    if (array_filter($phaseValues, static fn (string $value): bool => trim($value) !== '') === []) {
+        return minicrm_work_item_raw_value_by_patterns($item, $fallbackPatterns);
+    }
+
+    $amps = [
+        1 => mvm_phase_ampere_value($phaseValues[1]),
+        2 => mvm_phase_ampere_value($phaseValues[2]),
+        3 => mvm_phase_ampere_value($phaseValues[3]),
+    ];
+    $active = array_values(array_filter($amps, static fn (int $ampere): bool => $ampere > 0));
+
+    if ($active === []) {
+        return minicrm_work_item_raw_value_by_patterns($item, $fallbackPatterns);
+    }
+
+    if (count($active) === 3 && $amps[1] === $amps[2] && $amps[2] === $amps[3]) {
+        return '3x' . $amps[1];
+    }
+
+    if (count($active) === 2 && $amps[1] > 0 && $amps[1] === $amps[2] && $amps[3] === 0) {
+        return '2x' . $amps[1];
+    }
+
+    if (count($active) === 1 && $amps[1] > 0 && $amps[2] === 0 && $amps[3] === 0) {
+        return (string) $amps[1];
+    }
+
+    return trim(implode(' / ', array_filter([
+        $amps[1] > 0 ? 'L1 ' . $amps[1] : '',
+        $amps[2] > 0 ? 'L2 ' . $amps[2] : '',
+        $amps[3] > 0 ? 'L3 ' . $amps[3] : '',
+    ])));
+}
+
+function minicrm_work_item_requested_general_power(array $item): string
+{
+    return minicrm_work_item_phase_power_value(
+        $item,
+        [
+            1 => ['/igenyelt.*(mn|mindennap).*l1/', '/^iml1$/'],
+            2 => ['/igenyelt.*(mn|mindennap).*l2/', '/^iml2$/'],
+            3 => ['/igenyelt.*(mn|mindennap).*l3/', '/^iml3$/'],
+        ],
+        ['/igenyelt.*mindennap/', '/igenyelt.*mn.*l1/', '/iml/']
+    );
+}
+
+function minicrm_work_item_requested_h_tariff_power(array $item): string
+{
+    return minicrm_work_item_phase_power_value(
+        $item,
+        [
+            1 => ['/igenyelt.*h.*l1/', '/^ihl1$/'],
+            2 => ['/igenyelt.*h.*l2/', '/^ihl2$/'],
+            3 => ['/igenyelt.*h.*l3/', '/^ihl3$/'],
+        ],
+        ['/igenyelt.*h tarifa/', '/ihl/']
+    );
+}
+
+function minicrm_work_item_requested_controlled_power(array $item): string
+{
+    return minicrm_work_item_phase_power_value(
+        $item,
+        [
+            1 => ['/igenyelt.*vez.*l1/', '/^ivl1$/'],
+            2 => ['/igenyelt.*vez.*l2/', '/^ivl2$/'],
+            3 => ['/igenyelt.*vez.*l3/', '/^ivl3$/'],
+        ],
+        ['/igenyelt.*vezerelt/', '/ivl/']
+    );
+}
+
 function minicrm_work_item_electrician_assignment_name(array $item): string
 {
     return minicrm_work_item_electrician_assignment_candidates($item)[0] ?? '';
@@ -16025,11 +16120,11 @@ function minicrm_work_item_request_data(array $item): array
         'meter_serial' => $meterSerial,
         'consumption_place_id' => trim((string) ($item['consumption_place_id'] ?? '')),
         'existing_general_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*mindennap/', '/jelenlegi.*mindennap/', '/jml/']),
-        'requested_general_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*mindennap/', '/iml/']),
+        'requested_general_power' => minicrm_work_item_requested_general_power($item),
         'existing_h_tariff_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*h tarifa/', '/jelenlegi.*h tarifa/', '/jelenlegi_h/']),
-        'requested_h_tariff_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*h tarifa/', '/ihl/']),
+        'requested_h_tariff_power' => minicrm_work_item_requested_h_tariff_power($item),
         'existing_controlled_power' => minicrm_work_item_raw_value_by_patterns($item, ['/meglevo.*vezerelt/', '/jelenlegi.*vezerelt/', '/jvl/']),
-        'requested_controlled_power' => minicrm_work_item_raw_value_by_patterns($item, ['/igenyelt.*vezerelt/', '/ivl/']),
+        'requested_controlled_power' => minicrm_work_item_requested_controlled_power($item),
         'notes' => minicrm_work_item_request_notes($item),
     ];
 }
@@ -17073,6 +17168,245 @@ function update_minicrm_work_item_fields(int $id, array $fieldValues): array
     }
 
     return ['ok' => true, 'message' => 'A MiniCRM mezők mentve.'];
+}
+
+function minicrm_szabo_dezso_5_apartment_power_source_ids(): array
+{
+    return [
+        '0w7q9r5d421638so1sxo23hfom90wv',
+        '0v2lrgvj7f0nz8ln8z4w17e83vlfcu',
+        '0qx5qet51e0vzzb9rry61pspu0lg36',
+        '2b9nq4tkmq015ohcqc7v1s36bb5bvb',
+        '230zhrh4sk11lkcgs54j08bxxatodd',
+        '28og45k0xp0zqw2thvev2oy94qwpgr',
+        '1fxaprgz7x1gimmqtyyk1tsnynseaf',
+        '1o6cs9dib00araao8c8a2ga0juotse',
+        '0fug9gxtjb24pjfhjhvo000tw57zgf',
+        '14huloerdx049m5arv7k00b6bytwne',
+        '1m356k82fl0bcxb8qxeb09vjg62et6',
+        '261tik54lm08tww0g6qz1e2tkrgbfr',
+        '1r3vk2rxkw0kcodtviw20luj6iojjv',
+        '12w7u4x4my1m9tmy2vpa1mjy2mmzjm',
+        '1t5mhxf6p81do5v7ttjd17z7737org',
+        '1v8kba091519qyzmclni1asg5zb4x0',
+        '1gomahghab1enuuozxqp1s6wum9x16',
+        '1u8qrez3mq1esuvq0xem0uat8f47iv',
+        '1axryjibod0o3bpxz2z927bzpsr2wx',
+        '2od6hlpv9w1q0cdgrega0pz0vhkw2d',
+    ];
+}
+
+function minicrm_is_szabo_dezso_5_apartment_power_item(array $item): bool
+{
+    $sourceIds = array_fill_keys(minicrm_szabo_dezso_5_apartment_power_source_ids(), true);
+    $sourceId = minicrm_source_id_key((string) ($item['source_id'] ?? ''));
+    $statusKey = minicrm_import_key((string) ($item['minicrm_status'] ?? ''));
+
+    return isset($sourceIds[$sourceId]) && $statusKey === 'szabo dezso 5';
+}
+
+function minicrm_szabo_dezso_5_apartment_power_preview(array $items): array
+{
+    $found = 0;
+    $pending = 0;
+    $alreadyFixed = 0;
+
+    foreach ($items as $item) {
+        if (!minicrm_is_szabo_dezso_5_apartment_power_item($item)) {
+            continue;
+        }
+
+        $found++;
+        $power = strtolower(str_replace(' ', '', minicrm_work_item_requested_general_power($item)));
+
+        if ($power === '3x16') {
+            $alreadyFixed++;
+        } else {
+            $pending++;
+        }
+    }
+
+    return [
+        'target' => count(minicrm_szabo_dezso_5_apartment_power_source_ids()),
+        'found' => $found,
+        'pending' => $pending,
+        'already_fixed' => $alreadyFixed,
+    ];
+}
+
+function minicrm_szabo_dezso_5_power_field_updates(array $item): array
+{
+    $targetValues = [
+        'igenyelt mn l1 legnagyobb' => '16',
+        'igenyelt mn l2' => '16',
+        'igenyelt mn l3' => '16',
+        'osszes igenyelt mn teljesitmeny' => '48',
+        'igenyelt osszes teljesitmeny' => '48',
+        'fizetendo teljesitmeny' => '16',
+        'fizetendo osszeg haf' => '79 248',
+        'kva' => '11,04',
+    ];
+    $updates = [];
+
+    foreach (minicrm_work_item_raw_columns($item) as $position => $column) {
+        $index = (int) ($column['index'] ?? ($position + 1));
+        $key = minicrm_import_key((string) ($column['label'] ?? $column['header'] ?? ''));
+
+        if ($index > 0 && array_key_exists($key, $targetValues)) {
+            $updates[$index] = $targetValues[$key];
+        }
+    }
+
+    return $updates;
+}
+
+function minicrm_update_szabo_dezso_5_linked_request_power(int $requestId): array
+{
+    $updatedRequest = false;
+    $updatedMvmForm = false;
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['request' => false, 'mvm_form' => false];
+    }
+
+    if (trim((string) ($request['requested_general_power'] ?? '')) !== '3x16') {
+        db_query(
+            'UPDATE `connection_requests`
+             SET `requested_general_power` = ?, `updated_at` = CURRENT_TIMESTAMP
+             WHERE `id` = ?',
+            ['3x16', $requestId]
+        );
+        $updatedRequest = true;
+        $request['requested_general_power'] = '3x16';
+    }
+
+    if (db_table_exists('connection_request_mvm_forms') && connection_request_mvm_form($requestId) !== null) {
+        $values = connection_request_mvm_form_values($request);
+        $needsFormUpdate = ($values['iml1'] ?? '') !== '16'
+            || ($values['iml2'] ?? '') !== '16'
+            || ($values['iml3'] ?? '') !== '16';
+
+        $values['iml1'] = '16';
+        $values['iml2'] = '16';
+        $values['iml3'] = '16';
+        $values = mvm_recalculate_power_financials(mvm_apply_plan_field_defaults($values));
+
+        if ($needsFormUpdate) {
+            db_query(
+                'UPDATE `connection_request_mvm_forms`
+                 SET `form_data` = ?, `updated_at` = CURRENT_TIMESTAMP
+                 WHERE `connection_request_id` = ?',
+                [json_encode($values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $requestId]
+            );
+            $updatedMvmForm = true;
+        }
+    }
+
+    if ($updatedRequest || $updatedMvmForm) {
+        record_connection_request_activity(
+            $requestId,
+            'data_update',
+            'Igényelt teljesítmény módosítva',
+            'Szabó Dezső 5 lakás: 1x32 A helyett 3x16 A.'
+        );
+    }
+
+    return ['request' => $updatedRequest, 'mvm_form' => $updatedMvmForm];
+}
+
+function apply_minicrm_szabo_dezso_5_apartment_power_fix(): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return ['ok' => false, 'message' => 'Hiányzik a MiniCRM import tábla.'];
+    }
+
+    $sourceIds = minicrm_szabo_dezso_5_apartment_power_source_ids();
+    $placeholders = implode(', ', array_fill(0, count($sourceIds), '?'));
+    $items = db_query(
+        'SELECT *
+         FROM `minicrm_work_items`
+         WHERE LOWER(`source_id`) IN (' . $placeholders . ')
+         ORDER BY `id` ASC',
+        $sourceIds
+    )->fetchAll();
+    $itemsBySource = [];
+
+    foreach ($items as $item) {
+        $itemsBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] = $item;
+    }
+
+    $summary = [
+        'target' => count($sourceIds),
+        'found' => 0,
+        'updated' => 0,
+        'linked_requests' => 0,
+        'mvm_forms' => 0,
+        'missing' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+    ];
+    $errors = [];
+
+    foreach ($sourceIds as $sourceId) {
+        $item = $itemsBySource[minicrm_source_id_key($sourceId)] ?? null;
+
+        if ($item === null) {
+            $summary['missing']++;
+            continue;
+        }
+
+        if (!minicrm_is_szabo_dezso_5_apartment_power_item($item)) {
+            $summary['skipped']++;
+            continue;
+        }
+
+        $summary['found']++;
+        $fieldUpdates = minicrm_szabo_dezso_5_power_field_updates($item);
+
+        if ($fieldUpdates === []) {
+            $summary['failed']++;
+            $errors[] = (string) ($item['card_name'] ?? $sourceId) . ': hiányzó teljesítmény mezők.';
+            continue;
+        }
+
+        $result = update_minicrm_work_item_fields((int) $item['id'], $fieldUpdates);
+
+        if (!($result['ok'] ?? false)) {
+            $summary['failed']++;
+            $errors[] = (string) ($item['card_name'] ?? $sourceId) . ': ' . (string) ($result['message'] ?? 'sikertelen mentés');
+            continue;
+        }
+
+        $summary['updated']++;
+        $requestId = minicrm_work_item_connection_request_id((int) $item['id']);
+
+        if ($requestId !== null) {
+            $linkedResult = minicrm_update_szabo_dezso_5_linked_request_power($requestId);
+
+            if ($linkedResult['request'] ?? false) {
+                $summary['linked_requests']++;
+            }
+
+            if ($linkedResult['mvm_form'] ?? false) {
+                $summary['mvm_forms']++;
+            }
+        }
+    }
+
+    $ok = $summary['found'] === $summary['target'] && $summary['failed'] === 0;
+    $message = 'Szabó Dezső 5 teljesítményjavítás: ' . $summary['updated'] . ' lakás frissítve 3x16 A-re. '
+        . 'Kapcsolt adatlap: ' . $summary['linked_requests'] . ', MVM űrlap: ' . $summary['mvm_forms'] . '.';
+
+    if ($summary['missing'] > 0 || $summary['skipped'] > 0 || $summary['failed'] > 0) {
+        $message .= ' Kimaradt: ' . $summary['missing'] . ' hiányzó, ' . $summary['skipped'] . ' eltérő státuszú, ' . $summary['failed'] . ' hibás.';
+    }
+
+    if ($errors !== []) {
+        $message .= ' ' . implode(' ', array_slice($errors, 0, 3));
+    }
+
+    return ['ok' => $ok, 'message' => $message, 'summary' => $summary, 'errors' => $errors];
 }
 
 function minicrm_status_class(?string $status): string
