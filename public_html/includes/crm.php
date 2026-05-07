@@ -9180,6 +9180,10 @@ function connection_request_mvm_source_form_values(array $request, ?array $sourc
                 $values[$key] = trim((string) $source[$sourceKey]);
             }
         }
+
+        if (connection_request_mvm_source_birth_date_parts_submitted($source)) {
+            $values['birth_date'] = normalize_connection_request_mvm_source_birth_date($source);
+        }
     }
 
     if (!isset(connection_request_type_options()[$values['request_type']])) {
@@ -9216,6 +9220,74 @@ function normalize_connection_request_mvm_source_date(string $value): string
     return sprintf('%04d-%02d-%02d', $year, $month, $day);
 }
 
+function connection_request_mvm_source_birth_date_parts(string $value): array
+{
+    $normalized = normalize_connection_request_mvm_source_date($value);
+
+    if ($normalized === '') {
+        return [
+            'year' => '',
+            'month' => '',
+            'day' => '',
+        ];
+    }
+
+    [$year, $month, $day] = explode('-', $normalized);
+
+    return [
+        'year' => $year,
+        'month' => $month,
+        'day' => $day,
+    ];
+}
+
+function connection_request_mvm_source_birth_date_parts_submitted(array $source): bool
+{
+    return array_key_exists('source_birth_date_year', $source)
+        || array_key_exists('source_birth_date_month', $source)
+        || array_key_exists('source_birth_date_day', $source);
+}
+
+function connection_request_mvm_source_birth_date_has_value(array $source): bool
+{
+    if (connection_request_mvm_source_birth_date_parts_submitted($source)) {
+        return trim((string) ($source['source_birth_date_year'] ?? '')) !== ''
+            || trim((string) ($source['source_birth_date_month'] ?? '')) !== ''
+            || trim((string) ($source['source_birth_date_day'] ?? '')) !== '';
+    }
+
+    return trim((string) ($source['source_birth_date'] ?? '')) !== '';
+}
+
+function normalize_connection_request_mvm_source_birth_date(array $source): string
+{
+    if (!connection_request_mvm_source_birth_date_parts_submitted($source)) {
+        return normalize_connection_request_mvm_source_date((string) ($source['source_birth_date'] ?? ''));
+    }
+
+    $year = preg_replace('/\D+/', '', trim((string) ($source['source_birth_date_year'] ?? '')));
+    $month = preg_replace('/\D+/', '', trim((string) ($source['source_birth_date_month'] ?? '')));
+    $day = preg_replace('/\D+/', '', trim((string) ($source['source_birth_date_day'] ?? '')));
+
+    if ($year === '' && $month === '' && $day === '') {
+        return '';
+    }
+
+    if ($year === '' || $month === '' || $day === '' || strlen($year) !== 4) {
+        return '';
+    }
+
+    $yearNumber = (int) $year;
+    $monthNumber = (int) $month;
+    $dayNumber = (int) $day;
+
+    if (!checkdate($monthNumber, $dayNumber, $yearNumber)) {
+        return '';
+    }
+
+    return sprintf('%04d-%02d-%02d', $yearNumber, $monthNumber, $dayNumber);
+}
+
 function save_connection_request_mvm_source_data(int $requestId, array $source, bool $allowPartial = false): array
 {
     $request = find_connection_request($requestId);
@@ -9225,12 +9297,12 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
     }
 
     $values = connection_request_mvm_source_form_values($request, $source);
-    $birthDateRaw = trim((string) ($source['source_birth_date'] ?? ''));
-    $values['birth_date'] = normalize_connection_request_mvm_source_date($birthDateRaw);
+    $birthDateHasValue = connection_request_mvm_source_birth_date_has_value($source);
+    $values['birth_date'] = normalize_connection_request_mvm_source_birth_date($source);
 
-    if ($birthDateRaw !== '' && $values['birth_date'] === '') {
+    if ($birthDateHasValue && $values['birth_date'] === '') {
         if (!$allowPartial) {
-            throw new RuntimeException('A születési idő formátuma legyen ÉÉÉÉ-HH-NN.');
+            throw new RuntimeException('A születési időnél az év, hónap és nap mezőt is helyes dátummal kell kitölteni.');
         }
 
         $values['birth_date'] = (string) ($request['birth_date'] ?? '');
@@ -9541,6 +9613,8 @@ function mvm_docx_placeholder_map(array $request, array $values): array
     $motherName = (string) ($request['mother_name'] ?? '');
     $companyNumber = $field('cegjegyzekszam');
     $motherOrCompanyNumber = $companyNumber !== '' ? $companyNumber : $motherName;
+    $birthDate = format_mvm_docx_date((string) ($request['birth_date'] ?? ''));
+    $birthDateParts = connection_request_mvm_source_birth_date_parts((string) ($request['birth_date'] ?? ''));
     $map = [
         '{d.Person.Name}' => (string) ($request['requester_name'] ?? ''),
         '{d.Person.Phone}' => (string) ($request['phone'] ?? ''),
@@ -9562,8 +9636,13 @@ function mvm_docx_placeholder_map(array $request, array $values): array
     $addProject('AnyjaNevecegjegyzekszam', $motherOrCompanyNumber);
     $addProject('SzuletesiHely', (string) ($request['birth_place'] ?? ''));
     $addProject('SzuletesiHelye', (string) ($request['birth_place'] ?? ''));
-    $addProject('SzuletesiIdo', format_mvm_docx_date((string) ($request['birth_date'] ?? '')));
-    $addProject('SzuletesiIdeje', format_mvm_docx_date((string) ($request['birth_date'] ?? '')));
+    $addProject('SzuletesiIdo', $birthDate);
+    $addProject('SzuletesiIdeje', $birthDate);
+    $addProject('SzuletesiDatum', $birthDate);
+    $addProject('SzuletesiEv', $birthDateParts['year']);
+    $addProject('SzuletesiHonap', $birthDateParts['month']);
+    $addProject('SzuletesiHo', $birthDateParts['month']);
+    $addProject('SzuletesiNap', $birthDateParts['day']);
     $addProject('UgyfelLakcime', $customerAddress);
     $addProject('IranyitoSzam', $field('iranyito_szam'));
     $addProject('Iranyitoszam2', $field('iranyitoszam2'));
@@ -11298,6 +11377,7 @@ function mvm_pdf_value_map(array $request, array $values): array
     $motherName = (string) ($request['mother_name'] ?? '');
     $companyNumber = (string) ($values['cegjegyzekszam'] ?? '');
     $birthDate = format_mvm_docx_date((string) ($request['birth_date'] ?? ''));
+    $birthDateParts = connection_request_mvm_source_birth_date_parts((string) ($request['birth_date'] ?? ''));
     $birthPlace = (string) ($request['birth_place'] ?? '');
 
     return array_merge($values, [
@@ -11312,6 +11392,11 @@ function mvm_pdf_value_map(array $request, array $values): array
         'szuletesi_helye' => $birthPlace,
         'szuletesi_ido' => $birthDate,
         'szuletesi_ideje' => $birthDate,
+        'szuletesi_datum' => $birthDate,
+        'szuletesi_ev' => $birthDateParts['year'],
+        'szuletesi_honap' => $birthDateParts['month'],
+        'szuletesi_ho' => $birthDateParts['month'],
+        'szuletesi_nap' => $birthDateParts['day'],
         'helyrajzi_szam' => (string) ($request['hrsz'] ?? ''),
         'phase_upgrade' => ($request['request_type'] ?? '') === 'phase_upgrade' ? 'X' : '',
     ]);

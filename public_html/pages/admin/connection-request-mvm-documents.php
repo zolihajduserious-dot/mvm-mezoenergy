@@ -67,6 +67,16 @@ $mvmFormValues = $isMvmFormPost
     ? array_merge(mvm_form_default_values($request), normalize_mvm_form_data($_POST))
     : connection_request_mvm_form_values($request);
 $mvmSourceValues = connection_request_mvm_source_form_values($request, $isMvmFormPost ? $_POST : null);
+$mvmSourceBirthDateParts = connection_request_mvm_source_birth_date_parts((string) ($mvmSourceValues['birth_date'] ?? ''));
+
+if ($isMvmFormPost && connection_request_mvm_source_birth_date_parts_submitted($_POST)) {
+    $mvmSourceBirthDateParts = [
+        'year' => trim((string) ($_POST['source_birth_date_year'] ?? '')),
+        'month' => trim((string) ($_POST['source_birth_date_month'] ?? '')),
+        'day' => trim((string) ($_POST['source_birth_date_day'] ?? '')),
+    ];
+}
+
 $templateErrors = mvm_form_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $planTemplateErrors = mvm_plan_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
 $handoverTemplateErrors = mvm_technical_handover_template_errors((string) ($mvmFormValues['mvm_contractor'] ?? ''));
@@ -438,8 +448,12 @@ $mvmFormErrors = $isMvmFormPost ? $errors : [];
                             <input id="source_birth_place" name="source_birth_place" value="<?= h($mvmSourceValues['birth_place']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_birth_date">Születési idő</label>
-                            <input id="source_birth_date" name="source_birth_date" value="<?= h($mvmSourceValues['birth_date']); ?>" placeholder="ÉÉÉÉ-HH-NN">
+                            <label>Születési idő</label>
+                            <div class="mvm-date-parts" role="group" aria-label="Születési idő">
+                                <input id="source_birth_date_year" name="source_birth_date_year" value="<?= h($mvmSourceBirthDateParts['year']); ?>" inputmode="numeric" maxlength="4" placeholder="Év" aria-label="Születési év">
+                                <input id="source_birth_date_month" name="source_birth_date_month" value="<?= h($mvmSourceBirthDateParts['month']); ?>" inputmode="numeric" maxlength="2" placeholder="Hó" aria-label="Születési hónap">
+                                <input id="source_birth_date_day" name="source_birth_date_day" value="<?= h($mvmSourceBirthDateParts['day']); ?>" inputmode="numeric" maxlength="2" placeholder="Nap" aria-label="Születési nap">
+                            </div>
                         </div>
                         <div class="mvm-input-field">
                             <label for="source_tax_number">Adószám</label>
