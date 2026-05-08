@@ -23,3 +23,14 @@ jobs:
           port: 21
           local-dir: ./public_html/
           server-dir: /public_html/
+
+      - name: Deploy document templates to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          protocol: ftps
+          port: 21
+          local-dir: ./templates/
+          server-dir: /templates/
