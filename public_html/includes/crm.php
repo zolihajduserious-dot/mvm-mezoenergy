@@ -5570,6 +5570,119 @@ function connection_request_type_label(?string $type): string
     return $types[(string) $type] ?? 'Nincs megadva';
 }
 
+function connection_request_project_name_part(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/[^\p{L}\p{N}]+/u', '_', $value);
+
+    if (!is_string($normalized)) {
+        $normalized = preg_replace('/[^A-Za-z0-9]+/', '_', $value) ?: '';
+    }
+
+    $normalized = preg_replace('/_+/', '_', $normalized) ?: '';
+
+    return trim($normalized, '_');
+}
+
+function connection_request_project_name_limit(string $value): string
+{
+    $value = trim($value, '_');
+
+    if ($value === '') {
+        return 'Mérőhelyi_igény';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($value, 'UTF-8') <= 190) {
+            return $value;
+        }
+
+        return trim(mb_substr($value, 0, 190, 'UTF-8'), '_') ?: 'Mérőhelyi_igény';
+    }
+
+    if (strlen($value) <= 190) {
+        return $value;
+    }
+
+    return trim(substr($value, 0, 190), '_') ?: 'Mérőhelyi_igény';
+}
+
+function connection_request_join_postal_address(string $postalCode, string $address): string
+{
+    $postalCode = trim($postalCode);
+    $address = trim($address);
+
+    if ($address === '') {
+        return $postalCode;
+    }
+
+    if ($postalCode === '') {
+        return $address;
+    }
+
+    if (preg_match('/^' . preg_quote($postalCode, '/') . '\b/u', $address)) {
+        return $address;
+    }
+
+    return trim($postalCode . ' ' . $address);
+}
+
+function connection_request_project_name_customer(array $data, ?array $customer = null): string
+{
+    $isLegalEntity = (int) ($customer['is_legal_entity'] ?? $data['is_legal_entity'] ?? 0) === 1;
+    $companyName = trim((string) ($customer['company_name'] ?? $data['company_name'] ?? ''));
+    $requesterName = trim((string) ($customer['requester_name'] ?? $data['requester_name'] ?? ''));
+
+    if ($isLegalEntity && $companyName !== '') {
+        return $companyName;
+    }
+
+    return $requesterName !== '' ? $requesterName : $companyName;
+}
+
+function connection_request_project_name_address(array $data, ?array $customer = null): string
+{
+    $siteAddress = trim((string) ($data['site_address'] ?? ''));
+    $sitePostalCode = trim((string) ($data['site_postal_code'] ?? ''));
+
+    if ($siteAddress !== '' || $sitePostalCode !== '') {
+        return connection_request_join_postal_address($sitePostalCode, $siteAddress);
+    }
+
+    $customerAddress = trim(implode(' ', array_filter([
+        trim((string) ($customer['city'] ?? $data['city'] ?? '')),
+        trim((string) ($customer['postal_address'] ?? $data['postal_address'] ?? '')),
+    ], static fn (string $part): bool => $part !== '')));
+
+    return connection_request_join_postal_address(
+        trim((string) ($customer['postal_code'] ?? $data['postal_code'] ?? '')),
+        $customerAddress
+    );
+}
+
+function connection_request_auto_project_name(array $data, ?array $customer = null): string
+{
+    $requestType = trim((string) ($data['request_type'] ?? ''));
+    $requestType = isset(connection_request_type_options()[$requestType]) ? $requestType : 'phase_upgrade';
+    $parts = [
+        connection_request_project_name_customer($data, $customer),
+        connection_request_project_name_address($data, $customer),
+        connection_request_type_label($requestType),
+    ];
+
+    $name = implode('_', array_filter(
+        array_map(static fn (string $part): string => connection_request_project_name_part($part), $parts),
+        static fn (string $part): bool => $part !== ''
+    ));
+
+    return connection_request_project_name_limit($name);
+}
+
 function h_tariff_required_file_types(): array
 {
     return [
@@ -6647,7 +6760,6 @@ function validate_connection_request_data(array $data, array $files, bool $final
         }
 
         foreach ([
-            'project_name' => 'Igény megnevezése',
             'site_address' => 'Kivitelezés címe',
             'site_postal_code' => 'Kivitelezés irányítószáma',
             'existing_general_power' => 'Meglévő teljesítmény mindennapszaki',
@@ -6698,9 +6810,8 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
         $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
     }
 
-    if (trim((string) $data['project_name']) === '') {
-        $data['project_name'] = 'Mérőhelyi igény';
-    }
+    $customer = find_customer($customerId);
+    $data['project_name'] = connection_request_auto_project_name($data, $customer);
 
     if ($requestId !== null) {
         $request = find_connection_request($requestId);
@@ -10974,14 +11085,6 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
         $values['requester_name'] = (string) ($request['requester_name'] ?? '');
     }
 
-    if (trim($values['project_name']) === '') {
-        if (!$allowPartial) {
-            throw new RuntimeException('A munka megnevezése kötelező.');
-        }
-
-        $values['project_name'] = (string) ($request['project_name'] ?? '');
-    }
-
     if (trim($values['site_postal_code']) === '' || trim($values['site_address']) === '') {
         if (!$allowPartial) {
             throw new RuntimeException('A kivitelezési irányítószám és cím kötelező.');
@@ -10995,6 +11098,8 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
             $values['site_address'] = (string) ($request['site_address'] ?? '');
         }
     }
+
+    $values['project_name'] = connection_request_auto_project_name($values, $values);
 
     $labels = [
         'requester_name' => 'Ügyfél neve',

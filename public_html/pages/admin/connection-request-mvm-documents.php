@@ -653,7 +653,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                         </div>
                         <div class="mvm-input-field">
                             <label for="source_project_name">Munka megnevezése</label>
-                            <input id="source_project_name" name="source_project_name" value="<?= h($mvmSourceValues['project_name']); ?>" required>
+                            <input id="source_project_name" name="source_project_name" value="<?= h($mvmSourceValues['project_name']); ?>" readonly>
                         </div>
                         <div class="mvm-input-field">
                             <label for="source_request_type">Munka típusa</label>
