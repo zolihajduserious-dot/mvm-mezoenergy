@@ -1,18 +1,23 @@
 <?php
 declare(strict_types=1);
 
-if (is_logged_in()) {
-    redirect(dashboard_path_for_user());
-}
-
 $errors = [];
 $email = '';
+$requestedReturnPath = auth_safe_return_path((string) ($_GET['return'] ?? $_POST['return'] ?? ''));
+
+if (is_logged_in()) {
+    redirect($requestedReturnPath ?? dashboard_path_for_user());
+}
+
 $currentLoginRoute = current_route();
 $loginPath = match ($currentLoginRoute) {
     'admin/login' => '/admin/login',
     'electrician/login' => '/electrician/login',
     default => '/login',
 };
+$loginAction = login_path_with_return($loginPath, $requestedReturnPath);
+$adminLoginPath = login_path_with_return('/admin/login', $requestedReturnPath);
+$electricianLoginPath = login_path_with_return('/electrician/login', $requestedReturnPath);
 $loginTitle = match ($currentLoginRoute) {
     'admin/login' => 'Admin belépés',
     'electrician/login' => 'Szerelői belépés',
@@ -56,7 +61,7 @@ if (is_post() && $usersTableReady) {
             && password_verify($password, (string) $user['password_hash'])
         ) {
             login_user($user);
-            redirect(dashboard_path_for_user($user));
+            redirect($requestedReturnPath ?? dashboard_path_for_user($user));
         }
 
         $errors[] = 'Hibás email cím vagy jelszó.';
@@ -100,8 +105,11 @@ if (is_post() && $usersTableReady) {
             <?php endif; ?>
 
             <?php if ($usersTableReady): ?>
-                <form class="form" method="post" action="<?= h(url_path($loginPath)); ?>">
+                <form class="form" method="post" action="<?= h(url_path($loginAction)); ?>">
                     <?= csrf_field(); ?>
+                    <?php if ($requestedReturnPath !== null): ?>
+                        <input type="hidden" name="return" value="<?= h($requestedReturnPath); ?>">
+                    <?php endif; ?>
 
                     <label for="email">Email</label>
                     <input id="email" name="email" type="email" value="<?= h($email); ?>" required maxlength="190" autocomplete="email">
@@ -116,10 +124,10 @@ if (is_post() && $usersTableReady) {
                         <a href="<?= h(url_path('/electrician/register')); ?>">Még nincs szerelői fiókod?</a>
                     <?php endif; ?>
                     <?php if ($currentLoginRoute !== 'admin/login'): ?>
-                        <a href="<?= h(url_path('/admin/login')); ?>">Admin belépés</a>
+                        <a href="<?= h(url_path($adminLoginPath)); ?>">Admin belépés</a>
                     <?php endif; ?>
                     <?php if ($currentLoginRoute !== 'electrician/login'): ?>
-                        <a href="<?= h(url_path('/electrician/login')); ?>">Szerelői belépés</a>
+                        <a href="<?= h(url_path($electricianLoginPath)); ?>">Szerelői belépés</a>
                     <?php endif; ?>
                     <a href="<?= h(url_path('/forgot-password')); ?>">Elfelejtetted a jelszavad?</a>
                 </div>

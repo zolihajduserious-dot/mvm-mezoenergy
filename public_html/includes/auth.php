@@ -244,6 +244,128 @@ function is_logged_in(): bool
     return current_user() !== null;
 }
 
+function auth_safe_return_path(?string $path): ?string
+{
+    if ($path === null) {
+        return null;
+    }
+
+    $path = trim($path);
+
+    if (
+        $path === ''
+        || !str_starts_with($path, '/')
+        || str_starts_with($path, '//')
+        || str_contains($path, '\\')
+        || preg_match('/[\x00-\x1F\x7F]/', $path)
+    ) {
+        return null;
+    }
+
+    $parts = parse_url($path);
+
+    if ($parts === false || isset($parts['scheme']) || isset($parts['host'])) {
+        return null;
+    }
+
+    $safePath = (string) ($parts['path'] ?? '/');
+
+    if ($safePath === '' || !str_starts_with($safePath, '/')) {
+        return null;
+    }
+
+    $target = $safePath;
+
+    if (isset($parts['query'])) {
+        $target .= '?' . (string) $parts['query'];
+    }
+
+    if (isset($parts['fragment'])) {
+        $target .= '#' . (string) $parts['fragment'];
+    }
+
+    return auth_is_login_return_target($target) ? null : $target;
+}
+
+function auth_is_login_return_target(string $path): bool
+{
+    $parts = parse_url($path);
+
+    if ($parts === false) {
+        return true;
+    }
+
+    $route = trim(strtolower((string) ($parts['path'] ?? '')), '/');
+
+    if ($route === 'index.php' && isset($parts['query'])) {
+        parse_str((string) $parts['query'], $query);
+        $route = trim(strtolower((string) ($query['route'] ?? '')), '/');
+    }
+
+    return in_array($route, ['login', 'admin/login', 'electrician/login', 'logout', 'admin/logout'], true);
+}
+
+function auth_current_request_return_path(): ?string
+{
+    $uri = (string) ($_SERVER['REQUEST_URI'] ?? '');
+    $parts = parse_url($uri);
+
+    if ($parts === false) {
+        return null;
+    }
+
+    $path = (string) ($parts['path'] ?? '/');
+    $target = $path !== '' ? $path : '/';
+
+    if (isset($parts['query'])) {
+        $target .= '?' . (string) $parts['query'];
+    }
+
+    if (!isset($parts['fragment'])) {
+        $fragment = auth_inferred_current_request_fragment();
+
+        if ($fragment !== '') {
+            $target .= '#' . $fragment;
+        }
+    }
+
+    return auth_safe_return_path($target);
+}
+
+function auth_inferred_current_request_fragment(): string
+{
+    if (current_route() !== 'admin/minicrm-import') {
+        return '';
+    }
+
+    $requestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
+
+    if ($requestId > 0) {
+        return 'portal-work-' . $requestId;
+    }
+
+    $itemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
+
+    if ($itemId > 0) {
+        return 'minicrm-work-' . $itemId;
+    }
+
+    return '';
+}
+
+function login_path_with_return(string $loginPath = '/login', ?string $returnPath = null): string
+{
+    $returnPath = auth_safe_return_path($returnPath) ?? auth_current_request_return_path();
+
+    if ($returnPath === null) {
+        return $loginPath;
+    }
+
+    $separator = str_contains($loginPath, '?') ? '&' : '?';
+
+    return $loginPath . $separator . 'return=' . rawurlencode($returnPath);
+}
+
 function login_user(array $user): void
 {
     session_regenerate_id(true);
@@ -274,7 +396,7 @@ function require_login(): void
 {
     if (!is_logged_in()) {
         set_flash('error', 'A folytatáshoz be kell jelentkezned.');
-        redirect('/login');
+        redirect(login_path_with_return('/login'));
     }
 }
 
