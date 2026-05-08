@@ -2726,8 +2726,63 @@ function insert_quote_lines(int $quoteId, array $lines): void
     }
 }
 
+function quote_engagement_columns(): array
+{
+    return [
+        'email_opened_at' => '`email_opened_at` DATETIME DEFAULT NULL AFTER `sent_at`',
+        'email_last_opened_at' => '`email_last_opened_at` DATETIME DEFAULT NULL AFTER `email_opened_at`',
+        'email_open_count' => '`email_open_count` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `email_last_opened_at`',
+        'viewed_at' => '`viewed_at` DATETIME DEFAULT NULL AFTER `email_open_count`',
+        'last_viewed_at' => '`last_viewed_at` DATETIME DEFAULT NULL AFTER `viewed_at`',
+        'view_count' => '`view_count` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `last_viewed_at`',
+    ];
+}
+
+function quote_engagement_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('quotes')) {
+        $ready = false;
+        return false;
+    }
+
+    $missing = [];
+
+    foreach (quote_engagement_columns() as $column => $definition) {
+        if (!db_column_exists('quotes', $column)) {
+            $missing[] = 'ADD COLUMN IF NOT EXISTS ' . $definition;
+        }
+    }
+
+    if ($missing !== []) {
+        try {
+            db_query('ALTER TABLE `quotes` ' . implode(', ', $missing));
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    foreach (array_keys(quote_engagement_columns()) as $column) {
+        if (!db_column_exists('quotes', $column)) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = true;
+    return true;
+}
+
 function find_quote(int $id): ?array
 {
+    quote_engagement_schema_ensure();
+
     $statement = db_query(
         'SELECT q.*, c.requester_name, c.email, c.phone, c.postal_address, c.postal_code, c.city, c.company_name
          FROM `quotes` q
@@ -2784,6 +2839,8 @@ function quotes_for_connection_request(int $requestId): array
     if (!db_column_exists('quotes', 'connection_request_id')) {
         return [];
     }
+
+    quote_engagement_schema_ensure();
 
     return db_query(
         'SELECT q.*, c.requester_name, c.email
@@ -3342,6 +3399,8 @@ function find_quote_by_public_access(int $quoteId, string $token): ?array
         return null;
     }
 
+    quote_engagement_schema_ensure();
+
     $statement = db_query(
         'SELECT q.*, c.requester_name, c.email, c.phone, c.postal_address, c.postal_code, c.city, c.company_name
          FROM `quotes` q
@@ -3353,6 +3412,110 @@ function find_quote_by_public_access(int $quoteId, string $token): ?array
     $quote = $statement->fetch();
 
     return is_array($quote) ? $quote : null;
+}
+
+function quote_tracking_url(array $quote): string
+{
+    if (empty($quote['id']) || empty($quote['public_token'])) {
+        return '';
+    }
+
+    return absolute_url('/quote/open?id=' . (int) $quote['id'] . '&token=' . rawurlencode((string) $quote['public_token']));
+}
+
+function quote_tracking_pixel_html(array $quote): string
+{
+    $trackingUrl = quote_tracking_url($quote);
+
+    if ($trackingUrl === '') {
+        return '';
+    }
+
+    return '<img src="' . h($trackingUrl) . '" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;outline:0;opacity:0;" />';
+}
+
+function append_quote_tracking_pixel(object $mail, array $quote): void
+{
+    $pixelHtml = quote_tracking_pixel_html($quote);
+
+    if ($pixelHtml === '') {
+        return;
+    }
+
+    $body = (string) ($mail->Body ?? '');
+    $bodyClosePosition = stripos($body, '</body>');
+
+    if ($bodyClosePosition === false) {
+        $mail->Body = $body . $pixelHtml;
+        return;
+    }
+
+    $mail->Body = substr($body, 0, $bodyClosePosition) . $pixelHtml . substr($body, $bodyClosePosition);
+}
+
+function record_quote_email_open(int $quoteId, string $token): void
+{
+    if (!quote_engagement_schema_ensure() || find_quote_by_public_access($quoteId, $token) === null) {
+        return;
+    }
+
+    db_query(
+        'UPDATE `quotes`
+         SET `email_opened_at` = COALESCE(`email_opened_at`, NOW()),
+             `email_last_opened_at` = NOW(),
+             `email_open_count` = `email_open_count` + 1
+         WHERE `id` = ?',
+        [$quoteId]
+    );
+}
+
+function record_quote_public_view(int $quoteId, string $token): void
+{
+    if (!quote_engagement_schema_ensure() || find_quote_by_public_access($quoteId, $token) === null) {
+        return;
+    }
+
+    db_query(
+        'UPDATE `quotes`
+         SET `viewed_at` = COALESCE(`viewed_at`, NOW()),
+             `last_viewed_at` = NOW(),
+             `view_count` = `view_count` + 1
+         WHERE `id` = ?',
+        [$quoteId]
+    );
+}
+
+function quote_latest_email_log(int $quoteId, string $status = ''): ?array
+{
+    if (!db_table_exists('email_logs')) {
+        return null;
+    }
+
+    $params = [$quoteId];
+    $where = '`quote_id` = ?';
+
+    if ($status !== '') {
+        $where .= ' AND `status` = ?';
+        $params[] = $status;
+    }
+
+    $statement = db_query(
+        'SELECT * FROM `email_logs`
+         WHERE ' . $where . '
+         ORDER BY `created_at` DESC, `id` DESC
+         LIMIT 1',
+        $params
+    );
+    $log = $statement->fetch();
+
+    return is_array($log) ? $log : null;
+}
+
+function quote_engagement_count_label(mixed $count): string
+{
+    $count = max(0, (int) $count);
+
+    return $count > 0 ? ' (' . $count . 'x)' : '';
 }
 
 function quote_display_total(array $quote): string
@@ -4289,6 +4452,7 @@ function send_uploaded_quote_notification(int $quoteId): array
         $mail->addAddress((string) $quote['email'], (string) $quote['requester_name']);
         $mail->Subject = $subject;
         apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($quote['requester_name'] ?? ''));
+        append_quote_tracking_pixel($mail, $quote);
         $mail->send();
 
         db_query('UPDATE `quotes` SET `status` = ?, `sent_at` = COALESCE(`sent_at`, NOW()) WHERE `id` = ?', ['sent', $quoteId]);
@@ -5516,6 +5680,7 @@ function send_quote_email(int $quoteId): array
         $mail->addAddress((string) $quote['email'], (string) $quote['requester_name']);
         $mail->Subject = $subject;
         apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($quote['requester_name'] ?? ''));
+        append_quote_tracking_pixel($mail, $quote);
         $mail->addAttachment((string) $pdfResult['path']);
         $mail->send();
 
@@ -9608,6 +9773,62 @@ function connection_request_timeline_events(array $request): array
             'body' => (string) ($log['body'] ?? ''),
             'sort' => strtotime($date) ?: 0,
         ];
+    }
+
+    foreach (quotes_for_connection_request($requestId) as $quote) {
+        $quoteId = (int) ($quote['id'] ?? 0);
+        $quoteNumber = (string) ($quote['quote_number'] ?? ('#' . $quoteId));
+        $quoteSubject = (string) ($quote['subject'] ?? 'Árajánlat');
+        $quoteTotal = quote_display_total($quote);
+        $createdAt = trim((string) ($quote['created_at'] ?? ''));
+        $latestSentLog = $quoteId > 0 ? quote_latest_email_log($quoteId, 'sent') : null;
+        $sentAt = trim((string) ($latestSentLog['created_at'] ?? '')) ?: trim((string) ($quote['sent_at'] ?? ''));
+        $emailOpenedAt = trim((string) ($quote['email_opened_at'] ?? ''));
+        $viewedAt = trim((string) ($quote['viewed_at'] ?? ''));
+
+        if ($createdAt !== '') {
+            $events[] = [
+                'kind' => 'quote',
+                'date' => $createdAt,
+                'title' => 'Árajánlat készült',
+                'actor' => (string) ($quote['requester_name'] ?? 'Ajánlat'),
+                'body' => $quoteNumber . ' - ' . $quoteSubject . "\n" . $quoteTotal,
+                'sort' => strtotime($createdAt) ?: 0,
+            ];
+        }
+
+        if ($sentAt !== '') {
+            $events[] = [
+                'kind' => 'quote-sent',
+                'date' => $sentAt,
+                'title' => 'Árajánlat email elküldve',
+                'actor' => 'Címzett: ' . (string) ($quote['email'] ?? '-'),
+                'body' => $quoteNumber . ' - ' . $quoteSubject,
+                'sort' => strtotime($sentAt) ?: 0,
+            ];
+        }
+
+        if ($emailOpenedAt !== '') {
+            $events[] = [
+                'kind' => 'quote-opened',
+                'date' => $emailOpenedAt,
+                'title' => 'Árajánlat email megnyitva',
+                'actor' => (string) ($quote['requester_name'] ?? 'Ügyfél'),
+                'body' => $quoteNumber . quote_engagement_count_label($quote['email_open_count'] ?? 0),
+                'sort' => strtotime($emailOpenedAt) ?: 0,
+            ];
+        }
+
+        if ($viewedAt !== '') {
+            $events[] = [
+                'kind' => 'quote-viewed',
+                'date' => $viewedAt,
+                'title' => 'Árajánlat oldal megnyitva',
+                'actor' => (string) ($quote['requester_name'] ?? 'Ügyfél'),
+                'body' => $quoteNumber . quote_engagement_count_label($quote['view_count'] ?? 0),
+                'sort' => strtotime($viewedAt) ?: 0,
+            ];
+        }
     }
 
     foreach (mvm_email_threads_with_messages($requestId) as $thread) {

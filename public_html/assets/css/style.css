@@ -2482,6 +2482,50 @@ a.metric-card {
     overflow-wrap: anywhere;
 }
 
+.quote-mini-card.quote-mini-card-with-engagement {
+    grid-template-columns: minmax(0, 1fr) auto minmax(220px, 0.9fr) auto;
+}
+
+.quote-mini-card .quote-engagement-list {
+    min-width: 220px;
+    gap: 4px;
+}
+
+.quote-engagement-list span {
+    font-size: 0.78rem;
+}
+
+.quote-engagement-list strong {
+    font-size: 0.8rem;
+}
+
+.quote-communication-list {
+    display: grid;
+    gap: 8px;
+    margin: 12px 0 16px;
+}
+
+.quote-communication-card {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #f8fcfb;
+}
+
+.quote-communication-card strong,
+.quote-communication-card span {
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+}
+
+.quote-communication-card span {
+    color: var(--color-muted);
+}
+
 .service-fee-request-list {
     margin: 12px 0;
 }
@@ -6363,6 +6407,14 @@ a.metric-card {
     .workflow-stage-form,
     .assignment-form {
         grid-template-columns: 1fr;
+    }
+
+    .quote-mini-card.quote-mini-card-with-engagement {
+        grid-template-columns: 1fr;
+    }
+
+    .quote-mini-card .quote-engagement-list {
+        min-width: 0;
     }
 
     .admin-workflow-stage-head,

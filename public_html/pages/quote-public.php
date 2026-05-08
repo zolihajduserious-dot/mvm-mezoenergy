@@ -11,6 +11,10 @@ if ($quote === null) {
     return;
 }
 
+if (!is_post()) {
+    record_quote_public_view((int) $quote['id'], $token);
+}
+
 $lines = quote_lines((int) $quote['id']);
 $flash = get_flash();
 $intent = (string) ($_GET['intent'] ?? '');

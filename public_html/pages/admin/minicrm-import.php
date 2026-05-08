@@ -1824,6 +1824,13 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $requestWorkFiles = $isSelectedRequest ? connection_request_work_files($requestId) : [];
                                         $requestDocuments = $isSelectedRequest ? connection_request_documents($requestId) : [];
                                         $requestEmailThreads = $isSelectedRequest ? mvm_email_threads_with_messages($requestId) : [];
+                                        $requestQuoteEmailCount = 0;
+                                        foreach ($requestQuotes as $quoteForEmailCount) {
+                                            $quoteForEmailCountId = (int) ($quoteForEmailCount['id'] ?? 0);
+                                            if (trim((string) ($quoteForEmailCount['sent_at'] ?? '')) !== '' || ($quoteForEmailCountId > 0 && quote_latest_email_log($quoteForEmailCountId, 'sent') !== null)) {
+                                                $requestQuoteEmailCount++;
+                                            }
+                                        }
                                         $requestTimelineEvents = $isSelectedRequest ? connection_request_timeline_events($request) : [];
                                         $requestAcceptedQuote = $isSelectedRequest ? accepted_quote_for_connection_request($requestId) : null;
                                         $requestWorkflowStage = $isSelectedRequest
@@ -2049,8 +2056,29 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <div class="admin-request-section-title">
                                                                     <h3>Kommunikáció</h3>
                                                                     <span><?= count($requestEmailThreads); ?> email szál</span>
+                                                                    <span><?= $requestQuoteEmailCount; ?> aj&#225;nlat email</span>
                                                                 </div>
                                                                 <p class="muted-text">A kiküldött ügyfél és felelős üzenetek tárgyában válaszazonosító van. Ha a központi postafiókra válasz érkezik, a szinkron ehhez az adatlaphoz kapcsolja.</p>
+
+                                                                <?php if ($requestQuotes !== []): ?>
+                                                                    <div class="quote-communication-list">
+                                                                        <?php foreach ($requestQuotes as $quoteCommunication): ?>
+                                                                            <?php
+                                                                            $quoteCommunicationId = (int) ($quoteCommunication['id'] ?? 0);
+                                                                            $quoteCommunicationEmailLog = $quoteCommunicationId > 0 ? quote_latest_email_log($quoteCommunicationId, 'sent') : null;
+                                                                            $quoteCommunicationSentAt = trim((string) ($quoteCommunicationEmailLog['created_at'] ?? '')) ?: trim((string) ($quoteCommunication['sent_at'] ?? ''));
+                                                                            $quoteCommunicationOpenedAt = trim((string) ($quoteCommunication['email_opened_at'] ?? ''));
+                                                                            $quoteCommunicationViewedAt = trim((string) ($quoteCommunication['viewed_at'] ?? ''));
+                                                                            ?>
+                                                                            <article class="quote-communication-card">
+                                                                                <strong><?= h((string) ($quoteCommunication['quote_number'] ?? ('#' . $quoteCommunicationId))); ?></strong>
+                                                                                <span>Email elk&#252;ldve: <?= h($quoteCommunicationSentAt !== '' ? $quoteCommunicationSentAt : 'még nem'); ?></span>
+                                                                                <span>Email megnyitva: <?= h($quoteCommunicationOpenedAt !== '' ? $quoteCommunicationOpenedAt : 'még nincs jel'); ?><?= h(quote_engagement_count_label($quoteCommunication['email_open_count'] ?? 0)); ?></span>
+                                                                                <span>Aj&#225;nlatoldal megnyitva: <?= h($quoteCommunicationViewedAt !== '' ? $quoteCommunicationViewedAt : 'még nem'); ?><?= h(quote_engagement_count_label($quoteCommunication['view_count'] ?? 0)); ?></span>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                <?php endif; ?>
 
                                                                 <form class="portal-message-form" method="post" action="<?= h($requestDetailUrl); ?>">
                                                                     <?= csrf_field(); ?>
@@ -2161,8 +2189,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                             <?php
                                                                             $quoteId = (int) $quote['id'];
                                                                             $quoteStatus = (string) ($quote['status'] ?? 'draft');
+                                                                            $latestQuoteEmailLog = quote_latest_email_log($quoteId, 'sent');
+                                                                            $quoteSentAt = trim((string) ($latestQuoteEmailLog['created_at'] ?? '')) ?: trim((string) ($quote['sent_at'] ?? ''));
+                                                                            $quoteEmailOpenedAt = trim((string) ($quote['email_opened_at'] ?? ''));
+                                                                            $quoteEmailLastOpenedAt = trim((string) ($quote['email_last_opened_at'] ?? ''));
+                                                                            $quoteViewedAt = trim((string) ($quote['viewed_at'] ?? ''));
+                                                                            $quoteLastViewedAt = trim((string) ($quote['last_viewed_at'] ?? ''));
                                                                             ?>
-                                                                            <article class="quote-mini-card">
+                                                                            <article class="quote-mini-card quote-mini-card-with-engagement">
                                                                                 <div>
                                                                                     <strong><?= h((string) ($quote['quote_number'] ?? ('#' . $quoteId))); ?></strong>
                                                                                     <span><?= h((string) ($quote['subject'] ?? 'Ajánlat')); ?></span>
@@ -2170,6 +2204,17 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                 <div>
                                                                                     <span class="status-badge status-badge-<?= h($quoteStatus); ?>"><?= h($quoteStatusLabels[$quoteStatus] ?? $quoteStatus); ?></span>
                                                                                     <strong><?= h(quote_display_total($quote)); ?></strong>
+                                                                                </div>
+                                                                                <div class="quote-engagement-list">
+                                                                                    <span>Email elküldve: <strong><?= h($quoteSentAt !== '' ? $quoteSentAt : 'még nem'); ?></strong></span>
+                                                                                    <span>Email megnyitva: <strong><?= h($quoteEmailOpenedAt !== '' ? $quoteEmailOpenedAt : 'még nincs jel'); ?></strong><?= h(quote_engagement_count_label($quote['email_open_count'] ?? 0)); ?></span>
+                                                                                    <?php if ($quoteEmailLastOpenedAt !== '' && $quoteEmailLastOpenedAt !== $quoteEmailOpenedAt): ?>
+                                                                                        <span>Utolsó email megnyitás: <strong><?= h($quoteEmailLastOpenedAt); ?></strong></span>
+                                                                                    <?php endif; ?>
+                                                                                    <span>Ajánlatoldal megnyitva: <strong><?= h($quoteViewedAt !== '' ? $quoteViewedAt : 'még nem'); ?></strong><?= h(quote_engagement_count_label($quote['view_count'] ?? 0)); ?></span>
+                                                                                    <?php if ($quoteLastViewedAt !== '' && $quoteLastViewedAt !== $quoteViewedAt): ?>
+                                                                                        <span>Utolsó ajánlatoldal megnyitás: <strong><?= h($quoteLastViewedAt); ?></strong></span>
+                                                                                    <?php endif; ?>
                                                                                 </div>
                                                                                 <div class="inline-link-list">
                                                                                     <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . $quoteId); ?>">Szerkeszt&#233;s</a>

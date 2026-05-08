@@ -131,6 +131,10 @@ $routes = [
         'title' => 'Árajánlat letöltése',
         'file' => PAGE_PATH . '/quote-public-file.php',
     ],
+    'quote/open' => [
+        'title' => 'Árajánlat megnyitás',
+        'file' => PAGE_PATH . '/quote-open.php',
+    ],
     'contractor/work-requests' => [
         'title' => 'Generálkivitelezői igények',
         'file' => PAGE_PATH . '/contractor/work-requests.php',
