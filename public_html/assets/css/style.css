@@ -4120,12 +4120,19 @@ a.metric-card {
     overflow-wrap: anywhere;
 }
 
-.portal-customer-email-form {
+.portal-customer-email-form,
+.portal-work-details-form {
     display: grid;
     gap: 6px;
 }
 
-.portal-customer-email-form input {
+.portal-work-details-form {
+    gap: 0;
+}
+
+.portal-customer-email-form input,
+.portal-work-details-form input,
+.portal-work-details-form select {
     width: 100%;
     min-height: 36px;
     padding: 7px 9px;
@@ -4138,11 +4145,21 @@ a.metric-card {
     font-weight: 800;
 }
 
-.portal-customer-email-form .button {
+.portal-work-details-form select {
+    appearance: auto;
+}
+
+.portal-customer-email-form .button,
+.portal-work-details-form .button {
     width: 100%;
     min-height: 34px;
     padding: 7px 10px;
     font-size: 0.78rem;
+}
+
+.portal-work-details-form .button {
+    width: calc(100% - 24px);
+    margin: 10px 12px 12px;
 }
 
 .minicrm-compact-docs {

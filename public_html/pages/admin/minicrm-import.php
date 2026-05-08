@@ -351,6 +351,21 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_portal_work_customer_email
     redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'update_portal_work_details') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+
+    if ($requestId <= 0) {
+        set_flash('error', 'Hiányzó munka azonosító.');
+        redirect('/admin/minicrm-import#portal-works');
+    }
+
+    $result = update_connection_request_portal_details($requestId, $_POST);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az adatlap adatainak mentése sikertelen.'));
+    redirect('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'send_portal_work_message') {
     require_valid_csrf_token();
 
@@ -1794,10 +1809,15 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $isSelectedRequest = $requestId === $selectedRequestId;
                                         $requestStatus = (string) ($request['request_status'] ?? 'finalized');
                                         $electricianStatus = (string) ($request['electrician_status'] ?? 'unassigned');
-                                        $requestTitle = trim((string) ($request['project_name'] ?? '')) ?: connection_request_type_label($request['request_type'] ?? null);
+                                        $requestProjectName = trim((string) ($request['project_name'] ?? ''));
+                                        $requestTitle = $requestProjectName !== '' ? $requestProjectName : connection_request_type_label($request['request_type'] ?? null);
                                         $requestCustomerName = trim((string) ($request['requester_name'] ?? '')) ?: '-';
                                         $requestSubmitterLabel = connection_request_submitter_label($request);
-                                        $requestSiteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
+                                        $requestSitePostalCode = trim((string) ($request['site_postal_code'] ?? ''));
+                                        $requestSiteAddressOnly = trim((string) ($request['site_address'] ?? ''));
+                                        $requestSiteAddress = connection_request_join_postal_address($requestSitePostalCode, $requestSiteAddressOnly);
+                                        $requestLotNumber = trim((string) ($request['hrsz'] ?? ''));
+                                        $requestMeterSerial = trim((string) ($request['meter_serial'] ?? ''));
                                         $requestDetailUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
                                         $requestQuotes = $isSelectedRequest ? quotes_for_connection_request($requestId) : [];
                                         $requestFiles = $isSelectedRequest ? connection_request_files($requestId) : [];
@@ -1818,8 +1838,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $profileEmail = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_email', ['Szemely1 Email', 'Személy1: Email']) : '';
                                         $profilePhone = is_array($requestProfile) ? minicrm_customer_profile_display_value($requestProfile, 'person_phone', ['Szemely1 Telefon', 'Személy1: Telefon']) : '';
                                         $savedCustomerEmail = trim((string) ($request['email'] ?? ''));
+                                        $savedCustomerPhone = trim((string) ($request['phone'] ?? ''));
                                         $displayEmail = $savedCustomerEmail !== '' ? $savedCustomerEmail : $profileEmail;
-                                        $displayPhone = $profilePhone !== '' ? $profilePhone : trim((string) ($request['phone'] ?? ''));
+                                        $displayPhone = $savedCustomerPhone !== '' ? $savedCustomerPhone : $profilePhone;
                                         $requestContactLine = trim(implode(' · ', array_filter([$displayEmail, $displayPhone], static fn (string $value): bool => $value !== '')));
                                         $requestSearchText = implode(' ', [
                                             $requestTitle,
@@ -1895,29 +1916,59 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
 
                                                     <div class="minicrm-work-detail-layout">
                                                         <aside class="minicrm-work-facts">
-                                                            <dl>
-                                                                <div><dt>&#220;gyf&#233;l</dt><dd><?= h($requestCustomerName); ?></dd></div>
-                                                                <div>
-                                                                    <dt>Email</dt>
-                                                                    <dd>
-                                                                        <form class="portal-customer-email-form" method="post" action="<?= h($requestDetailUrl); ?>">
-                                                                            <?= csrf_field(); ?>
-                                                                            <input type="hidden" name="action" value="update_portal_work_customer_email">
-                                                                            <input type="hidden" name="request_id" value="<?= $requestId; ?>">
-                                                                            <input name="customer_email" type="email" autocomplete="email" value="<?= h($displayEmail); ?>" placeholder="ugyfel@email.hu" aria-label="Ugyfel alap email cime" required>
-                                                                            <button class="button button-secondary" type="submit">Ment&#233;s</button>
-                                                                        </form>
-                                                                    </dd>
-                                                                </div>
-                                                                <div><dt>Telefon</dt><dd><?= h($displayPhone !== '' ? $displayPhone : '-'); ?></dd></div>
-                                                                <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
-                                                                <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
-                                                                <div><dt>C&#237;m</dt><dd><?= h($requestSiteAddress !== '' ? $requestSiteAddress : '-'); ?></dd></div>
-                                                                <div><dt>HRSZ</dt><dd><?= h((string) ($request['lot_number'] ?? '-')); ?></dd></div>
-                                                                <div><dt>Munka t&#237;pusa</dt><dd><?= h(connection_request_type_label($request['request_type'] ?? null)); ?></dd></div>
-                                                                <div><dt>M&#233;r&#337;</dt><dd><?= h((string) ($request['meter_serial'] ?? '-')); ?></dd></div>
-                                                                <div><dt>R&#246;gz&#237;tve</dt><dd><?= h((string) ($request['created_at'] ?? '-')); ?></dd></div>
-                                                            </dl>
+                                                            <form class="portal-work-details-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                <?= csrf_field(); ?>
+                                                                <input type="hidden" name="action" value="update_portal_work_details">
+                                                                <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                <dl>
+                                                                    <div>
+                                                                        <dt><label for="portal_project_name_<?= $requestId; ?>">Adatlap neve</label></dt>
+                                                                        <dd><input id="portal_project_name_<?= $requestId; ?>" name="project_name" value="<?= h($requestProjectName); ?>" placeholder="Automatikus n&#233;v"></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_requester_name_<?= $requestId; ?>">&#220;gyf&#233;l</label></dt>
+                                                                        <dd><input id="portal_requester_name_<?= $requestId; ?>" name="requester_name" value="<?= h($requestCustomerName !== '-' ? $requestCustomerName : ''); ?>" required></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_customer_email_<?= $requestId; ?>">Email</label></dt>
+                                                                        <dd><input id="portal_customer_email_<?= $requestId; ?>" name="customer_email" type="email" autocomplete="email" value="<?= h($displayEmail); ?>" placeholder="ugyfel@email.hu" required></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_customer_phone_<?= $requestId; ?>">Telefon</label></dt>
+                                                                        <dd><input id="portal_customer_phone_<?= $requestId; ?>" name="phone" type="tel" autocomplete="tel" value="<?= h($displayPhone); ?>"></dd>
+                                                                    </div>
+                                                                    <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
+                                                                    <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
+                                                                    <div>
+                                                                        <dt><label for="portal_site_postal_code_<?= $requestId; ?>">Ir&#225;ny&#237;t&#243;sz&#225;m</label></dt>
+                                                                        <dd><input id="portal_site_postal_code_<?= $requestId; ?>" name="site_postal_code" value="<?= h($requestSitePostalCode); ?>" inputmode="numeric"></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_site_address_<?= $requestId; ?>">C&#237;m</label></dt>
+                                                                        <dd><input id="portal_site_address_<?= $requestId; ?>" name="site_address" value="<?= h($requestSiteAddressOnly); ?>"></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_hrsz_<?= $requestId; ?>">HRSZ</label></dt>
+                                                                        <dd><input id="portal_hrsz_<?= $requestId; ?>" name="hrsz" value="<?= h($requestLotNumber); ?>"></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_request_type_<?= $requestId; ?>">Munka t&#237;pusa</label></dt>
+                                                                        <dd>
+                                                                            <select id="portal_request_type_<?= $requestId; ?>" name="request_type">
+                                                                                <?php foreach (connection_request_type_options() as $typeKey => $typeLabel): ?>
+                                                                                    <option value="<?= h((string) $typeKey); ?>" <?= (string) ($request['request_type'] ?? '') === (string) $typeKey ? 'selected' : ''; ?>><?= h($typeLabel); ?></option>
+                                                                                <?php endforeach; ?>
+                                                                            </select>
+                                                                        </dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_meter_serial_<?= $requestId; ?>">M&#233;r&#337;</label></dt>
+                                                                        <dd><input id="portal_meter_serial_<?= $requestId; ?>" name="meter_serial" value="<?= h($requestMeterSerial); ?>"></dd>
+                                                                    </div>
+                                                                    <div><dt>R&#246;gz&#237;tve</dt><dd><?= h((string) ($request['created_at'] ?? '-')); ?></dd></div>
+                                                                </dl>
+                                                                <button class="button button-secondary" type="submit">Adatok ment&#233;se</button>
+                                                            </form>
 
                                                             <section class="minicrm-compact-docs portal-assignment-panel">
                                                                 <h3>Szerel&#337;h&#246;z rendel&#233;s</h3>

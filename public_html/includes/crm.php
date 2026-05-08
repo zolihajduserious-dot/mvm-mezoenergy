@@ -5612,6 +5612,11 @@ function connection_request_project_name_limit(string $value): string
     return trim(substr($value, 0, 190), '_') ?: 'Mérőhelyi_igény';
 }
 
+function connection_request_normalize_project_name(string $value): string
+{
+    return connection_request_project_name_limit(connection_request_project_name_part($value));
+}
+
 function connection_request_join_postal_address(string $postalCode, string $address): string
 {
     $postalCode = trim($postalCode);
@@ -6811,7 +6816,10 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
     }
 
     $customer = find_customer($customerId);
-    $data['project_name'] = connection_request_auto_project_name($data, $customer);
+    $submittedProjectName = trim((string) ($data['project_name'] ?? ''));
+    $data['project_name'] = $requestId === null || $submittedProjectName === ''
+        ? connection_request_auto_project_name($data, $customer)
+        : connection_request_normalize_project_name($submittedProjectName);
 
     if ($requestId !== null) {
         $request = find_connection_request($requestId);
@@ -7332,6 +7340,114 @@ function update_connection_request_customer_email(int $requestId, string $email)
     );
 
     return ['ok' => true, 'message' => 'Az ügyfél alap email címe frissült.'];
+}
+
+function update_connection_request_portal_details(int $requestId, array $source): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $customerId = (int) ($request['customer_id'] ?? 0);
+
+    if ($customerId <= 0) {
+        return ['ok' => false, 'message' => 'Az adatlaphoz nem található ügyfél.'];
+    }
+
+    $requestType = trim((string) ($source['request_type'] ?? $request['request_type'] ?? ''));
+
+    if (!isset(connection_request_type_options()[$requestType])) {
+        return ['ok' => false, 'message' => 'Érvényes munka típust válassz.'];
+    }
+
+    $details = [
+        'requester_name' => trim((string) ($source['requester_name'] ?? $request['requester_name'] ?? '')),
+        'email' => trim((string) ($source['customer_email'] ?? $request['email'] ?? '')),
+        'phone' => trim((string) ($source['phone'] ?? $request['phone'] ?? '')),
+        'project_name' => trim((string) ($source['project_name'] ?? $request['project_name'] ?? '')),
+        'site_postal_code' => trim((string) ($source['site_postal_code'] ?? $request['site_postal_code'] ?? '')),
+        'site_address' => trim((string) ($source['site_address'] ?? $request['site_address'] ?? '')),
+        'hrsz' => trim((string) ($source['hrsz'] ?? $request['hrsz'] ?? '')),
+        'meter_serial' => trim((string) ($source['meter_serial'] ?? $request['meter_serial'] ?? '')),
+        'request_type' => $requestType,
+    ];
+
+    if ($details['requester_name'] === '') {
+        return ['ok' => false, 'message' => 'Az ügyfél neve kötelező.'];
+    }
+
+    if (!filter_var($details['email'], FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Érvényes ügyfél email címet adj meg.'];
+    }
+
+    $details['project_name'] = $details['project_name'] !== ''
+        ? connection_request_normalize_project_name($details['project_name'])
+        : connection_request_auto_project_name($details, $details);
+
+    $labels = [
+        'project_name' => 'Adatlap neve',
+        'requester_name' => 'Ügyfél neve',
+        'email' => 'Ügyfél email',
+        'phone' => 'Ügyfél telefon',
+        'site_postal_code' => 'Kivitelezési irányítószám',
+        'site_address' => 'Kivitelezési cím',
+        'hrsz' => 'HRSZ',
+        'request_type' => 'Munka típusa',
+        'meter_serial' => 'Mérő gyári száma',
+    ];
+    $changes = [];
+
+    foreach ($labels as $key => $label) {
+        $old = trim((string) ($request[$key] ?? ''));
+        $new = trim((string) ($details[$key] ?? ''));
+
+        if ($old !== $new) {
+            $changes[] = $label . ': ' . ($old !== '' ? $old : '-') . ' -> ' . ($new !== '' ? $new : '-');
+        }
+    }
+
+    if ($changes === []) {
+        return ['ok' => true, 'message' => 'Nem változott adat.'];
+    }
+
+    db_query(
+        'UPDATE `customers`
+         SET `requester_name` = ?, `email` = ?, `phone` = ?
+         WHERE `id` = ?',
+        [
+            $details['requester_name'],
+            $details['email'],
+            $details['phone'],
+            $customerId,
+        ]
+    );
+
+    db_query(
+        'UPDATE `connection_requests`
+         SET `project_name` = ?, `request_type` = ?, `site_postal_code` = ?, `site_address` = ?,
+             `hrsz` = ?, `meter_serial` = ?
+         WHERE `id` = ?',
+        [
+            $details['project_name'],
+            $details['request_type'],
+            $details['site_postal_code'],
+            $details['site_address'],
+            $details['hrsz'] !== '' ? $details['hrsz'] : null,
+            $details['meter_serial'] !== '' ? $details['meter_serial'] : null,
+            $requestId,
+        ]
+    );
+
+    record_connection_request_activity(
+        $requestId,
+        'request_update',
+        'Adatlap és ügyfél adatok módosítva',
+        implode("\n", array_slice($changes, 0, 12))
+    );
+
+    return ['ok' => true, 'message' => 'Az adatlap és az ügyfél adatai frissültek.'];
 }
 
 function all_connection_requests(): array
@@ -11099,7 +11215,10 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
         }
     }
 
-    $values['project_name'] = connection_request_auto_project_name($values, $values);
+    $submittedProjectName = trim((string) ($values['project_name'] ?? ''));
+    $values['project_name'] = $submittedProjectName !== ''
+        ? connection_request_normalize_project_name($submittedProjectName)
+        : connection_request_auto_project_name($values, $values);
 
     $labels = [
         'requester_name' => 'Ügyfél neve',
