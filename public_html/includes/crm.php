@@ -9885,15 +9885,44 @@ function mvm_form_template_errors(?string $contractorKey = null): array
         : [];
 }
 
+function mvm_template_candidates(string $relativePath): array
+{
+    $relativePath = ltrim(str_replace('\\', '/', $relativePath), '/');
+    $roots = [
+        APP_ROOT . '/templates/mvm',
+        defined('PUBLIC_ROOT') ? PUBLIC_ROOT . '/templates/mvm' : '',
+        APP_ROOT . '/public_html/templates/mvm',
+    ];
+    $parentRoot = dirname(APP_ROOT);
+
+    if ($parentRoot !== APP_ROOT) {
+        $roots[] = $parentRoot . '/templates/mvm';
+    }
+
+    $candidates = [];
+
+    foreach ($roots as $root) {
+        if ($root === '') {
+            continue;
+        }
+
+        $candidate = rtrim($root, '/\\') . '/' . $relativePath;
+
+        if (!in_array($candidate, $candidates, true)) {
+            $candidates[] = $candidate;
+        }
+    }
+
+    return $candidates;
+}
+
 function mvm_plan_template_path(?string $contractorKey = null): ?string
 {
     $contractor = mvm_contractor_definition($contractorKey);
-    $candidates = [
-        APP_ROOT . '/templates/mvm/plan-templates/' . (string) ($contractor['plan_template'] ?? ''),
-    ];
+    $candidates = mvm_template_candidates('plan-templates/' . (string) ($contractor['plan_template'] ?? ''));
 
     if (normalize_mvm_contractor_key($contractorKey) === 'primavill') {
-        $candidates[] = APP_ROOT . '/templates/mvm/plan-templates/terv-sablon-delvill-2.docx';
+        $candidates = array_merge($candidates, mvm_template_candidates('plan-templates/terv-sablon-delvill-2.docx'));
         $candidates[] = APP_ROOT . '/Dokumentumok/Fővállalkozói dokumentumok/Tervsablonok/terv-sablon-delvill-2.docx';
         $candidates[] = APP_ROOT . '/Dokumentumok/Fővállalkozói dokumentumok/terv-sablon-delvill-2.docx';
     }
@@ -9919,9 +9948,14 @@ function mvm_plan_template_errors(?string $contractorKey = null): array
 function mvm_technical_handover_template_path(?string $contractorKey = null): ?string
 {
     $contractor = mvm_contractor_definition($contractorKey);
-    $candidate = APP_ROOT . '/templates/mvm/handover-templates/' . (string) ($contractor['handover_template'] ?? '');
 
-    return is_file($candidate) ? $candidate : null;
+    foreach (mvm_template_candidates('handover-templates/' . (string) ($contractor['handover_template'] ?? '')) as $candidate) {
+        if (is_file($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return null;
 }
 
 function mvm_technical_handover_template_errors(?string $contractorKey = null): array
@@ -9936,9 +9970,14 @@ function mvm_technical_handover_template_errors(?string $contractorKey = null): 
 function mvm_seal_removal_template_path(?string $contractorKey = null): ?string
 {
     $contractor = mvm_contractor_definition($contractorKey);
-    $candidate = APP_ROOT . '/templates/mvm/seal-removal-templates/' . (string) ($contractor['seal_removal_template'] ?? '');
 
-    return is_file($candidate) ? $candidate : null;
+    foreach (mvm_template_candidates('seal-removal-templates/' . (string) ($contractor['seal_removal_template'] ?? '')) as $candidate) {
+        if (is_file($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return null;
 }
 
 function mvm_seal_removal_template_errors(?string $contractorKey = null): array
@@ -9952,10 +9991,7 @@ function mvm_seal_removal_template_errors(?string $contractorKey = null): array
 
 function mvm_h_tariff_template_path(): ?string
 {
-    $candidates = [
-        APP_ROOT . '/public_html/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx',
-        APP_ROOT . '/templates/mvm/h-tariff-templates/h_tarifa_nyilatkozat.docx',
-    ];
+    $candidates = mvm_template_candidates('h-tariff-templates/h_tarifa_nyilatkozat.docx');
 
     foreach ($candidates as $candidate) {
         if (is_file($candidate)) {
@@ -11124,13 +11160,11 @@ function mvm_docx_template_path(?string $contractorKey = null): ?string
 {
     $contractorKey = normalize_mvm_contractor_key($contractorKey);
     $contractor = mvm_contractor_definition($contractorKey);
-    $candidates = [
-        APP_ROOT . '/templates/mvm/contractor-templates/' . $contractor['template'],
-    ];
+    $candidates = mvm_template_candidates('contractor-templates/' . $contractor['template']);
 
     if ($contractorKey === 'primavill') {
         $candidates[] = defined('MVM_DOCX_TEMPLATE_PATH') ? MVM_DOCX_TEMPLATE_PATH : '';
-        $candidates[] = APP_ROOT . '/templates/mvm/primavill_igenybejelento_2026_lakossagi.docx';
+        $candidates = array_merge($candidates, mvm_template_candidates('primavill_igenybejelento_2026_lakossagi.docx'));
         $candidates[] = APP_ROOT . '/Dokumentumok/Fővállalkozói dokumentumok/Primavill/Primavill_igénybejelentő_2026_lakossági.docx';
     }
 
@@ -11147,10 +11181,15 @@ function mvm_pdf_template_path(): ?string
 {
     $candidates = [
         defined('MVM_BLANK_PDF_TEMPLATE_PATH') ? MVM_BLANK_PDF_TEMPLATE_PATH : '',
-        APP_ROOT . '/templates/mvm/primavill_igenybejelento_2026_lakossagi_blank.pdf',
         defined('MVM_PDF_TEMPLATE_PATH') ? MVM_PDF_TEMPLATE_PATH : '',
         APP_ROOT . '/Dokumentumok/Fővállalkozói dokumentumok/Primavill/primavill_igenybejelento_2026_lakossagi.pdf',
     ];
+
+    $candidates = array_merge(
+        $candidates,
+        mvm_template_candidates('primavill_igenybejelento_2026_lakossagi_blank.pdf'),
+        mvm_template_candidates('primavill_igenybejelento_2026_lakossagi.pdf')
+    );
 
     foreach ($candidates as $candidate) {
         if ($candidate !== '' && is_file($candidate)) {
