@@ -6164,6 +6164,12 @@ a.metric-card {
     cursor: pointer;
 }
 
+.handover-photo-upload-form small {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
 .mvm-mail-panel {
     scroll-margin-top: 96px;
 }

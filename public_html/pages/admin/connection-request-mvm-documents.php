@@ -61,7 +61,7 @@ $uploadTypes = mvm_document_types();
 $errors = [];
 $mvmFormAction = is_post() ? (string) ($_POST['action'] ?? '') : '';
 $isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
-$isHandoverFormPost = in_array($mvmFormAction, ['generate_handover_docx', 'generate_handover_pdf'], true);
+$isHandoverFormPost = in_array($mvmFormAction, ['generate_handover_docx', 'generate_handover_pdf', 'upload_after_work_photos'], true);
 $isSealRemovalFormPost = in_array($mvmFormAction, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
 $isHTariffFormPost = in_array($mvmFormAction, ['generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
 $selectedType = (string) ($_POST['document_type'] ?? 'submitted_request');
@@ -292,6 +292,27 @@ if (is_post()) {
             set_flash($result['ok'] ? 'success' : 'error', $result['message']);
             redirect($mvmRedirectPath . '&handover_notice=1#technical-handover-section');
         }
+    } elseif ($action === 'upload_after_work_photos') {
+        $errors = validate_connection_request_after_work_photo_uploads((int) $request['id'], $_FILES);
+
+        if ($errors === []) {
+            try {
+                $uploadResult = store_connection_request_after_work_photo_uploads((int) $request['id'], $_FILES);
+                $uploadMessages = $uploadResult['messages'] ?? [];
+
+                if ($uploadMessages !== []) {
+                    $errors = array_merge($errors, $uploadMessages);
+                } elseif ((int) ($uploadResult['saved'] ?? 0) <= 0) {
+                    $errors[] = 'Nem választottál ki új befejező fotót.';
+                } else {
+                    complete_electrician_work_stage((int) $request['id'], 'after');
+                    set_flash('success', 'A szerelői befejező fotók feltöltve.');
+                    redirect($mvmRedirectPath . '&handover_notice=1#technical-handover-section');
+                }
+            } catch (Throwable $exception) {
+                $errors[] = APP_DEBUG ? $exception->getMessage() : 'A szerelői befejező fotók feltöltése sikertelen.';
+            }
+        }
     } elseif ($action === 'send_authorization_form') {
         $result = send_prefilled_authorization_form_email((int) $request['id']);
         set_flash($result['ok'] ? 'success' : 'error', $result['message']);
@@ -392,6 +413,13 @@ $technicalDeclarationDocument = latest_connection_request_technical_document((in
 $technicalDeclarationSourceDocument = latest_connection_request_technical_declaration_source_document((int) $request['id']);
 $afterWorkPhotoParts = connection_request_after_work_photo_parts((int) $request['id']);
 $afterWorkPhotoMissingItems = connection_request_required_after_photo_missing_items((int) $request['id']);
+$afterWorkPhotoLabels = connection_request_required_after_photo_labels();
+$afterWorkPhotoExistingTypes = [];
+
+foreach ($afterWorkPhotoLabels as $photoType => $photoLabel) {
+    $afterWorkPhotoExistingTypes[$photoType] = connection_request_has_work_file_type((int) $request['id'], 'after', (string) $photoType);
+}
+
 $technicalHandoverChecklist = [
     [
         'key' => 'technical_handover',
@@ -1086,6 +1114,19 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                             <form class="handover-card-upload-form" method="post" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
                                 <?= csrf_field(); ?>
                                 <button class="button button-secondary" name="action" value="generate_technical_declaration" type="submit" <?= (!$pdfMergeAvailable || $technicalDeclarationSourceDocument === null || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Nyilatkozat kinyerése</button>
+                            </form>
+                        <?php elseif (($item['key'] ?? '') === 'after_work_photos'): ?>
+                            <form class="handover-card-upload-form handover-photo-upload-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">
+                                <?= csrf_field(); ?>
+                                <?php foreach ($afterWorkPhotoLabels as $photoType => $photoLabel): ?>
+                                    <?php $hasPhoto = (bool) ($afterWorkPhotoExistingTypes[$photoType] ?? false); ?>
+                                    <label>
+                                        <span><?= h((string) $photoLabel); ?></span>
+                                        <small><?= $hasPhoto ? 'Már van feltöltve' : 'Hiányzik'; ?></small>
+                                        <input name="work_file_after_<?= h((string) $photoType); ?>[]" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" <?= ((string) $photoType === 'seals') ? 'multiple' : ''; ?> <?= $hasPhoto ? '' : 'required'; ?>>
+                                    </label>
+                                <?php endforeach; ?>
+                                <button class="button button-secondary" name="action" value="upload_after_work_photos" type="submit">Fotók feltöltése</button>
                             </form>
                         <?php endif; ?>
                     </article>

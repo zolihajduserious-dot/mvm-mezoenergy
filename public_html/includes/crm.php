@@ -8156,6 +8156,106 @@ function validate_electrician_work_uploads(int $requestId, string $stage, array 
     return $errors;
 }
 
+function validate_connection_request_after_work_photo_uploads(int $requestId, array $files): array
+{
+    if (!db_table_exists('connection_request_work_files')) {
+        return ['A szerelői munkafotók adatbázistáblája nem elérhető.'];
+    }
+
+    $errors = [];
+
+    foreach (connection_request_required_after_photo_labels() as $key => $label) {
+        $uploadedFiles = array_values(array_filter(
+            uploaded_files_for_key($files, 'work_file_after_' . $key),
+            static fn (?array $file): bool => uploaded_file_is_present($file)
+        ));
+
+        if ($uploadedFiles === [] && !connection_request_has_work_file_type($requestId, 'after', $key)) {
+            $errors[] = $label . ' feltöltése kötelező.';
+            continue;
+        }
+
+        foreach ($uploadedFiles as $file) {
+            $errors = array_merge($errors, validate_portal_file_upload($file, $label, true));
+        }
+    }
+
+    return $errors;
+}
+
+function store_connection_request_after_work_photo_uploads(int $requestId, array $files): array
+{
+    $messages = [];
+    $saved = 0;
+    $user = current_user();
+
+    if (!is_array($user)) {
+        return ['saved' => 0, 'messages' => ['A feltöltéshez be kell jelentkezni.']];
+    }
+
+    $targetDir = ELECTRICIAN_WORK_UPLOAD_PATH . '/' . $requestId . '/after';
+    ensure_storage_dir($targetDir);
+
+    foreach (connection_request_required_after_photo_labels() as $key => $label) {
+        foreach (uploaded_files_for_key($files, 'work_file_after_' . $key) as $file) {
+            if (!uploaded_file_is_present($file)) {
+                continue;
+            }
+
+            if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                $messages[] = $label . ': a feltöltés sikertelen.';
+                continue;
+            }
+
+            $validationErrors = validate_portal_file_upload($file, $label, true);
+
+            if ($validationErrors !== []) {
+                $messages = array_merge($messages, $validationErrors);
+                continue;
+            }
+
+            $tmpName = (string) $file['tmp_name'];
+            $originalName = (string) $file['name'];
+            $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+            $extension = $extension === 'jpeg' ? 'jpg' : $extension;
+            $storedName = $key . '-' . bin2hex(random_bytes(12)) . '.' . $extension;
+            $targetPath = $targetDir . '/' . $storedName;
+
+            if (!move_uploaded_file($tmpName, $targetPath)) {
+                $messages[] = $label . ': nem sikerült menteni.';
+                continue;
+            }
+
+            $mimeType = function_exists('mime_content_type') ? (mime_content_type($targetPath) ?: '') : '';
+
+            db_query(
+                'INSERT INTO `connection_request_work_files`
+                    (`connection_request_id`, `uploaded_by_user_id`, `stage`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $requestId,
+                    (int) $user['id'],
+                    'after',
+                    $key,
+                    $label,
+                    $originalName,
+                    $storedName,
+                    $targetPath,
+                    $mimeType !== '' ? $mimeType : (document_allowed_extensions()[$extension] ?? 'image/jpeg'),
+                    (int) $file['size'],
+                ]
+            );
+            $saved++;
+        }
+    }
+
+    if ($saved > 0) {
+        record_connection_request_activity($requestId, 'file_upload', 'Szerelői befejező fotók feltöltve', $saved . ' fájl');
+    }
+
+    return ['saved' => $saved, 'messages' => $messages];
+}
+
 function handle_electrician_work_uploads(int $requestId, string $stage, array $files): array
 {
     $messages = [];
