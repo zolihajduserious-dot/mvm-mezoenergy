@@ -422,6 +422,35 @@ if (is_post() && ($_POST['action'] ?? '') === 'save_minicrm_work_mvm_uk_number')
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'save_minicrm_work_note') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $result = $workItemId > 0
+        ? update_minicrm_work_item_work_note($workItemId, (string) ($_POST['work_note'] ?? ''))
+        : ['ok' => false, 'message' => 'Hiányzó MiniCRM adatlap azonosító.'];
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
+if (is_post() && ($_POST['action'] ?? '') === 'save_portal_work_note') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $redirectItemId = max(0, (int) ($_POST['redirect_item_id'] ?? 0));
+    $request = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($request === null) {
+        $result = ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    } else {
+        $result = update_connection_request_work_note($requestId, (string) ($_POST['work_note'] ?? ''));
+    }
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+    redirect($redirectItemId > 0 ? '/admin/minicrm-import?item=' . $redirectItemId . '#minicrm-work-' . $redirectItemId : '/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'fix_szabo_dezso_5_apartment_power') {
     require_valid_csrf_token();
 
@@ -1245,6 +1274,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $miniCrmUkNumber = trim((string) ($item['mvm_uk_number'] ?? ''));
                             $linkedUkNumber = is_array($linkedMvmRequest) ? trim((string) ($linkedMvmRequest['mvm_uk_number'] ?? '')) : '';
                             $displayUkNumber = $miniCrmUkNumber !== '' ? $miniCrmUkNumber : $linkedUkNumber;
+                            $miniCrmWorkNote = trim((string) ($item['work_note'] ?? ''));
+                            $linkedWorkNote = is_array($linkedMvmRequest) ? trim((string) ($linkedMvmRequest['work_note'] ?? '')) : '';
+                            $displayWorkNote = $linkedWorkNote !== '' ? $linkedWorkNote : $miniCrmWorkNote;
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
                             $linkedRequestEmailThreads = is_array($linkedMvmRequest) ? mvm_email_threads_with_messages((int) $linkedMvmRequest['id']) : [];
                             $linkedRequestTimelineEvents = is_array($linkedMvmRequest) ? connection_request_timeline_events($linkedMvmRequest) : [];
@@ -1282,6 +1314,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 $displayEmail,
                                 $profilePhone,
                                 $displayUkNumber,
+                                $displayWorkNote,
                                 $siteAddress,
                             ]);
                             ?>
@@ -1357,6 +1390,18 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
                                                             <input id="minicrm_mvm_uk_number_<?= $itemId; ?>" name="mvm_uk_number" value="<?= h($displayUkNumber); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
                                                             <button class="button button-secondary" type="submit">Mentés</button>
+                                                        </form>
+                                                    </dd>
+                                                </div>
+                                                <div class="admin-request-data-wide">
+                                                    <dt><label for="minicrm_work_note_<?= $itemId; ?>">Munka megjegyzés</label></dt>
+                                                    <dd>
+                                                        <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>">
+                                                            <?= csrf_field(); ?>
+                                                            <input type="hidden" name="action" value="save_minicrm_work_note">
+                                                            <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                            <textarea id="minicrm_work_note_<?= $itemId; ?>" name="work_note" rows="4" placeholder="Megjegyzés a munkához"><?= h($displayWorkNote); ?></textarea>
+                                                            <button class="button button-secondary" type="submit">Megjegyzés mentése</button>
                                                         </form>
                                                     </dd>
                                                 </div>
@@ -1876,6 +1921,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         $savedCustomerPhone = trim((string) ($request['phone'] ?? ''));
                                         $displayEmail = $savedCustomerEmail !== '' ? $savedCustomerEmail : $profileEmail;
                                         $displayPhone = $savedCustomerPhone !== '' ? $savedCustomerPhone : $profilePhone;
+                                        $requestWorkNote = trim((string) ($request['work_note'] ?? ''));
                                         $requestContactLine = trim(implode(' · ', array_filter([$displayEmail, $displayPhone], static fn (string $value): bool => $value !== '')));
                                         $requestSearchText = implode(' ', [
                                             $requestTitle,
@@ -1883,6 +1929,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             $displayEmail,
                                             $displayPhone,
                                             (string) ($request['mvm_uk_number'] ?? ''),
+                                            $requestWorkNote,
                                             $requestSiteAddress,
                                             (string) ($request['electrician_name'] ?? ''),
                                             $requestSubmitterLabel,
@@ -1977,6 +2024,10 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                         <dt><label for="portal_mvm_uk_number_<?= $requestId; ?>">&#220;K sz&#225;m</label></dt>
                                                                         <dd><input id="portal_mvm_uk_number_<?= $requestId; ?>" name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM &#220;K sz&#225;m"></dd>
                                                                     </div>
+                                                                    <div class="admin-request-data-wide">
+                                                                        <dt>Munka megjegyz&#233;s</dt>
+                                                                        <dd><?= h($requestWorkNote !== '' ? $requestWorkNote : '-'); ?></dd>
+                                                                    </div>
                                                                     <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
                                                                     <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
                                                                     <div>
@@ -2009,6 +2060,17 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 </dl>
                                                                 <button class="button button-secondary" type="submit">Adatok ment&#233;se</button>
                                                             </form>
+
+                                                            <section class="minicrm-compact-docs portal-assignment-panel">
+                                                                <h3>Munka megjegyz&#233;s</h3>
+                                                                <form class="portal-assignment-form" method="post" action="<?= h($requestDetailUrl); ?>">
+                                                                    <?= csrf_field(); ?>
+                                                                    <input type="hidden" name="action" value="save_portal_work_note">
+                                                                    <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                    <textarea name="work_note" rows="4" placeholder="Megjegyz&#233;s a munk&#225;hoz"><?= h($requestWorkNote); ?></textarea>
+                                                                    <button class="button button-secondary" type="submit">Megjegyz&#233;s ment&#233;se</button>
+                                                                </form>
+                                                            </section>
 
                                                             <section class="minicrm-compact-docs portal-assignment-panel">
                                                                 <h3>Szerel&#337;h&#246;z rendel&#233;s</h3>

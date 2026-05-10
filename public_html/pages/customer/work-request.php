@@ -263,6 +263,7 @@ if (is_post()) {
                     <div><label>Igényelt teljesítmény vezérelt</label><input name="requested_controlled_power" value="<?= h($form['requested_controlled_power']); ?>"></div>
                 </div>
                 <label>Megjegyzés</label><textarea name="notes" rows="4"><?= h($form['notes']); ?></textarea>
+                <label>Munka megjegyzés</label><textarea name="work_note" rows="3" placeholder="Belső megjegyzés a munkához"><?= h($form['work_note']); ?></textarea>
             </section>
 
             <section class="auth-panel form-block">

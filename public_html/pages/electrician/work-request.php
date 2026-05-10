@@ -188,6 +188,12 @@ if (is_post() && $schemaErrors === []) {
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'save_work_note') {
+        $result = update_connection_request_work_note((int) $request['id'], (string) ($_POST['work_note'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
     if ($request !== null && $action === 'save_initial_data') {
         if (!$initialDataEditable) {
             $errors[] = 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók.';
@@ -849,6 +855,8 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <input id="existing_controlled_power" name="existing_controlled_power" value="<?= h($workForm['existing_controlled_power']); ?>">
                         <label for="requested_controlled_power">Igényelt teljesítmény vezérelt</label>
                         <input id="requested_controlled_power" name="requested_controlled_power" value="<?= h($workForm['requested_controlled_power']); ?>">
+                        <label for="work_note">Munka megjegyzés</label>
+                        <textarea id="work_note" name="work_note" rows="3" placeholder="Belső megjegyzés a munkához"><?= h($workForm['work_note']); ?></textarea>
                     </section>
                 </div>
 
@@ -945,6 +953,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                 <div><label>Igényelt vezérelt</label><input name="requested_controlled_power" value="<?= h($workForm['requested_controlled_power']); ?>"></div>
                             </div>
                             <label>Megjegyzés</label><textarea name="notes" rows="3"><?= h($workForm['notes']); ?></textarea>
+                            <label>Munka megjegyzés</label><textarea name="work_note" rows="3" placeholder="Belső megjegyzés a munkához"><?= h($workForm['work_note']); ?></textarea>
                             <div class="form-actions">
                                 <button class="button" type="submit">Alapadatok mentése</button>
                             </div>
@@ -1042,6 +1051,12 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
                             <button class="button button-secondary" type="submit">ÜK szám mentése</button>
                         </form>
+                        <form class="inline-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="save_work_note">
+                            <textarea name="work_note" rows="3" placeholder="Megjegyzés a munkához"><?= h((string) ($request['work_note'] ?? '')); ?></textarea>
+                            <button class="button button-secondary" type="submit">Megjegyzés mentése</button>
+                        </form>
                     </section>
 
                     <section class="admin-request-panel">
@@ -1063,6 +1078,9 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             <div><dt>H tarifa</dt><dd><?= h(($request['existing_h_tariff_power'] ?: '-') . ' / ' . ($request['requested_h_tariff_power'] ?: '-')); ?></dd></div>
                             <div><dt>Vezérelt</dt><dd><?= h(($request['existing_controlled_power'] ?: '-') . ' / ' . ($request['requested_controlled_power'] ?: '-')); ?></dd></div>
                             <div><dt>Árajánlat</dt><dd><?= h($quoteSummaryAmount); ?> · <?= h($quoteSummaryLabel); ?></dd></div>
+                            <?php if (!empty($request['work_note'])): ?>
+                                <div class="admin-request-data-wide"><dt>Munka megjegyzés</dt><dd><?= h((string) $request['work_note']); ?></dd></div>
+                            <?php endif; ?>
                             <?php if (!empty($request['notes'])): ?>
                                 <div class="admin-request-data-wide"><dt>Megjegyzés</dt><dd><?= h((string) $request['notes']); ?></dd></div>
                             <?php endif; ?>

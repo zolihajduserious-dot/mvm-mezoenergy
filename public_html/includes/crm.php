@@ -5761,6 +5761,50 @@ function connection_request_mvm_uk_number_schema_ensure(): bool
     return $ready;
 }
 
+function connection_request_work_note_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('connection_requests')) {
+        $ready = false;
+        return false;
+    }
+
+    if (!db_column_exists('connection_requests', 'work_note')) {
+        try {
+            db_query('ALTER TABLE `connection_requests` ADD COLUMN IF NOT EXISTS `work_note` TEXT DEFAULT NULL AFTER `notes`');
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = db_column_exists('connection_requests', 'work_note');
+    return $ready;
+}
+
+function connection_request_normalize_work_note(string $value): string
+{
+    $value = trim(str_replace(["\r\n", "\r"], "\n", $value));
+    $value = preg_replace('/[ \t]+/u', ' ', $value);
+    $value = preg_replace("/\n{3,}/", "\n\n", (string) $value);
+    $value = is_string($value) ? trim($value) : '';
+
+    if ($value === '') {
+        return '';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        return mb_strlen($value, 'UTF-8') > 4000 ? mb_substr($value, 0, 4000, 'UTF-8') : $value;
+    }
+
+    return strlen($value) > 4000 ? substr($value, 0, 4000) : $value;
+}
+
 function connection_request_normalize_mvm_uk_number(string $value): string
 {
     $value = trim($value);
@@ -6976,6 +7020,7 @@ function normalize_connection_request_data(array $source, ?array $customer = nul
         'meter_serial' => trim((string) ($source['meter_serial'] ?? '')),
         'consumption_place_id' => trim((string) ($source['consumption_place_id'] ?? '')),
         'mvm_uk_number' => connection_request_normalize_mvm_uk_number((string) ($source['mvm_uk_number'] ?? '')),
+        'work_note' => connection_request_normalize_work_note((string) ($source['work_note'] ?? '')),
         'existing_general_power' => trim((string) ($source['existing_general_power'] ?? '')),
         'requested_general_power' => trim((string) ($source['requested_general_power'] ?? '')),
         'existing_h_tariff_power' => trim((string) ($source['existing_h_tariff_power'] ?? '')),
@@ -7075,12 +7120,19 @@ function validate_connection_request_data(array $data, array $files, bool $final
 function save_connection_request(int $customerId, array $data, ?int $requestId = null, ?int $submittedByUserId = null, bool $allowFinalizedUpdate = false): int
 {
     $ukNumberColumnReady = connection_request_mvm_uk_number_schema_ensure();
+    $workNoteColumnReady = connection_request_work_note_schema_ensure();
     $hasSubmittedUkNumber = array_key_exists('mvm_uk_number', $data);
+    $hasSubmittedWorkNote = array_key_exists('work_note', $data);
     $existingRequest = $requestId !== null ? find_connection_request($requestId) : null;
     $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($data['mvm_uk_number'] ?? ''));
+    $data['work_note'] = connection_request_normalize_work_note((string) ($data['work_note'] ?? ''));
 
     if (!$hasSubmittedUkNumber && is_array($existingRequest)) {
         $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($existingRequest['mvm_uk_number'] ?? ''));
+    }
+
+    if (!$hasSubmittedWorkNote && is_array($existingRequest)) {
+        $data['work_note'] = connection_request_normalize_work_note((string) ($existingRequest['work_note'] ?? ''));
     }
 
     if ($submittedByUserId === null) {
@@ -7137,6 +7189,11 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
             $updateParams[] = $data['mvm_uk_number'] !== '' ? $data['mvm_uk_number'] : null;
         }
 
+        if ($workNoteColumnReady) {
+            $updateSql .= ', `work_note` = ?';
+            $updateParams[] = $data['work_note'] !== '' ? $data['work_note'] : null;
+        }
+
         $updateSql .= ' WHERE `id` = ?';
         $updateParams[] = $requestId;
         db_query($updateSql, $updateParams);
@@ -7177,6 +7234,12 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
         $insertColumns .= ', `mvm_uk_number`';
         $insertPlaceholders .= ', ?';
         $insertParams[] = $data['mvm_uk_number'] !== '' ? $data['mvm_uk_number'] : null;
+    }
+
+    if ($workNoteColumnReady) {
+        $insertColumns .= ', `work_note`';
+        $insertPlaceholders .= ', ?';
+        $insertParams[] = $data['work_note'] !== '' ? $data['work_note'] : null;
     }
 
     $insertColumns .= ', `request_status`';
@@ -7578,6 +7641,7 @@ function send_electrician_assignment_email(int $requestId, int $electricianUserI
 function find_connection_request(int $id): ?array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
 
     $statement = db_query(
         'SELECT cr.*, c.requester_name, c.birth_name, c.company_name, c.tax_number, c.is_legal_entity,
@@ -7635,6 +7699,54 @@ function update_connection_request_mvm_uk_number(int $requestId, string $ukNumbe
     );
 
     return ['ok' => true, 'message' => $ukNumber !== '' ? 'Az ÜK szám mentve lett.' : 'Az ÜK szám törölve lett.'];
+}
+
+function update_connection_request_work_note(int $requestId, string $note): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    if (!connection_request_work_note_schema_ensure()) {
+        return ['ok' => false, 'message' => 'A munka megjegyzés mező adatbázis-frissítése nem sikerült.'];
+    }
+
+    $note = connection_request_normalize_work_note($note);
+    $previousNote = connection_request_normalize_work_note((string) ($request['work_note'] ?? ''));
+
+    if ($previousNote === $note) {
+        return ['ok' => true, 'message' => 'A munka megjegyzés már ez volt.'];
+    }
+
+    db_query(
+        'UPDATE `connection_requests` SET `work_note` = ? WHERE `id` = ?',
+        [$note !== '' ? $note : null, $requestId]
+    );
+
+    if (db_table_exists('minicrm_connection_request_links')) {
+        $linkedWorkItemId = db_query(
+            'SELECT `work_item_id` FROM `minicrm_connection_request_links` WHERE `connection_request_id` = ? LIMIT 1',
+            [$requestId]
+        )->fetchColumn();
+
+        if ($linkedWorkItemId !== false && (int) $linkedWorkItemId > 0 && minicrm_work_item_work_note_schema_ensure()) {
+            db_query(
+                'UPDATE `minicrm_work_items` SET `work_note` = ?, `updated_at` = CURRENT_TIMESTAMP WHERE `id` = ?',
+                [$note !== '' ? $note : null, (int) $linkedWorkItemId]
+            );
+        }
+    }
+
+    record_connection_request_activity(
+        $requestId,
+        'work_note_update',
+        $note !== '' ? 'Munka megjegyzés frissítve' : 'Munka megjegyzés törölve',
+        $note !== '' ? $note : 'A megjegyzés törölve lett.'
+    );
+
+    return ['ok' => true, 'message' => $note !== '' ? 'A munka megjegyzés mentve lett.' : 'A munka megjegyzés törölve lett.'];
 }
 
 function update_connection_request_customer_email(int $requestId, string $email): array
@@ -7793,6 +7905,7 @@ function update_connection_request_portal_details(int $requestId, array $source)
 function all_connection_requests(): array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
     connection_request_auto_assign_submitted_electrician_items();
 
     if (db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
@@ -7862,6 +7975,7 @@ function admin_standalone_connection_request_items(int $limit = 500, bool $archi
     }
 
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
     connection_request_auto_assign_submitted_electrician_items();
 
     $limit = max(1, min(1000, $limit));
@@ -7908,6 +8022,7 @@ function admin_standalone_connection_request_items(int $limit = 500, bool $archi
 function connection_requests_for_customer(int $customerId): array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
 
     $select = 'SELECT cr.*, su.role AS submitted_by_user_role, su.name AS submitted_by_user_name, su.email AS submitted_by_user_email';
     $joins = ' FROM `connection_requests` cr
@@ -7938,6 +8053,7 @@ function connection_requests_for_customer(int $customerId): array
 function connection_request_summaries_for_customers(array $customerIds): array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
 
     $customerIds = array_values(array_unique(array_filter(array_map('intval', $customerIds))));
 
@@ -7964,6 +8080,7 @@ function connection_request_summaries_for_customers(array $customerIds): array
 function connection_requests_for_submitter(int $submittedByUserId): array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
 
     return db_query(
         'SELECT cr.*, c.requester_name, c.email, c.phone
@@ -7978,6 +8095,7 @@ function connection_requests_for_submitter(int $submittedByUserId): array
 function connection_requests_for_electrician(int $electricianUserId): array
 {
     connection_request_mvm_uk_number_schema_ensure();
+    connection_request_work_note_schema_ensure();
 
     if (!db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
         return [];
@@ -16816,6 +16934,8 @@ function minicrm_import_schema_errors(): array
         $errors[] = 'Hiányzik a minicrm_work_items tábla.';
     } elseif (!minicrm_work_item_mvm_uk_number_schema_ensure()) {
         $errors[] = 'Hiányzik a minicrm_work_items.mvm_uk_number oszlop.';
+    } elseif (!minicrm_work_item_work_note_schema_ensure()) {
+        $errors[] = 'Hiányzik a minicrm_work_items.work_note oszlop.';
     }
 
     if (!db_table_exists('minicrm_work_item_files')) {
@@ -16858,6 +16978,32 @@ function minicrm_work_item_mvm_uk_number_schema_ensure(): bool
     }
 
     $ready = db_column_exists('minicrm_work_items', 'mvm_uk_number');
+    return $ready;
+}
+
+function minicrm_work_item_work_note_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('minicrm_work_items')) {
+        $ready = false;
+        return false;
+    }
+
+    if (!db_column_exists('minicrm_work_items', 'work_note')) {
+        try {
+            db_query('ALTER TABLE `minicrm_work_items` ADD COLUMN IF NOT EXISTS `work_note` TEXT DEFAULT NULL AFTER `cabinet_note`');
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = db_column_exists('minicrm_work_items', 'work_note');
     return $ready;
 }
 
@@ -17985,6 +18131,7 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `pole_type` VARCHAR(120) DEFAULT NULL,
     `wire_note` TEXT DEFAULT NULL,
     `cabinet_note` TEXT DEFAULT NULL,
+    `work_note` TEXT DEFAULT NULL,
     `document_links_json` LONGTEXT DEFAULT NULL,
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -18004,6 +18151,9 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 
 ALTER TABLE `minicrm_work_items`
     ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`;
+
+ALTER TABLE `minicrm_work_items`
+    ADD COLUMN IF NOT EXISTS `work_note` TEXT DEFAULT NULL AFTER `cabinet_note`;
 
 CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -19104,6 +19254,7 @@ function minicrm_work_items(int $limit = 500, bool $archivedOnly = false): array
     }
 
     minicrm_work_item_mvm_uk_number_schema_ensure();
+    minicrm_work_item_work_note_schema_ensure();
 
     return db_query(
         'SELECT *
@@ -19121,6 +19272,7 @@ function find_minicrm_work_item(int $id): ?array
     }
 
     minicrm_work_item_mvm_uk_number_schema_ensure();
+    minicrm_work_item_work_note_schema_ensure();
 
     $item = db_query('SELECT * FROM `minicrm_work_items` WHERE `id` = ? LIMIT 1', [$id])->fetch();
 
@@ -19273,6 +19425,52 @@ function update_minicrm_work_item_mvm_uk_number(int $workItemId, string $ukNumbe
     return [
         'ok' => $syncWarning === '',
         'message' => ($ukNumber !== '' ? 'Az ÜK szám mentve lett a MiniCRM adatlapon.' : 'Az ÜK szám törölve lett a MiniCRM adatlapról.') . $syncWarning,
+    ];
+}
+
+function update_minicrm_work_item_work_note(int $workItemId, string $note): array
+{
+    if (!minicrm_work_item_work_note_schema_ensure()) {
+        return ['ok' => false, 'message' => 'A MiniCRM munka megjegyzés mező adatbázis-frissítése nem sikerült.'];
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM adatlap nem található.'];
+    }
+
+    $note = connection_request_normalize_work_note($note);
+    $previousNote = connection_request_normalize_work_note((string) ($item['work_note'] ?? ''));
+    $miniChanged = $previousNote !== $note;
+
+    if ($miniChanged) {
+        db_query(
+            'UPDATE `minicrm_work_items`
+             SET `work_note` = ?, `updated_at` = CURRENT_TIMESTAMP
+             WHERE `id` = ?',
+            [$note !== '' ? $note : null, $workItemId]
+        );
+    }
+
+    $linkedRequestId = minicrm_work_item_connection_request_id($workItemId);
+    $syncWarning = '';
+
+    if ($linkedRequestId !== null) {
+        $syncResult = update_connection_request_work_note($linkedRequestId, $note);
+
+        if (!($syncResult['ok'] ?? false)) {
+            $syncWarning = ' A kapcsolt portálos adatlap munka megjegyzése nem frissült: ' . (string) ($syncResult['message'] ?? 'ismeretlen hiba');
+        }
+    }
+
+    if (!$miniChanged && $syncWarning === '') {
+        return ['ok' => true, 'message' => 'A munka megjegyzés már ez volt.'];
+    }
+
+    return [
+        'ok' => $syncWarning === '',
+        'message' => ($note !== '' ? 'A munka megjegyzés mentve lett a MiniCRM adatlapon.' : 'A munka megjegyzés törölve lett a MiniCRM adatlapról.') . $syncWarning,
     ];
 }
 
@@ -20148,6 +20346,12 @@ function ensure_minicrm_work_item_connection_request(int $workItemId): array
                  WHERE `id` = ?',
                 ['finalized', $requestId]
             );
+        }
+
+        $workNote = connection_request_normalize_work_note((string) ($item['work_note'] ?? ''));
+
+        if ($workNote !== '') {
+            update_connection_request_work_note($requestId, $workNote);
         }
 
         db_query(

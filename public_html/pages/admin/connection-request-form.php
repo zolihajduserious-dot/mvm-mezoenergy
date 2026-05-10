@@ -79,6 +79,12 @@ if (is_post()) {
         redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'save_work_note') {
+        $result = update_connection_request_work_note((int) $request['id'], (string) ($_POST['work_note'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+        redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
+    }
+
     $skipSave = false;
 
     if ($action === 'extract_document_prefill') {
@@ -265,6 +271,19 @@ $pageSubtitle = $customer !== null
                     <button class="button button-secondary" type="submit">ÜK szám mentése</button>
                 </form>
             </section>
+
+            <section class="download-panel">
+                <div>
+                    <h2>Munka megjegyzés</h2>
+                    <p>Belső tájékoztató megjegyzés a munkához. A szerelő, a rögzítő és az admin is ebből tud gyorsan tájékozódni.</p>
+                </div>
+                <form class="form inline-form" method="post" action="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $request['id']); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="save_work_note">
+                    <textarea name="work_note" rows="4" placeholder="Megjegyzés a munkához"><?= h((string) ($request['work_note'] ?? '')); ?></textarea>
+                    <button class="button button-secondary" type="submit">Megjegyzés mentése</button>
+                </form>
+            </section>
         <?php endif; ?>
 
         <?php if ($downloads !== []): ?>
@@ -361,6 +380,7 @@ $pageSubtitle = $customer !== null
                     <div><label>Igényelt teljesítmény vezérelt</label><input name="requested_controlled_power" value="<?= h($form['requested_controlled_power']); ?>"></div>
                 </div>
                 <label>Megjegyzés</label><textarea name="notes" rows="4"><?= h($form['notes']); ?></textarea>
+                <label>Munka megjegyzés</label><textarea name="work_note" rows="3" placeholder="Belső megjegyzés a munkához"><?= h($form['work_note']); ?></textarea>
             </section>
 
             <section class="auth-panel form-block">

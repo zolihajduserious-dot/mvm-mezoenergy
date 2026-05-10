@@ -27,6 +27,22 @@ if (is_post() && ($_POST['action'] ?? '') === 'save_mvm_uk_number') {
     redirect('/contractor/work-requests');
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'save_work_note') {
+    require_valid_csrf_token();
+
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $request = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($request === null || !contractor_can_manage_connection_request($request)) {
+        set_flash('error', 'Az adatlap nem található.');
+    } else {
+        $result = update_connection_request_work_note($requestId, (string) ($_POST['work_note'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+    }
+
+    redirect('/contractor/work-requests');
+}
+
 $requests = connection_requests_for_submitter((int) $user['id']);
 $customers = contractor_customers((int) $user['id']);
 $documents = download_documents(true);
@@ -180,6 +196,17 @@ foreach ($requests as $requestSummary) {
                                 <input type="hidden" name="action" value="save_mvm_uk_number">
                                 <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
                                 <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
+                                <button class="button button-secondary" type="submit">Mentés</button>
+                            </form>
+                        </div>
+
+                        <div class="portal-card-files">
+                            <h3>Munka megjegyzés</h3>
+                            <form class="inline-form" method="post" action="<?= h(url_path('/contractor/work-requests')); ?>">
+                                <?= csrf_field(); ?>
+                                <input type="hidden" name="action" value="save_work_note">
+                                <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
+                                <textarea name="work_note" rows="3" placeholder="Megjegyzés a munkához"><?= h((string) ($request['work_note'] ?? '')); ?></textarea>
                                 <button class="button button-secondary" type="submit">Mentés</button>
                             </form>
                         </div>

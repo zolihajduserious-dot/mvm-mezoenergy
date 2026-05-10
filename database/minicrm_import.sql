@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `pole_type` VARCHAR(120) DEFAULT NULL,
     `wire_note` TEXT DEFAULT NULL,
     `cabinet_note` TEXT DEFAULT NULL,
+    `work_note` TEXT DEFAULT NULL,
     `document_links_json` LONGTEXT DEFAULT NULL,
     `raw_payload` LONGTEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -68,6 +69,9 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 
 ALTER TABLE `minicrm_work_items`
     ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`;
+
+ALTER TABLE `minicrm_work_items`
+    ADD COLUMN IF NOT EXISTS `work_note` TEXT DEFAULT NULL AFTER `cabinet_note`;
 
 CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
