@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `floor_door` VARCHAR(80) DEFAULT NULL,
     `hrsz` VARCHAR(80) DEFAULT NULL,
     `consumption_place_id` VARCHAR(120) DEFAULT NULL,
+    `mvm_uk_number` VARCHAR(80) DEFAULT NULL,
     `meter_serial` VARCHAR(120) DEFAULT NULL,
     `controlled_meter_serial` VARCHAR(120) DEFAULT NULL,
     `wire_type` VARCHAR(120) DEFAULT NULL,
@@ -64,6 +65,9 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `minicrm_work_items`
+    ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`;
 
 CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,

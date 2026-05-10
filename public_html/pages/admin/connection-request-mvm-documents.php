@@ -169,6 +169,9 @@ if (is_post()) {
                     try {
                         save_connection_request_mvm_source_data((int) $request['id'], $_POST, true);
                         $request = find_connection_request((int) $request['id']) ?? $request;
+                        if ($isMiniCrmContext && $minicrmItemId) {
+                            update_minicrm_work_item_mvm_uk_number((int) $minicrmItemId, (string) ($request['mvm_uk_number'] ?? ''));
+                        }
                     } catch (Throwable $sourceException) {
                         $sourceSaveWarning = APP_DEBUG
                             ? ' Az adatlap alapadatainak frissítése nem sikerült: ' . $sourceException->getMessage()
@@ -181,6 +184,9 @@ if (is_post()) {
 
                 save_connection_request_mvm_source_data((int) $request['id'], $_POST);
                 $request = find_connection_request((int) $request['id']) ?? $request;
+                if ($isMiniCrmContext && $minicrmItemId) {
+                    update_minicrm_work_item_mvm_uk_number((int) $minicrmItemId, (string) ($request['mvm_uk_number'] ?? ''));
+                }
                 save_connection_request_mvm_form((int) $request['id'], $_POST, $_FILES['sketch_image'] ?? null);
 
                 if ($action === 'generate_mvm_pdf') {

@@ -410,6 +410,18 @@ if (is_post() && ($_POST['action'] ?? '') === 'update_minicrm_work_item') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'save_minicrm_work_mvm_uk_number') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $result = $workItemId > 0
+        ? update_minicrm_work_item_mvm_uk_number($workItemId, (string) ($_POST['mvm_uk_number'] ?? ''))
+        : ['ok' => false, 'message' => 'Hiányzó MiniCRM adatlap azonosító.'];
+
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ÜK szám mentése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'fix_szabo_dezso_5_apartment_power') {
     require_valid_csrf_token();
 
@@ -1230,6 +1242,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $documentLinkCount = $isSelectedItem ? count($actualDocumentLinks) : minicrm_import_document_link_count($item);
                             $linkedMvmRequestId = $isSelectedItem ? minicrm_work_item_connection_request_id($itemId) : null;
                             $linkedMvmRequest = $linkedMvmRequestId !== null ? find_connection_request((int) $linkedMvmRequestId) : null;
+                            $miniCrmUkNumber = trim((string) ($item['mvm_uk_number'] ?? ''));
+                            $linkedUkNumber = is_array($linkedMvmRequest) ? trim((string) ($linkedMvmRequest['mvm_uk_number'] ?? '')) : '';
+                            $displayUkNumber = $miniCrmUkNumber !== '' ? $miniCrmUkNumber : $linkedUkNumber;
                             $linkedMvmDocuments = $linkedMvmRequestId !== null ? connection_request_documents($linkedMvmRequestId) : [];
                             $linkedRequestEmailThreads = is_array($linkedMvmRequest) ? mvm_email_threads_with_messages((int) $linkedMvmRequest['id']) : [];
                             $linkedRequestTimelineEvents = is_array($linkedMvmRequest) ? connection_request_timeline_events($linkedMvmRequest) : [];
@@ -1266,6 +1281,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 $profileName,
                                 $displayEmail,
                                 $profilePhone,
+                                $displayUkNumber,
                                 $siteAddress,
                             ]);
                             ?>
@@ -1332,6 +1348,18 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         <aside class="minicrm-work-facts">
                                             <dl>
                                                 <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
+                                                <div>
+                                                    <dt><label for="minicrm_mvm_uk_number_<?= $itemId; ?>">ÜK szám</label></dt>
+                                                    <dd>
+                                                        <form class="portal-customer-email-form" method="post" action="<?= h($detailUrl); ?>">
+                                                            <?= csrf_field(); ?>
+                                                            <input type="hidden" name="action" value="save_minicrm_work_mvm_uk_number">
+                                                            <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                            <input id="minicrm_mvm_uk_number_<?= $itemId; ?>" name="mvm_uk_number" value="<?= h($displayUkNumber); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
+                                                            <button class="button button-secondary" type="submit">Mentés</button>
+                                                        </form>
+                                                    </dd>
+                                                </div>
                                                 <div>
                                                     <dt>Email</dt>
                                                     <dd>

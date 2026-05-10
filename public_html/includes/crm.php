@@ -16814,6 +16814,8 @@ function minicrm_import_schema_errors(): array
 
     if (!db_table_exists('minicrm_work_items')) {
         $errors[] = 'Hiányzik a minicrm_work_items tábla.';
+    } elseif (!minicrm_work_item_mvm_uk_number_schema_ensure()) {
+        $errors[] = 'Hiányzik a minicrm_work_items.mvm_uk_number oszlop.';
     }
 
     if (!db_table_exists('minicrm_work_item_files')) {
@@ -16831,6 +16833,88 @@ function minicrm_import_schema_errors(): array
     }
 
     return array_merge($errors, work_archive_schema_errors());
+}
+
+function minicrm_work_item_mvm_uk_number_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('minicrm_work_items')) {
+        $ready = false;
+        return false;
+    }
+
+    if (!db_column_exists('minicrm_work_items', 'mvm_uk_number')) {
+        try {
+            db_query('ALTER TABLE `minicrm_work_items` ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`');
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = db_column_exists('minicrm_work_items', 'mvm_uk_number');
+    return $ready;
+}
+
+function minicrm_work_item_card_name_strip_uk_number(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $stripped = preg_replace('/_(?:ÜK|UK)_[\p{L}\p{N}_-]+$/u', '', $value);
+
+    return is_string($stripped) ? trim($stripped) : $value;
+}
+
+function minicrm_work_item_card_name_truncate(string $value, int $limit): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return 'MiniCRM munka';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($value, 'UTF-8') <= $limit) {
+            return $value;
+        }
+
+        return trim(mb_substr($value, 0, $limit, 'UTF-8')) ?: 'MiniCRM munka';
+    }
+
+    if (strlen($value) <= $limit) {
+        return $value;
+    }
+
+    return trim(substr($value, 0, $limit)) ?: 'MiniCRM munka';
+}
+
+function minicrm_work_item_card_name_with_uk_number(string $cardName, string $ukNumber): string
+{
+    $baseName = minicrm_work_item_card_name_strip_uk_number($cardName);
+    $ukNumber = connection_request_normalize_mvm_uk_number($ukNumber);
+    $ukPart = connection_request_project_name_part($ukNumber);
+
+    if ($ukPart === '') {
+        return minicrm_work_item_card_name_truncate($baseName, 255);
+    }
+
+    $suffix = 'ÜK_' . $ukPart;
+    $suffixLength = function_exists('mb_strlen') ? mb_strlen($suffix, 'UTF-8') : strlen($suffix);
+    $baseLimit = max(1, 255 - $suffixLength - 1);
+
+    return minicrm_work_item_card_name_truncate(
+        minicrm_work_item_card_name_truncate($baseName, $baseLimit) . '_' . $suffix,
+        255
+    );
 }
 
 function minicrm_import_document_column_map(): array
@@ -17216,6 +17300,7 @@ function minicrm_import_row_data(array $headers, array $values): array
         'floor_door' => minicrm_import_value_by_labels($headers, $values, ['Emelet, AjtĂł']),
         'hrsz' => minicrm_import_value_by_labels($headers, $values, ['Helyrajzi szĂˇm']),
         'consumption_place_id' => minicrm_import_value_by_labels($headers, $values, ['FelhasznĂˇlĂˇsi hely azonosĂ­tĂł']),
+        'mvm_uk_number' => connection_request_normalize_mvm_uk_number(minicrm_import_value_by_labels($headers, $values, ['UK szam', 'MVM UK szam', 'Ugyfelkapcsolati szam', 'MVM ugyfelkapcsolati szam'])),
         'meter_serial' => $meterSerial,
         'controlled_meter_serial' => minicrm_import_value_by_labels($headers, $values, ['MĂ©rĹ‘Ăłra gyĂˇri szĂˇma vezĂ©relt']),
         'wire_type' => minicrm_import_value_by_labels($headers, $values, ['VezetĂ©k tĂ­pusa', 'KĂˇbel tĂ­pusa']),
@@ -17338,6 +17423,7 @@ function minicrm_import_row_data_from_headers(array $headers, array $values): ar
         'floor_door' => minicrm_import_value_by_labels($headers, $values, ['Emelet Ajto']),
         'hrsz' => minicrm_import_value_by_labels($headers, $values, ['Helyrajzi szam']),
         'consumption_place_id' => minicrm_import_value_by_labels($headers, $values, ['Felhasznalasi hely azonosito']),
+        'mvm_uk_number' => connection_request_normalize_mvm_uk_number(minicrm_import_value_by_labels($headers, $values, ['UK szam', 'MVM UK szam', 'Ugyfelkapcsolati szam', 'MVM ugyfelkapcsolati szam'])),
         'meter_serial' => $meterSerial,
         'controlled_meter_serial' => minicrm_import_value_by_labels($headers, $values, ['Meroora gyari szama vezerelt']),
         'wire_type' => minicrm_import_value_by_labels($headers, $values, ['Vezetek tipusa', 'Kabel tipusa']),
@@ -17402,10 +17488,23 @@ function minicrm_import_merge_document_json(?string $existingJson, string $newJs
     return minicrm_import_json(minicrm_import_unique_items(array_merge($existing, $new), ['label', 'value']));
 }
 
+function minicrm_import_apply_uk_number_to_row_data(array $data, ?array $existing): array
+{
+    $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($data['mvm_uk_number'] ?? ''));
+
+    if ($data['mvm_uk_number'] === '' && $existing !== null) {
+        $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($existing['mvm_uk_number'] ?? ''));
+    }
+
+    $data['card_name'] = minicrm_work_item_card_name_with_uk_number((string) ($data['card_name'] ?? ''), $data['mvm_uk_number']);
+
+    return $data;
+}
+
 function minicrm_import_merge_row_data(array $data, ?array $existing): array
 {
     if ($existing === null) {
-        return $data;
+        return minicrm_import_apply_uk_number_to_row_data($data, null);
     }
 
     foreach ($data as $key => $value) {
@@ -17429,7 +17528,7 @@ function minicrm_import_merge_row_data(array $data, ?array $existing): array
     $data['document_links_json'] = minicrm_import_merge_document_json($existing['document_links_json'] ?? null, (string) $data['document_links_json']);
     $data['raw_payload'] = minicrm_import_merge_payload_json($existing['raw_payload'] ?? null, (string) $data['raw_payload']);
 
-    return $data;
+    return minicrm_import_apply_uk_number_to_row_data($data, $existing);
 }
 
 function minicrm_import_upload(array $file): array
@@ -17877,6 +17976,7 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
     `floor_door` VARCHAR(80) DEFAULT NULL,
     `hrsz` VARCHAR(80) DEFAULT NULL,
     `consumption_place_id` VARCHAR(120) DEFAULT NULL,
+    `mvm_uk_number` VARCHAR(80) DEFAULT NULL,
     `meter_serial` VARCHAR(120) DEFAULT NULL,
     `controlled_meter_serial` VARCHAR(120) DEFAULT NULL,
     `wire_type` VARCHAR(120) DEFAULT NULL,
@@ -17901,6 +18001,9 @@ CREATE TABLE IF NOT EXISTS `minicrm_work_items` (
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `minicrm_work_items`
+    ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`;
 
 CREATE TABLE IF NOT EXISTS `minicrm_work_item_files` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -18057,6 +18160,7 @@ function import_minicrm_workbook(string $path, string $originalName): array
     $headers = $sheet->rangeToArray('A1:' . $highestColumn . '1', null, true, true, false)[0];
     $user = current_user();
     $pdo = db();
+    $ukNumberColumnReady = minicrm_work_item_mvm_uk_number_schema_ensure();
     $pdo->beginTransaction();
 
     try {
@@ -18102,6 +18206,9 @@ function import_minicrm_workbook(string $path, string $originalName): array
             'document_links_json',
             'raw_payload',
         ];
+        if ($ukNumberColumnReady) {
+            array_splice($columns, (int) array_search('consumption_place_id', $columns, true) + 1, 0, 'mvm_uk_number');
+        }
         $updates = array_values(array_filter($columns, static fn (string $column): bool => $column !== 'source_id'));
         $sql = 'INSERT INTO `minicrm_work_items` (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
             . ' ON DUPLICATE KEY UPDATE '
@@ -18996,6 +19103,8 @@ function minicrm_work_items(int $limit = 500, bool $archivedOnly = false): array
         return [];
     }
 
+    minicrm_work_item_mvm_uk_number_schema_ensure();
+
     return db_query(
         'SELECT *
          FROM `minicrm_work_items`
@@ -19010,6 +19119,8 @@ function find_minicrm_work_item(int $id): ?array
     if (!db_table_exists('minicrm_work_items')) {
         return null;
     }
+
+    minicrm_work_item_mvm_uk_number_schema_ensure();
 
     $item = db_query('SELECT * FROM `minicrm_work_items` WHERE `id` = ? LIMIT 1', [$id])->fetch();
 
@@ -19111,6 +19222,57 @@ function set_minicrm_work_item_archived(int $workItemId, bool $archive): array
     return [
         'ok' => true,
         'message' => $archive ? 'A MiniCRM adatlap archiválva lett.' : 'A MiniCRM adatlap visszaállítva az archívumból.',
+    ];
+}
+
+function update_minicrm_work_item_mvm_uk_number(int $workItemId, string $ukNumber): array
+{
+    if (!minicrm_work_item_mvm_uk_number_schema_ensure()) {
+        return ['ok' => false, 'message' => 'A MiniCRM ÜK szám mező adatbázis-frissítése nem sikerült.'];
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if ($item === null) {
+        return ['ok' => false, 'message' => 'A MiniCRM adatlap nem talalhato.'];
+    }
+
+    $ukNumber = connection_request_normalize_mvm_uk_number($ukNumber);
+    $previousUkNumber = connection_request_normalize_mvm_uk_number((string) ($item['mvm_uk_number'] ?? ''));
+    $cardName = minicrm_work_item_card_name_with_uk_number((string) ($item['card_name'] ?? ''), $ukNumber);
+    $miniChanged = $previousUkNumber !== $ukNumber || trim((string) ($item['card_name'] ?? '')) !== $cardName;
+
+    if ($miniChanged) {
+        db_query(
+            'UPDATE `minicrm_work_items`
+             SET `card_name` = ?, `mvm_uk_number` = ?, `updated_at` = CURRENT_TIMESTAMP
+             WHERE `id` = ?',
+            [
+                $cardName,
+                $ukNumber !== '' ? $ukNumber : null,
+                $workItemId,
+            ]
+        );
+    }
+
+    $linkedRequestId = minicrm_work_item_connection_request_id($workItemId);
+    $syncWarning = '';
+
+    if ($linkedRequestId !== null) {
+        $syncResult = update_connection_request_mvm_uk_number($linkedRequestId, $ukNumber);
+
+        if (!($syncResult['ok'] ?? false)) {
+            $syncWarning = ' A kapcsolt portálos adatlap ÜK száma nem frissült: ' . (string) ($syncResult['message'] ?? 'ismeretlen hiba');
+        }
+    }
+
+    if (!$miniChanged && $syncWarning === '') {
+        return ['ok' => true, 'message' => 'Az ÜK szám már ez volt.'];
+    }
+
+    return [
+        'ok' => $syncWarning === '',
+        'message' => ($ukNumber !== '' ? 'Az ÜK szám mentve lett a MiniCRM adatlapon.' : 'Az ÜK szám törölve lett a MiniCRM adatlapról.') . $syncWarning,
     ];
 }
 
@@ -19713,7 +19875,7 @@ function minicrm_work_item_request_data(array $item): array
     $requestType = isset(connection_request_type_options()[$requestType]) ? $requestType : 'phase_upgrade';
     $meterSerial = $meterSerial !== '' ? $meterSerial : trim((string) ($item['controlled_meter_serial'] ?? ''));
 
-    return [
+    $requestData = [
         'request_type' => $requestType,
         'project_name' => trim((string) ($item['card_name'] ?? 'MiniCRM munka')),
         'site_address' => $siteAddress,
@@ -19729,6 +19891,14 @@ function minicrm_work_item_request_data(array $item): array
         'requested_controlled_power' => minicrm_work_item_requested_controlled_power($item),
         'notes' => minicrm_work_item_request_notes($item),
     ];
+
+    $ukNumber = connection_request_normalize_mvm_uk_number((string) ($item['mvm_uk_number'] ?? ''));
+
+    if ($ukNumber !== '') {
+        $requestData['mvm_uk_number'] = $ukNumber;
+    }
+
+    return $requestData;
 }
 
 function minicrm_db_text(string $value, int $length): string
@@ -20685,6 +20855,7 @@ function update_minicrm_work_item_fields(int $id, array $fieldValues): array
         return ['ok' => false, 'message' => 'A MiniCRM import tábla nem érhető el.'];
     }
 
+    $ukNumberColumnReady = minicrm_work_item_mvm_uk_number_schema_ensure();
     $item = find_minicrm_work_item($id);
 
     if ($item === null) {
@@ -20748,6 +20919,13 @@ function update_minicrm_work_item_fields(int $id, array $fieldValues): array
     }
 
     $data['raw_payload'] = minicrm_import_json(minicrm_import_payload_from_columns($columns));
+    $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($data['mvm_uk_number'] ?? ''));
+
+    if ($data['mvm_uk_number'] === '') {
+        $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($item['mvm_uk_number'] ?? ''));
+    }
+
+    $data['card_name'] = minicrm_work_item_card_name_with_uk_number((string) ($data['card_name'] ?? ''), $data['mvm_uk_number']);
     $updateColumns = [
         'source_id',
         'card_name',
@@ -20783,6 +20961,9 @@ function update_minicrm_work_item_fields(int $id, array $fieldValues): array
         'document_links_json',
         'raw_payload',
     ];
+    if ($ukNumberColumnReady) {
+        array_splice($updateColumns, (int) array_search('consumption_place_id', $updateColumns, true) + 1, 0, 'mvm_uk_number');
+    }
     $params = [];
 
     foreach ($updateColumns as $column) {
@@ -20816,6 +20997,14 @@ function update_minicrm_work_item_fields(int $id, array $fieldValues): array
         }
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A MiniCRM mezők mentése sikertelen.'];
+    }
+
+    if ($ukNumberColumnReady) {
+        $linkedRequestId = minicrm_work_item_connection_request_id($id);
+
+        if ($linkedRequestId !== null) {
+            update_connection_request_mvm_uk_number($linkedRequestId, (string) ($data['mvm_uk_number'] ?? ''));
+        }
     }
 
     return ['ok' => true, 'message' => 'A MiniCRM mezők mentve.'];
