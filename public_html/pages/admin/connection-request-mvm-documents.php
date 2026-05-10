@@ -60,8 +60,8 @@ $types = mvm_document_types();
 $uploadTypes = mvm_document_types();
 $errors = [];
 $mvmFormAction = is_post() ? (string) ($_POST['action'] ?? '') : '';
-$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
-$isHandoverFormPost = in_array($mvmFormAction, ['generate_handover_docx', 'generate_handover_pdf', 'upload_after_work_photos'], true);
+$isMvmFormPost = in_array($mvmFormAction, ['save_mvm_form', 'save_handover_fields', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
+$isHandoverFormPost = in_array($mvmFormAction, ['save_handover_fields', 'generate_handover_docx', 'generate_handover_pdf', 'upload_after_work_photos'], true);
 $isSealRemovalFormPost = in_array($mvmFormAction, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true);
 $isHTariffFormPost = in_array($mvmFormAction, ['generate_h_tariff_docx', 'generate_h_tariff_pdf'], true);
 $selectedType = (string) ($_POST['document_type'] ?? 'submitted_request');
@@ -135,7 +135,7 @@ if (is_post()) {
 
     if ($requiresMvmSubmissionApproval && !$mvmSubmissionApproved) {
         $errors[] = $mvmSubmissionGuardMessage;
-    } elseif (in_array($action, ['save_mvm_form', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true)) {
+    } elseif (in_array($action, ['save_mvm_form', 'save_handover_fields', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true)) {
         if ($mvmFormSchemaErrors !== []) {
             $errors = array_merge($errors, $mvmFormSchemaErrors);
         }
@@ -152,6 +152,14 @@ if (is_post()) {
             $errors = array_merge($errors, $handoverTemplateErrors);
         }
 
+        if (in_array($action, ['generate_handover_docx', 'generate_handover_pdf'], true)) {
+            $missingHandoverFields = mvm_technical_handover_required_missing_items($mvmFormValues);
+
+            if ($missingHandoverFields !== []) {
+                $errors[] = 'A műszaki átadási dokumentum generálásához még hiányzik: ' . implode(', ', $missingHandoverFields) . '.';
+            }
+        }
+
         if (in_array($action, ['generate_seal_removal_docx', 'generate_seal_removal_pdf'], true) && $sealRemovalTemplateErrors !== []) {
             $errors = array_merge($errors, $sealRemovalTemplateErrors);
         }
@@ -162,7 +170,7 @@ if (is_post()) {
 
         if ($errors === []) {
             try {
-                if ($action === 'save_mvm_form') {
+                if (in_array($action, ['save_mvm_form', 'save_handover_fields'], true)) {
                     save_connection_request_mvm_form((int) $request['id'], $_POST, $_FILES['sketch_image'] ?? null);
                     $sourceSaveWarning = '';
 
@@ -176,6 +184,11 @@ if (is_post()) {
                         $sourceSaveWarning = APP_DEBUG
                             ? ' Az adatlap alapadatainak frissítése nem sikerült: ' . $sourceException->getMessage()
                             : ' Az adatlap alapadatai közül nem mindent sikerült frissíteni, de az MVM űrlap piszkozat mentve lett.';
+                    }
+
+                    if ($action === 'save_handover_fields') {
+                        set_flash('success', 'A műszaki átadási adatok elmentve.' . $sourceSaveWarning);
+                        redirect($mvmRedirectPath . '&handover_notice=1#technical-handover-section');
                     }
 
                     set_flash('success', 'Az MVM űrlap piszkozatként elmentve.' . $sourceSaveWarning);
@@ -406,6 +419,8 @@ $executionPlanPackageParts = connection_request_execution_plan_package_parts((in
 $executionPlanMissingItems = connection_request_execution_plan_package_missing_items((int) $request['id']);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
+$technicalHandoverFieldDefinitions = mvm_technical_handover_form_field_definitions();
+$technicalHandoverRequiredMissingItems = mvm_technical_handover_required_missing_items($mvmFormValues);
 $sealRemovalPackageParts = connection_request_seal_removal_package_parts((int) $request['id']);
 $sealRemovalMissingItems = connection_request_seal_removal_package_missing_items((int) $request['id']);
 $technicalHandoverDocument = latest_connection_request_technical_handover_document((int) $request['id']);
@@ -1093,6 +1108,32 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 </div>
             <?php endif; ?>
 
+            <section class="mvm-form-section">
+                <div>
+                    <h3>Műszaki átadási adatok</h3>
+                    <p>A felszerelt mérő gyáriszáma és az első plomba száma kötelező. Ezek nélkül a műszaki átadási Word/PDF dokumentum nem generálható.</p>
+                </div>
+                <div>
+                    <?php if ($technicalHandoverRequiredMissingItems !== []): ?>
+                        <div class="alert alert-info">
+                            <p>A műszaki átadási dokumentum generálásához még hiányzik: <?= h(implode(', ', $technicalHandoverRequiredMissingItems)); ?>.</p>
+                        </div>
+                    <?php endif; ?>
+                    <div class="mvm-field-grid">
+                        <?php foreach ($technicalHandoverFieldDefinitions as $fieldKey => $field): ?>
+                            <?php $fieldId = 'mvm_handover_' . $fieldKey; ?>
+                            <div class="mvm-input-field">
+                                <label for="<?= h($fieldId); ?>"><?= h((string) $field['label']); ?><?= !empty($field['required']) ? ' *' : ''; ?></label>
+                                <input id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" form="mvm-docx-form" value="<?= h($mvmFormValues[$fieldKey] ?? ''); ?>" <?= !empty($field['required']) ? 'aria-required="true"' : ''; ?>>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="form-actions">
+                        <button class="button button-secondary" form="mvm-docx-form" name="action" value="save_handover_fields" type="submit" formnovalidate>Átadási adatok mentése</button>
+                    </div>
+                </div>
+            </section>
+
             <div class="handover-checklist">
                 <?php foreach ($technicalHandoverChecklist as $item): ?>
                     <?php $isReady = (bool) ($item['ok'] ?? false); ?>
@@ -1106,8 +1147,8 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
 
                         <?php if (($item['key'] ?? '') === 'technical_handover'): ?>
                             <div class="handover-card-actions">
-                                <button class="button button-secondary" form="mvm-docx-form" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Word generálás</button>
-                                <button class="button" form="mvm-docx-form" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálás</button>
+                                <button class="button button-secondary" form="mvm-docx-form" name="action" value="generate_handover_docx" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || $technicalHandoverRequiredMissingItems !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>Word generálás</button>
+                                <button class="button" form="mvm-docx-form" name="action" value="generate_handover_pdf" type="submit" <?= ($mvmFormSchemaErrors !== [] || $handoverTemplateErrors !== [] || $technicalHandoverRequiredMissingItems !== [] || !$mvmSubmissionApproved) ? 'disabled' : ''; ?>>PDF generálás</button>
                             </div>
                         <?php elseif (in_array(($item['key'] ?? ''), ['completed_intervention_sheet', 'construction_log'], true)): ?>
                             <form class="handover-card-upload-form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl . '#technical-handover-section'); ?>">

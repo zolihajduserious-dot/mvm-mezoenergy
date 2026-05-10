@@ -11088,7 +11088,50 @@ function mvm_form_field_definitions(): array
         }
     }
 
+    foreach (mvm_technical_handover_form_field_definitions() as $key => $field) {
+        $fields[$key] = $field;
+    }
+
     return $fields;
+}
+
+function mvm_technical_handover_form_field_definitions(): array
+{
+    return [
+        'mgyszv' => ['label' => 'Felszerelt mérő gyáriszáma', 'type' => 'text', 'required' => true],
+        'felszerelt_plomba_1_szama' => ['label' => 'Felszerelt plomba 1 száma', 'type' => 'text', 'required' => true],
+        'felszerelt_plomba_2_szama' => ['label' => 'Felszerelt plomba 2 száma', 'type' => 'text'],
+        'felszerelt_plomba_3_szama' => ['label' => 'Felszerelt plomba 3 száma', 'type' => 'text'],
+        'felszerelt_plomba_4_szama' => ['label' => 'Felszerelt plomba 4 száma', 'type' => 'text'],
+    ];
+}
+
+function mvm_technical_handover_required_missing_items(array $values): array
+{
+    $missing = [];
+
+    foreach (mvm_technical_handover_form_field_definitions() as $key => $field) {
+        if (empty($field['required'])) {
+            continue;
+        }
+
+        if (trim((string) ($values[$key] ?? '')) === '') {
+            $missing[] = (string) $field['label'];
+        }
+    }
+
+    return $missing;
+}
+
+function connection_request_technical_handover_required_missing_items(int $requestId): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return [];
+    }
+
+    return mvm_technical_handover_required_missing_items(connection_request_mvm_form_values($request));
 }
 
 function mvm_plan_header_known_default(string $value, string $key): bool
@@ -12269,6 +12312,16 @@ function mvm_docx_placeholder_map(array $request, array $values): array
     $addProject('PlanCsatlakozasModja', $field('plan_csatlakozas_modja'));
     $addProject('PlanMuszakiLeiras', $field('plan_muszaki_leiras'));
     $addProject('Mgyszv', $field('mgyszv'));
+    $addProject('FelszereltMeroGyariszama', $field('mgyszv'));
+    $addProject('FelszereltMeroGyariSzama', $field('mgyszv'));
+    $addProject('FelszereltPlomba1Szama', $field('felszerelt_plomba_1_szama'));
+    $addProject('FelszereltPlomba2Szama', $field('felszerelt_plomba_2_szama'));
+    $addProject('FelszereltPlomba3Szama', $field('felszerelt_plomba_3_szama'));
+    $addProject('FelszereltPlomba4Szama', $field('felszerelt_plomba_4_szama'));
+    $addProject('Plomba1Szama', $field('felszerelt_plomba_1_szama'));
+    $addProject('Plomba2Szama', $field('felszerelt_plomba_2_szama'));
+    $addProject('Plomba3Szama', $field('felszerelt_plomba_3_szama'));
+    $addProject('Plomba4Szama', $field('felszerelt_plomba_4_szama'));
     $addProject('Mogysz', '');
     $addProject('Szfd', $field('szfd') !== '' ? $field('szfd') : $field('szekreny_felulvizsgalati_dij'));
     $addProject('N7esPontNev', $field('n7es_pont_nev'));
@@ -14329,6 +14382,16 @@ function generate_mvm_technical_handover_docx(int $requestId): array
     }
 
     $values = connection_request_mvm_form_values($request);
+    $missingHandoverFields = mvm_technical_handover_required_missing_items($values);
+
+    if ($missingHandoverFields !== []) {
+        return [
+            'ok' => false,
+            'message' => 'A műszaki átadási dokumentum generálásához még hiányzik: ' . implode(', ', $missingHandoverFields) . '.',
+            'document_id' => null,
+        ];
+    }
+
     $contractorKey = normalize_mvm_contractor_key($values['mvm_contractor'] ?? null);
     $contractor = mvm_contractor_definition($contractorKey);
     $templatePath = mvm_technical_handover_template_path($contractorKey);
@@ -15559,6 +15622,10 @@ function connection_request_technical_handover_package_missing_items(int $reques
 
     if (latest_connection_request_technical_handover_document($requestId) === null) {
         $missing[] = 'Műszaki átadási dokumentum PDF';
+    }
+
+    foreach (connection_request_technical_handover_required_missing_items($requestId) as $label) {
+        $missing[] = 'Műszaki átadási adat: ' . $label;
     }
 
     if (latest_completed_intervention_sheet_part($requestId) === null) {
