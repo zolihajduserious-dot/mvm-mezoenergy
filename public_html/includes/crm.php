@@ -5735,6 +5735,50 @@ function connection_request_type_label(?string $type): string
     return $types[(string) $type] ?? 'Nincs megadva';
 }
 
+function connection_request_mvm_uk_number_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('connection_requests')) {
+        $ready = false;
+        return false;
+    }
+
+    if (!db_column_exists('connection_requests', 'mvm_uk_number')) {
+        try {
+            db_query('ALTER TABLE `connection_requests` ADD COLUMN IF NOT EXISTS `mvm_uk_number` VARCHAR(80) DEFAULT NULL AFTER `consumption_place_id`');
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = db_column_exists('connection_requests', 'mvm_uk_number');
+    return $ready;
+}
+
+function connection_request_normalize_mvm_uk_number(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/\s+/u', ' ', $value);
+    $value = is_string($normalized) ? trim($normalized) : $value;
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        return mb_strlen($value, 'UTF-8') > 80 ? mb_substr($value, 0, 80, 'UTF-8') : $value;
+    }
+
+    return strlen($value) > 80 ? substr($value, 0, 80) : $value;
+}
+
 function connection_request_project_name_part(string $value): string
 {
     $value = trim($value);
@@ -5780,6 +5824,60 @@ function connection_request_project_name_limit(string $value): string
 function connection_request_normalize_project_name(string $value): string
 {
     return connection_request_project_name_limit(connection_request_project_name_part($value));
+}
+
+function connection_request_project_name_strip_uk_number(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $stripped = preg_replace('/_(?:ÜK|UK)_[\p{L}\p{N}_]+$/u', '', $value);
+
+    return is_string($stripped) ? trim($stripped, '_') : $value;
+}
+
+function connection_request_project_name_truncate(string $value, int $limit): string
+{
+    $value = trim($value, '_');
+
+    if ($value === '') {
+        return 'Mérőhelyi_igény';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($value, 'UTF-8') <= $limit) {
+            return $value;
+        }
+
+        return trim(mb_substr($value, 0, $limit, 'UTF-8'), '_') ?: 'Mérőhelyi_igény';
+    }
+
+    if (strlen($value) <= $limit) {
+        return $value;
+    }
+
+    return trim(substr($value, 0, $limit), '_') ?: 'Mérőhelyi_igény';
+}
+
+function connection_request_project_name_with_uk_number(string $projectName, string $ukNumber): string
+{
+    $baseName = connection_request_normalize_project_name(connection_request_project_name_strip_uk_number($projectName));
+    $ukNumber = connection_request_normalize_mvm_uk_number($ukNumber);
+    $ukPart = connection_request_project_name_part($ukNumber);
+
+    if ($ukPart === '') {
+        return connection_request_project_name_limit($baseName);
+    }
+
+    $suffix = 'ÜK_' . $ukPart;
+    $suffixLength = function_exists('mb_strlen') ? mb_strlen($suffix, 'UTF-8') : strlen($suffix);
+    $baseLimit = max(1, 190 - $suffixLength - 1);
+    $baseName = connection_request_project_name_truncate($baseName, $baseLimit);
+
+    return connection_request_project_name_limit($baseName . '_' . $suffix);
 }
 
 function connection_request_join_postal_address(string $postalCode, string $address): string
@@ -5850,7 +5948,7 @@ function connection_request_auto_project_name(array $data, ?array $customer = nu
         static fn (string $part): bool => $part !== ''
     ));
 
-    return connection_request_project_name_limit($name);
+    return connection_request_project_name_with_uk_number($name, (string) ($data['mvm_uk_number'] ?? ''));
 }
 
 function h_tariff_required_file_types(): array
@@ -6877,6 +6975,7 @@ function normalize_connection_request_data(array $source, ?array $customer = nul
         'hrsz' => trim((string) ($source['hrsz'] ?? '')),
         'meter_serial' => trim((string) ($source['meter_serial'] ?? '')),
         'consumption_place_id' => trim((string) ($source['consumption_place_id'] ?? '')),
+        'mvm_uk_number' => connection_request_normalize_mvm_uk_number((string) ($source['mvm_uk_number'] ?? '')),
         'existing_general_power' => trim((string) ($source['existing_general_power'] ?? '')),
         'requested_general_power' => trim((string) ($source['requested_general_power'] ?? '')),
         'existing_h_tariff_power' => trim((string) ($source['existing_h_tariff_power'] ?? '')),
@@ -6975,6 +7074,15 @@ function validate_connection_request_data(array $data, array $files, bool $final
 
 function save_connection_request(int $customerId, array $data, ?int $requestId = null, ?int $submittedByUserId = null, bool $allowFinalizedUpdate = false): int
 {
+    $ukNumberColumnReady = connection_request_mvm_uk_number_schema_ensure();
+    $hasSubmittedUkNumber = array_key_exists('mvm_uk_number', $data);
+    $existingRequest = $requestId !== null ? find_connection_request($requestId) : null;
+    $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($data['mvm_uk_number'] ?? ''));
+
+    if (!$hasSubmittedUkNumber && is_array($existingRequest)) {
+        $data['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($existingRequest['mvm_uk_number'] ?? ''));
+    }
+
     if ($submittedByUserId === null) {
         $user = current_user();
         $submittedByUserId = is_array($user) ? (int) $user['id'] : null;
@@ -6985,9 +7093,10 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
     $data['project_name'] = $requestId === null || $submittedProjectName === ''
         ? connection_request_auto_project_name($data, $customer)
         : connection_request_normalize_project_name($submittedProjectName);
+    $data['project_name'] = connection_request_project_name_with_uk_number($data['project_name'], $data['mvm_uk_number']);
 
     if ($requestId !== null) {
-        $request = find_connection_request($requestId);
+        $request = $existingRequest;
 
         if ($request === null) {
             throw new RuntimeException('Az igény nem található.');
@@ -7001,50 +7110,12 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
             throw new RuntimeException('A lezárt igény már nem módosítható.');
         }
 
-        db_query(
-            'UPDATE `connection_requests`
+        $updateSql = 'UPDATE `connection_requests`
              SET `request_type` = ?, `project_name` = ?, `site_address` = ?, `site_postal_code` = ?, `hrsz` = ?, `meter_serial` = ?,
                  `consumption_place_id` = ?, `existing_general_power` = ?, `requested_general_power` = ?,
                  `existing_h_tariff_power` = ?, `requested_h_tariff_power` = ?, `existing_controlled_power` = ?,
-                 `requested_controlled_power` = ?, `notes` = ?
-             WHERE `id` = ?',
-            [
-                $data['request_type'],
-                $data['project_name'],
-                $data['site_address'],
-                $data['site_postal_code'],
-                $data['hrsz'] !== '' ? $data['hrsz'] : null,
-                $data['meter_serial'] !== '' ? $data['meter_serial'] : null,
-                $data['consumption_place_id'] !== '' ? $data['consumption_place_id'] : null,
-                $data['existing_general_power'],
-                $data['requested_general_power'] !== '' ? $data['requested_general_power'] : null,
-                $data['existing_h_tariff_power'] !== '' ? $data['existing_h_tariff_power'] : null,
-                $data['requested_h_tariff_power'] !== '' ? $data['requested_h_tariff_power'] : null,
-                $data['existing_controlled_power'] !== '' ? $data['existing_controlled_power'] : null,
-                $data['requested_controlled_power'] !== '' ? $data['requested_controlled_power'] : null,
-                $data['notes'] !== '' ? $data['notes'] : null,
-                $requestId,
-            ]
-        );
-        record_connection_request_activity(
-            $requestId,
-            'request_update',
-            'Adatlap adatai módosítva',
-            'Az adatlap alapadatai vagy teljesítményadatai frissültek.'
-        );
-
-        return $requestId;
-    }
-
-    db_query(
-        'INSERT INTO `connection_requests`
-            (`customer_id`, `submitted_by_user_id`, `request_type`, `project_name`, `site_address`, `site_postal_code`, `hrsz`, `meter_serial`, `consumption_place_id`,
-             `existing_general_power`, `requested_general_power`, `existing_h_tariff_power`, `requested_h_tariff_power`,
-             `existing_controlled_power`, `requested_controlled_power`, `notes`, `request_status`)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-            $customerId,
-            $submittedByUserId,
+                 `requested_controlled_power` = ?, `notes` = ?';
+        $updateParams = [
             $data['request_type'],
             $data['project_name'],
             $data['site_address'],
@@ -7059,8 +7130,62 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
             $data['existing_controlled_power'] !== '' ? $data['existing_controlled_power'] : null,
             $data['requested_controlled_power'] !== '' ? $data['requested_controlled_power'] : null,
             $data['notes'] !== '' ? $data['notes'] : null,
-            'draft',
-        ]
+        ];
+
+        if ($ukNumberColumnReady) {
+            $updateSql .= ', `mvm_uk_number` = ?';
+            $updateParams[] = $data['mvm_uk_number'] !== '' ? $data['mvm_uk_number'] : null;
+        }
+
+        $updateSql .= ' WHERE `id` = ?';
+        $updateParams[] = $requestId;
+        db_query($updateSql, $updateParams);
+        record_connection_request_activity(
+            $requestId,
+            'request_update',
+            'Adatlap adatai módosítva',
+            'Az adatlap alapadatai vagy teljesítményadatai frissültek.'
+        );
+
+        return $requestId;
+    }
+
+    $insertColumns = '`customer_id`, `submitted_by_user_id`, `request_type`, `project_name`, `site_address`, `site_postal_code`, `hrsz`, `meter_serial`, `consumption_place_id`,
+             `existing_general_power`, `requested_general_power`, `existing_h_tariff_power`, `requested_h_tariff_power`,
+             `existing_controlled_power`, `requested_controlled_power`, `notes`';
+    $insertPlaceholders = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    $insertParams = [
+        $customerId,
+        $submittedByUserId,
+        $data['request_type'],
+        $data['project_name'],
+        $data['site_address'],
+        $data['site_postal_code'],
+        $data['hrsz'] !== '' ? $data['hrsz'] : null,
+        $data['meter_serial'] !== '' ? $data['meter_serial'] : null,
+        $data['consumption_place_id'] !== '' ? $data['consumption_place_id'] : null,
+        $data['existing_general_power'],
+        $data['requested_general_power'] !== '' ? $data['requested_general_power'] : null,
+        $data['existing_h_tariff_power'] !== '' ? $data['existing_h_tariff_power'] : null,
+        $data['requested_h_tariff_power'] !== '' ? $data['requested_h_tariff_power'] : null,
+        $data['existing_controlled_power'] !== '' ? $data['existing_controlled_power'] : null,
+        $data['requested_controlled_power'] !== '' ? $data['requested_controlled_power'] : null,
+        $data['notes'] !== '' ? $data['notes'] : null,
+    ];
+
+    if ($ukNumberColumnReady) {
+        $insertColumns .= ', `mvm_uk_number`';
+        $insertPlaceholders .= ', ?';
+        $insertParams[] = $data['mvm_uk_number'] !== '' ? $data['mvm_uk_number'] : null;
+    }
+
+    $insertColumns .= ', `request_status`';
+    $insertPlaceholders .= ', ?';
+    $insertParams[] = 'draft';
+
+    db_query(
+        'INSERT INTO `connection_requests` (' . $insertColumns . ') VALUES (' . $insertPlaceholders . ')',
+        $insertParams
     );
 
     $savedRequestId = (int) db()->lastInsertId();
@@ -7452,6 +7577,8 @@ function send_electrician_assignment_email(int $requestId, int $electricianUserI
 
 function find_connection_request(int $id): ?array
 {
+    connection_request_mvm_uk_number_schema_ensure();
+
     $statement = db_query(
         'SELECT cr.*, c.requester_name, c.birth_name, c.company_name, c.tax_number, c.is_legal_entity,
                 c.phone, c.email, c.postal_address, c.postal_code, c.city,
@@ -7469,6 +7596,45 @@ function find_connection_request(int $id): ?array
     $request = $statement->fetch();
 
     return is_array($request) ? $request : null;
+}
+
+function update_connection_request_mvm_uk_number(int $requestId, string $ukNumber): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $ukNumberColumnReady = connection_request_mvm_uk_number_schema_ensure();
+    $ukNumber = connection_request_normalize_mvm_uk_number($ukNumber);
+    $previousUkNumber = trim((string) ($request['mvm_uk_number'] ?? ''));
+    $projectName = connection_request_project_name_with_uk_number((string) ($request['project_name'] ?? ''), $ukNumber);
+
+    if ($previousUkNumber === $ukNumber && trim((string) ($request['project_name'] ?? '')) === $projectName) {
+        return ['ok' => true, 'message' => 'Az ÜK szám már ez volt.'];
+    }
+
+    $sql = 'UPDATE `connection_requests` SET `project_name` = ?';
+    $params = [$projectName];
+
+    if ($ukNumberColumnReady) {
+        $sql .= ', `mvm_uk_number` = ?';
+        $params[] = $ukNumber !== '' ? $ukNumber : null;
+    }
+
+    $sql .= ' WHERE `id` = ?';
+    $params[] = $requestId;
+    db_query($sql, $params);
+
+    record_connection_request_activity(
+        $requestId,
+        'request_update',
+        'ÜK szám módosítva',
+        'Régi ÜK szám: ' . ($previousUkNumber !== '' ? $previousUkNumber : '-') . "\nÚj ÜK szám: " . ($ukNumber !== '' ? $ukNumber : '-')
+    );
+
+    return ['ok' => true, 'message' => $ukNumber !== '' ? 'Az ÜK szám mentve lett.' : 'Az ÜK szám törölve lett.'];
 }
 
 function update_connection_request_customer_email(int $requestId, string $email): array
@@ -7509,6 +7675,7 @@ function update_connection_request_customer_email(int $requestId, string $email)
 
 function update_connection_request_portal_details(int $requestId, array $source): array
 {
+    $ukNumberColumnReady = connection_request_mvm_uk_number_schema_ensure();
     $request = find_connection_request($requestId);
 
     if ($request === null) {
@@ -7536,6 +7703,7 @@ function update_connection_request_portal_details(int $requestId, array $source)
         'site_address' => trim((string) ($source['site_address'] ?? $request['site_address'] ?? '')),
         'hrsz' => trim((string) ($source['hrsz'] ?? $request['hrsz'] ?? '')),
         'meter_serial' => trim((string) ($source['meter_serial'] ?? $request['meter_serial'] ?? '')),
+        'mvm_uk_number' => connection_request_normalize_mvm_uk_number((string) ($source['mvm_uk_number'] ?? $request['mvm_uk_number'] ?? '')),
         'request_type' => $requestType,
     ];
 
@@ -7550,9 +7718,11 @@ function update_connection_request_portal_details(int $requestId, array $source)
     $details['project_name'] = $details['project_name'] !== ''
         ? connection_request_normalize_project_name($details['project_name'])
         : connection_request_auto_project_name($details, $details);
+    $details['project_name'] = connection_request_project_name_with_uk_number($details['project_name'], $details['mvm_uk_number']);
 
     $labels = [
         'project_name' => 'Adatlap neve',
+        'mvm_uk_number' => 'ÜK szám',
         'requester_name' => 'Ügyfél neve',
         'email' => 'Ügyfél email',
         'phone' => 'Ügyfél telefon',
@@ -7589,21 +7759,26 @@ function update_connection_request_portal_details(int $requestId, array $source)
         ]
     );
 
-    db_query(
-        'UPDATE `connection_requests`
+    $requestUpdateSql = 'UPDATE `connection_requests`
          SET `project_name` = ?, `request_type` = ?, `site_postal_code` = ?, `site_address` = ?,
-             `hrsz` = ?, `meter_serial` = ?
-         WHERE `id` = ?',
-        [
-            $details['project_name'],
-            $details['request_type'],
-            $details['site_postal_code'],
-            $details['site_address'],
-            $details['hrsz'] !== '' ? $details['hrsz'] : null,
-            $details['meter_serial'] !== '' ? $details['meter_serial'] : null,
-            $requestId,
-        ]
-    );
+             `hrsz` = ?, `meter_serial` = ?';
+    $requestUpdateParams = [
+        $details['project_name'],
+        $details['request_type'],
+        $details['site_postal_code'],
+        $details['site_address'],
+        $details['hrsz'] !== '' ? $details['hrsz'] : null,
+        $details['meter_serial'] !== '' ? $details['meter_serial'] : null,
+    ];
+
+    if ($ukNumberColumnReady) {
+        $requestUpdateSql .= ', `mvm_uk_number` = ?';
+        $requestUpdateParams[] = $details['mvm_uk_number'] !== '' ? $details['mvm_uk_number'] : null;
+    }
+
+    $requestUpdateSql .= ' WHERE `id` = ?';
+    $requestUpdateParams[] = $requestId;
+    db_query($requestUpdateSql, $requestUpdateParams);
 
     record_connection_request_activity(
         $requestId,
@@ -7617,6 +7792,7 @@ function update_connection_request_portal_details(int $requestId, array $source)
 
 function all_connection_requests(): array
 {
+    connection_request_mvm_uk_number_schema_ensure();
     connection_request_auto_assign_submitted_electrician_items();
 
     if (db_table_exists('electricians') && db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
@@ -7685,6 +7861,7 @@ function admin_standalone_connection_request_items(int $limit = 500, bool $archi
         return [];
     }
 
+    connection_request_mvm_uk_number_schema_ensure();
     connection_request_auto_assign_submitted_electrician_items();
 
     $limit = max(1, min(1000, $limit));
@@ -7730,6 +7907,8 @@ function admin_standalone_connection_request_items(int $limit = 500, bool $archi
 
 function connection_requests_for_customer(int $customerId): array
 {
+    connection_request_mvm_uk_number_schema_ensure();
+
     $select = 'SELECT cr.*, su.role AS submitted_by_user_role, su.name AS submitted_by_user_name, su.email AS submitted_by_user_email';
     $joins = ' FROM `connection_requests` cr
          LEFT JOIN `users` su ON su.id = cr.submitted_by_user_id';
@@ -7758,6 +7937,8 @@ function connection_requests_for_customer(int $customerId): array
 
 function connection_request_summaries_for_customers(array $customerIds): array
 {
+    connection_request_mvm_uk_number_schema_ensure();
+
     $customerIds = array_values(array_unique(array_filter(array_map('intval', $customerIds))));
 
     if ($customerIds === []) {
@@ -7782,6 +7963,8 @@ function connection_request_summaries_for_customers(array $customerIds): array
 
 function connection_requests_for_submitter(int $submittedByUserId): array
 {
+    connection_request_mvm_uk_number_schema_ensure();
+
     return db_query(
         'SELECT cr.*, c.requester_name, c.email, c.phone
          FROM `connection_requests` cr
@@ -7794,6 +7977,8 @@ function connection_requests_for_submitter(int $submittedByUserId): array
 
 function connection_requests_for_electrician(int $electricianUserId): array
 {
+    connection_request_mvm_uk_number_schema_ensure();
+
     if (!db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
         return [];
     }
@@ -11276,6 +11461,7 @@ function connection_request_mvm_source_form_values(array $request, ?array $sourc
         'hrsz' => (string) ($request['hrsz'] ?? ''),
         'meter_serial' => (string) ($request['meter_serial'] ?? ''),
         'consumption_place_id' => (string) ($request['consumption_place_id'] ?? ''),
+        'mvm_uk_number' => (string) ($request['mvm_uk_number'] ?? ''),
     ];
 
     if ($source !== null) {
@@ -11396,6 +11582,7 @@ function normalize_connection_request_mvm_source_birth_date(array $source): stri
 
 function save_connection_request_mvm_source_data(int $requestId, array $source, bool $allowPartial = false): array
 {
+    $ukNumberColumnReady = connection_request_mvm_uk_number_schema_ensure();
     $request = find_connection_request($requestId);
 
     if ($request === null) {
@@ -11440,6 +11627,8 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
     $values['project_name'] = $submittedProjectName !== ''
         ? connection_request_normalize_project_name($submittedProjectName)
         : connection_request_auto_project_name($values, $values);
+    $values['mvm_uk_number'] = connection_request_normalize_mvm_uk_number((string) ($values['mvm_uk_number'] ?? ''));
+    $values['project_name'] = connection_request_project_name_with_uk_number($values['project_name'], $values['mvm_uk_number']);
 
     $labels = [
         'requester_name' => 'Ügyfél neve',
@@ -11455,6 +11644,7 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
         'hrsz' => 'HRSZ',
         'meter_serial' => 'Mérő gyári szám',
         'consumption_place_id' => 'Fogyasztási hely azonosító',
+        'mvm_uk_number' => 'ÜK szám',
     ];
     $changes = [];
 
@@ -11482,22 +11672,27 @@ function save_connection_request_mvm_source_data(int $requestId, array $source, 
         ]
     );
 
-    db_query(
-        'UPDATE `connection_requests`
+    $requestUpdateSql = 'UPDATE `connection_requests`
          SET `request_type` = ?, `project_name` = ?, `site_address` = ?, `site_postal_code` = ?,
-             `hrsz` = ?, `meter_serial` = ?, `consumption_place_id` = ?
-         WHERE `id` = ?',
-        [
-            $values['request_type'],
-            $values['project_name'],
-            $values['site_address'],
-            $values['site_postal_code'],
-            $values['hrsz'] !== '' ? $values['hrsz'] : null,
-            $values['meter_serial'] !== '' ? $values['meter_serial'] : null,
-            $values['consumption_place_id'] !== '' ? $values['consumption_place_id'] : null,
-            $requestId,
-        ]
-    );
+             `hrsz` = ?, `meter_serial` = ?, `consumption_place_id` = ?';
+    $requestUpdateParams = [
+        $values['request_type'],
+        $values['project_name'],
+        $values['site_address'],
+        $values['site_postal_code'],
+        $values['hrsz'] !== '' ? $values['hrsz'] : null,
+        $values['meter_serial'] !== '' ? $values['meter_serial'] : null,
+        $values['consumption_place_id'] !== '' ? $values['consumption_place_id'] : null,
+    ];
+
+    if ($ukNumberColumnReady) {
+        $requestUpdateSql .= ', `mvm_uk_number` = ?';
+        $requestUpdateParams[] = $values['mvm_uk_number'] !== '' ? $values['mvm_uk_number'] : null;
+    }
+
+    $requestUpdateSql .= ' WHERE `id` = ?';
+    $requestUpdateParams[] = $requestId;
+    db_query($requestUpdateSql, $requestUpdateParams);
 
     if ($changes !== []) {
         record_connection_request_activity(
@@ -16349,6 +16544,7 @@ function connection_request_email_sections(array $request, array $files): array
             ['label' => 'Születési név', 'value' => $request['birth_name'] ?? '-'],
             ['label' => 'Telefon', 'value' => $request['phone'] ?? '-'],
             ['label' => 'Email', 'value' => $request['email'] ?? '-'],
+            ['label' => 'ÜK szám', 'value' => $request['mvm_uk_number'] ?? '-'],
             ['label' => 'Postacím', 'value' => $customerAddress],
             ['label' => 'Anyja neve', 'value' => $request['mother_name'] ?? '-'],
             ['label' => 'Születési hely', 'value' => $request['birth_place'] ?? '-'],

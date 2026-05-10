@@ -245,6 +245,9 @@ if (is_post()) {
                     <label for="email">Email</label>
                     <input id="email" name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
 
+                    <label for="mvm_uk_number">ÜK szám</label>
+                    <input id="mvm_uk_number" name="mvm_uk_number" value="<?= h($workForm['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
+
                     <label for="postal_address">Postai cím</label>
                     <input id="postal_address" name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
 

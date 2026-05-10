@@ -217,6 +217,7 @@ if (is_post()) {
                     <label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>">
                     <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
                     <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
+                    <label>ÜK szám</label><input name="mvm_uk_number" value="<?= h($form['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
                     <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
                     <label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
                     <label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required>

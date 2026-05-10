@@ -73,6 +73,12 @@ if (is_post()) {
         redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'save_mvm_uk_number') {
+        $result = update_connection_request_mvm_uk_number((int) $request['id'], (string) ($_POST['mvm_uk_number'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ÜK szám mentése sikertelen.'));
+        redirect('/admin/connection-requests/edit?id=' . (int) $request['id']);
+    }
+
     $skipSave = false;
 
     if ($action === 'extract_document_prefill') {
@@ -246,6 +252,19 @@ $pageSubtitle = $customer !== null
                     <a href="<?= h(url_path('/admin/connection-requests/mvm-documents') . '?id=' . (int) $request['id']); ?>">MVM dokumentumok</a>
                 </div>
             </section>
+
+            <section class="download-panel">
+                <div>
+                    <h2>ÜK szám</h2>
+                    <p>Az MVM által adott ügyfélkapcsolati szám. Mentés után az adatlap nevének végére is rákerül.</p>
+                </div>
+                <form class="inline-form" method="post" action="<?= h(url_path('/admin/connection-requests/edit') . '?id=' . (int) $request['id']); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="save_mvm_uk_number">
+                    <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
+                    <button class="button button-secondary" type="submit">ÜK szám mentése</button>
+                </form>
+            </section>
         <?php endif; ?>
 
         <?php if ($downloads !== []): ?>
@@ -291,6 +310,7 @@ $pageSubtitle = $customer !== null
                         <label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>">
                         <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
                         <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
+                        <label>ÜK szám</label><input name="mvm_uk_number" value="<?= h($form['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
                         <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
                         <label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
                         <label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required>

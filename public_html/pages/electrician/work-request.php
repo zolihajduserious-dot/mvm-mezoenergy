@@ -182,6 +182,12 @@ if (is_post() && $schemaErrors === []) {
         redirect('/electrician/work-request?id=' . (int) $request['id'] . '#electrician-communication');
     }
 
+    if ($request !== null && $action === 'save_mvm_uk_number') {
+        $result = update_connection_request_mvm_uk_number((int) $request['id'], (string) ($_POST['mvm_uk_number'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ÜK szám mentése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id']);
+    }
+
     if ($request !== null && $action === 'save_initial_data') {
         if (!$initialDataEditable) {
             $errors[] = 'Az adatlap Folyamatban vagy későbbi státuszban van, ezért az alapadatok már nem módosíthatók.';
@@ -801,6 +807,8 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <input id="phone" name="phone" value="<?= h($customerForm['phone']); ?>" required>
                         <label for="email">Email</label>
                         <input id="email" name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
+                        <label for="mvm_uk_number">ÜK szám</label>
+                        <input id="mvm_uk_number" name="mvm_uk_number" value="<?= h($workForm['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
                         <label for="postal_code">Irányítószám</label>
                         <input id="postal_code" name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required>
                         <label for="city">Település</label>
@@ -913,6 +921,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                 <div><label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>"></div>
                                 <div><label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required></div>
                                 <div><label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required></div>
+                                <div><label>ÜK szám</label><input name="mvm_uk_number" value="<?= h($workForm['mvm_uk_number']); ?>" placeholder="MVM ÜK szám"></div>
                                 <div><label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required></div>
                                 <div><label>Település</label><input name="city" value="<?= h($customerForm['city']); ?>" required></div>
                                 <div><label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required></div>
@@ -1025,7 +1034,14 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             <div><dt>Név</dt><dd><?= h($displayCustomerName !== '' ? $displayCustomerName : '-'); ?></dd></div>
                             <div><dt>Email</dt><dd><?= h($displayCustomerEmail !== '' ? $displayCustomerEmail : '-'); ?></dd></div>
                             <div><dt>Telefon</dt><dd><?= h($displayCustomerPhone !== '' ? $displayCustomerPhone : '-'); ?></dd></div>
+                            <div><dt>ÜK szám</dt><dd><?= h((string) (($request['mvm_uk_number'] ?? '') ?: '-')); ?></dd></div>
                         </dl>
+                        <form class="inline-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="save_mvm_uk_number">
+                            <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
+                            <button class="button button-secondary" type="submit">ÜK szám mentése</button>
+                        </form>
                     </section>
 
                     <section class="admin-request-panel">

@@ -652,6 +652,10 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                             <input id="source_tax_number" name="source_tax_number" value="<?= h($mvmSourceValues['tax_number']); ?>">
                         </div>
                         <div class="mvm-input-field">
+                            <label for="source_mvm_uk_number">ÜK szám</label>
+                            <input id="source_mvm_uk_number" name="source_mvm_uk_number" value="<?= h($mvmSourceValues['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
+                        </div>
+                        <div class="mvm-input-field">
                             <label for="source_project_name">Munka megnevezése</label>
                             <input id="source_project_name" name="source_project_name" value="<?= h($mvmSourceValues['project_name']); ?>" readonly>
                         </div>

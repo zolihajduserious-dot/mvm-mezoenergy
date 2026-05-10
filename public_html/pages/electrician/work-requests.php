@@ -216,6 +216,7 @@ function electrician_work_status_class(string $status): string
                                                 $customerName,
                                                 $customerEmail,
                                                 $customerPhone,
+                                                (string) ($request['mvm_uk_number'] ?? ''),
                                                 $siteAddress,
                                                 $statusLabel,
                                                 $workflowLabel,
@@ -268,6 +269,7 @@ function electrician_work_status_class(string $status): string
                                                                 <div><dt>&#220;gyf&#233;l</dt><dd><?= h($customerName !== '' ? $customerName : '-'); ?></dd></div>
                                                                 <div><dt>Telefon</dt><dd><?= h($customerPhone !== '' ? $customerPhone : '-'); ?></dd></div>
                                                                 <div><dt>Email</dt><dd><?= h($customerEmail !== '' ? $customerEmail : '-'); ?></dd></div>
+                                                                <div><dt>&#220;K sz&#225;m</dt><dd><?= h((string) (($request['mvm_uk_number'] ?? '') ?: '-')); ?></dd></div>
                                                                 <div><dt>C&#237;m</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                                 <div><dt>M&#233;r&#337;</dt><dd><?= h((string) ($request['meter_serial'] ?: '-')); ?></dd></div>
                                                                 <div><dt>El&#337;tte / ut&#225;na</dt><dd><?= count($beforeFiles); ?> / <?= count($afterFiles); ?> f&#225;jl</dd></div>

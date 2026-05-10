@@ -1854,6 +1854,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             $requestCustomerName,
                                             $displayEmail,
                                             $displayPhone,
+                                            (string) ($request['mvm_uk_number'] ?? ''),
                                             $requestSiteAddress,
                                             (string) ($request['electrician_name'] ?? ''),
                                             $requestSubmitterLabel,
@@ -1943,6 +1944,10 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     <div>
                                                                         <dt><label for="portal_customer_phone_<?= $requestId; ?>">Telefon</label></dt>
                                                                         <dd><input id="portal_customer_phone_<?= $requestId; ?>" name="phone" type="tel" autocomplete="tel" value="<?= h($displayPhone); ?>"></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt><label for="portal_mvm_uk_number_<?= $requestId; ?>">&#220;K sz&#225;m</label></dt>
+                                                                        <dd><input id="portal_mvm_uk_number_<?= $requestId; ?>" name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM &#220;K sz&#225;m"></dd>
                                                                     </div>
                                                                     <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
                                                                     <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
