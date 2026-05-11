@@ -20175,6 +20175,25 @@ function minicrm_db_text(string $value, int $length): string
     return substr($value, 0, $length);
 }
 
+function minicrm_work_item_file_is_image(array $file): bool
+{
+    $mimeType = strtolower(trim((string) ($file['mime_type'] ?? '')));
+
+    if ($mimeType !== '' && strncmp($mimeType, 'image/', 6) === 0) {
+        return true;
+    }
+
+    foreach (['original_name', 'stored_name', 'storage_path'] as $key) {
+        $extension = strtolower(pathinfo((string) ($file[$key] ?? ''), PATHINFO_EXTENSION));
+
+        if (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function minicrm_connection_request_file_type(array $file): string
 {
     $text = minicrm_import_key((string) ($file['label'] ?? '') . ' ' . (string) ($file['original_name'] ?? ''));
@@ -20216,6 +20235,10 @@ function minicrm_connection_request_file_type(array $file): string
     }
 
     if (preg_match('/mero|meroor|szekreny/', $text)) {
+        return 'meter_close';
+    }
+
+    if (minicrm_work_item_file_is_image($file)) {
         return 'meter_close';
     }
 
@@ -20283,15 +20306,14 @@ function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int
             continue;
         }
 
-        $exists = db_query(
-            'SELECT 1 FROM `connection_request_files` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
+        $fileType = minicrm_connection_request_file_type($file);
+        $label = (string) ($definitions[$fileType]['label'] ?? ($file['label'] ?? 'MiniCRM dokumentum'));
+        $existingFile = db_query(
+            'SELECT `id`, `file_type` FROM `connection_request_files` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
             [$requestId, $storagePath]
-        )->fetchColumn();
+        )->fetch();
 
-        if (!$exists) {
-            $fileType = minicrm_connection_request_file_type($file);
-            $label = (string) ($definitions[$fileType]['label'] ?? ($file['label'] ?? 'MiniCRM dokumentum'));
-
+        if (!is_array($existingFile)) {
             db_query(
                 'INSERT INTO `connection_request_files`
                     (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
@@ -20306,6 +20328,13 @@ function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int
                     minicrm_db_text((string) ($file['mime_type'] ?? 'application/octet-stream'), 80),
                     min((int) ($file['file_size'] ?? filesize($storagePath)), 2147483647),
                 ]
+            );
+        } elseif ((string) ($existingFile['file_type'] ?? '') === 'completed_document' && $fileType !== 'completed_document') {
+            db_query(
+                'UPDATE `connection_request_files`
+                 SET `file_type` = ?, `label` = ?
+                 WHERE `id` = ?',
+                [$fileType, minicrm_db_text($label, 160), (int) $existingFile['id']]
             );
         }
 

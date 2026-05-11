@@ -53,6 +53,14 @@ $mvmBackUrl = $isMiniCrmContext
     : url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'];
 $mvmBackLabel = $isMiniCrmContext ? 'Vissza a MiniCRM munkahoz' : 'Vissza a munkahoz';
 
+if ($isMiniCrmContext && $minicrmItemId) {
+    try {
+        sync_minicrm_work_item_files_to_connection_request((int) $minicrmItemId, (int) $request['id']);
+    } catch (Throwable $exception) {
+        error_log('MiniCRM file sync failed for MVM documents page: ' . $exception->getMessage());
+    }
+}
+
 $schemaErrors = mvm_document_schema_errors();
 $mvmFormSchemaErrors = mvm_form_schema_errors();
 $mvmMailSchemaErrors = mvm_mail_schema_errors();
