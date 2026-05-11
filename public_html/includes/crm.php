@@ -7308,6 +7308,159 @@ function connection_request_has_photo_file(?int $requestId): bool
     return false;
 }
 
+function normalize_connection_request_execution_plan_photo_ids(mixed $value): array
+{
+    if (is_string($value)) {
+        $decoded = json_decode($value, true);
+        $value = is_array($decoded) ? $decoded : preg_split('/[\s,;]+/', $value);
+    }
+
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $ids = [];
+
+    foreach ($value as $item) {
+        $id = (int) $item;
+
+        if ($id > 0) {
+            $ids[$id] = $id;
+        }
+    }
+
+    return array_values($ids);
+}
+
+function connection_request_execution_plan_photo_files(int $requestId): array
+{
+    $definitions = connection_request_upload_definitions();
+    $photos = [];
+
+    foreach (connection_request_files($requestId) as $file) {
+        $fileType = (string) ($file['file_type'] ?? '');
+        $definition = $definitions[$fileType] ?? null;
+
+        if (!is_array($definition) || ($definition['kind'] ?? '') !== 'image') {
+            continue;
+        }
+
+        if (!connection_request_package_file_is_compatible($file)) {
+            continue;
+        }
+
+        $file['execution_plan_label'] = (string) ($definition['label'] ?? ($file['label'] ?? 'Fotó'));
+        $photos[] = $file;
+    }
+
+    return $photos;
+}
+
+function connection_request_execution_plan_selected_photo_ids(int $requestId): array
+{
+    $row = connection_request_mvm_form($requestId);
+
+    if (!is_array($row) || !isset($row['form_values']) || !is_array($row['form_values'])) {
+        return [];
+    }
+
+    $selectedIds = normalize_connection_request_execution_plan_photo_ids($row['form_values']['execution_plan_photo_file_ids'] ?? '');
+
+    if ($selectedIds === []) {
+        return [];
+    }
+
+    $availableIds = array_fill_keys(array_map(
+        static fn (array $file): int => (int) ($file['id'] ?? 0),
+        connection_request_execution_plan_photo_files($requestId)
+    ), true);
+
+    return array_values(array_filter(
+        $selectedIds,
+        static fn (int $id): bool => isset($availableIds[$id])
+    ));
+}
+
+function connection_request_execution_plan_selected_photo_files(int $requestId): array
+{
+    $selectedIds = array_fill_keys(connection_request_execution_plan_selected_photo_ids($requestId), true);
+
+    if ($selectedIds === []) {
+        return [];
+    }
+
+    return array_values(array_filter(
+        connection_request_execution_plan_photo_files($requestId),
+        static fn (array $file): bool => isset($selectedIds[(int) ($file['id'] ?? 0)])
+    ));
+}
+
+function save_connection_request_execution_plan_photo_selection(int $requestId, array $source): array
+{
+    if (!db_table_exists('connection_request_mvm_forms')) {
+        return ['ok' => false, 'message' => 'Az MVM űrlap mentéséhez hiányzik az adatbázistábla.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $selectedSourceIds = normalize_connection_request_execution_plan_photo_ids($source['execution_plan_photo_file_ids'] ?? []);
+    $selectedSourceMap = array_fill_keys($selectedSourceIds, true);
+    $selectedIds = [];
+
+    foreach (connection_request_execution_plan_photo_files($requestId) as $file) {
+        $fileId = (int) ($file['id'] ?? 0);
+
+        if ($fileId > 0 && isset($selectedSourceMap[$fileId])) {
+            $selectedIds[] = $fileId;
+        }
+    }
+
+    $existing = connection_request_mvm_form($requestId);
+    $data = is_array($existing) && isset($existing['form_values']) && is_array($existing['form_values'])
+        ? $existing['form_values']
+        : mvm_form_default_values($request);
+    $data['execution_plan_photo_file_ids'] = implode(',', $selectedIds);
+    $user = current_user();
+
+    db_query(
+        'INSERT INTO `connection_request_mvm_forms`
+            (`connection_request_id`, `form_data`, `sketch_original_name`, `sketch_stored_name`, `sketch_storage_path`,
+             `sketch_mime_type`, `sketch_file_size`, `created_by_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            `form_data` = VALUES(`form_data`),
+            `updated_at` = CURRENT_TIMESTAMP',
+        [
+            $requestId,
+            json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            $existing['sketch_original_name'] ?? null,
+            $existing['sketch_stored_name'] ?? null,
+            $existing['sketch_storage_path'] ?? null,
+            $existing['sketch_mime_type'] ?? null,
+            $existing['sketch_file_size'] ?? null,
+            is_array($user) ? (int) $user['id'] : null,
+        ]
+    );
+
+    record_connection_request_activity(
+        $requestId,
+        'mvm_execution_plan_photo_selection',
+        'Kiviteli terv csomag fotóválasztás frissítve',
+        $selectedIds !== [] ? count($selectedIds) . ' fotó kiválasztva.' : 'Nincs kiválasztott fotó.'
+    );
+
+    return [
+        'ok' => true,
+        'message' => $selectedIds !== []
+            ? count($selectedIds) . ' fotó kiválasztva a kiviteli terv csomaghoz.'
+            : 'A fotóválasztás mentve. Jelenleg nincs fotó kiválasztva a kiviteli terv csomaghoz.',
+    ];
+}
+
 function handle_connection_request_uploads(int $requestId, array $files, bool $notifyAdmin = true, ?string $sourceLabel = null): array
 {
     $messages = [];
@@ -11577,6 +11730,7 @@ function mvm_form_default_values(array $request): array
         'plan_csatlakozas_tipusa' => '',
         'plan_csatlakozas_modja' => '',
         'plan_muszaki_leiras' => '',
+        'execution_plan_photo_file_ids' => '',
     ];
 
     foreach (mvm_form_field_definitions() as $key => $definition) {
@@ -11960,6 +12114,14 @@ function save_connection_request_mvm_form(int $requestId, array $source, ?array 
 
     $data = normalize_mvm_form_data($source);
     $existing = connection_request_mvm_form($requestId);
+    $photoSelectionKey = 'execution_plan_photo_file_ids';
+
+    if (array_key_exists($photoSelectionKey, $source)) {
+        $data[$photoSelectionKey] = implode(',', normalize_connection_request_execution_plan_photo_ids($source[$photoSelectionKey]));
+    } elseif (is_array($existing) && isset($existing['form_values']) && is_array($existing['form_values'])) {
+        $data[$photoSelectionKey] = (string) ($existing['form_values'][$photoSelectionKey] ?? '');
+    }
+
     $sketchOriginalName = $existing['sketch_original_name'] ?? null;
     $sketchStoredName = $existing['sketch_stored_name'] ?? null;
     $sketchStoragePath = $existing['sketch_storage_path'] ?? null;
@@ -15300,29 +15462,16 @@ function connection_request_execution_plan_package_parts(int $requestId): array
         $parts[] = connection_request_document_package_part($executionPlan, 'Kiviteli terv', 'Kiviteli terv dokumentáció');
     }
 
-    $definitions = connection_request_upload_definitions();
-    $filesByType = [];
-
-    foreach (connection_request_files($requestId) as $file) {
-        $filesByType[(string) $file['file_type']][] = $file;
-    }
-
-    foreach ($definitions as $fileType => $definition) {
-        if (($definition['kind'] ?? '') !== 'image') {
-            continue;
-        }
-
-        foreach ($filesByType[$fileType] ?? [] as $file) {
-            $parts[] = [
-                'group' => 'Fotók',
-                'label' => (string) $definition['label'],
-                'original_name' => (string) $file['original_name'],
-                'path' => (string) $file['storage_path'],
-                'mime_type' => (string) $file['mime_type'],
-                'source' => 'request_file',
-                'file_type' => $fileType,
-            ];
-        }
+    foreach (connection_request_execution_plan_selected_photo_files($requestId) as $file) {
+        $parts[] = [
+            'group' => 'Fotók',
+            'label' => (string) ($file['execution_plan_label'] ?? $file['label'] ?? 'Fotó'),
+            'original_name' => (string) $file['original_name'],
+            'path' => (string) $file['storage_path'],
+            'mime_type' => (string) $file['mime_type'],
+            'source' => 'request_file',
+            'file_type' => (string) ($file['file_type'] ?? ''),
+        ];
     }
 
     return $parts;
@@ -15400,8 +15549,10 @@ function connection_request_execution_plan_package_missing_items(int $requestId)
         $missing[] = 'Kiviteli terv PDF vagy kép formátumban';
     }
 
-    if (!connection_request_has_photo_file($requestId)) {
+    if (connection_request_execution_plan_photo_files($requestId) === []) {
         $missing[] = 'Fotók';
+    } elseif (connection_request_execution_plan_selected_photo_files($requestId) === []) {
+        $missing[] = 'Kiviteli tervhez kiválasztott fotó';
     }
 
     return $missing;

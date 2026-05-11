@@ -141,6 +141,12 @@ if (is_post()) {
         redirect($mvmRedirectPath . '#mvm-payment-gate');
     }
 
+    if ($action === 'save_execution_plan_photos') {
+        $result = save_connection_request_execution_plan_photo_selection((int) $request['id'], $_POST);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A kiviteli terv fotóválasztás mentése sikertelen.'));
+        redirect($mvmRedirectPath . '#execution-plan-package-section');
+    }
+
     if ($requiresMvmSubmissionApproval && !$mvmSubmissionApproved) {
         $errors[] = $mvmSubmissionGuardMessage;
     } elseif (in_array($action, ['save_mvm_form', 'save_handover_fields', 'generate_mvm_docx', 'generate_mvm_pdf', 'generate_plan_docx', 'generate_plan_pdf', 'generate_handover_docx', 'generate_handover_pdf', 'generate_seal_removal_docx', 'generate_seal_removal_pdf', 'generate_h_tariff_docx', 'generate_h_tariff_pdf'], true)) {
@@ -425,6 +431,9 @@ $packageParts = connection_request_complete_package_parts((int) $request['id']);
 $missingItems = connection_request_complete_package_missing_items((int) $request['id']);
 $executionPlanPackageParts = connection_request_execution_plan_package_parts((int) $request['id']);
 $executionPlanMissingItems = connection_request_execution_plan_package_missing_items((int) $request['id']);
+$executionPlanPhotoFiles = connection_request_execution_plan_photo_files((int) $request['id']);
+$executionPlanSelectedPhotoIds = connection_request_execution_plan_selected_photo_ids((int) $request['id']);
+$executionPlanSelectedPhotoIdMap = array_fill_keys($executionPlanSelectedPhotoIds, true);
 $technicalHandoverPackageParts = connection_request_technical_handover_package_parts((int) $request['id']);
 $technicalHandoverMissingItems = connection_request_technical_handover_package_missing_items((int) $request['id']);
 $technicalHandoverFieldDefinitions = mvm_technical_handover_form_field_definitions();
@@ -1010,7 +1019,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section class="auth-panel form-block">
+        <section id="execution-plan-package-section" class="auth-panel form-block">
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">2. csomag</p>
@@ -1034,6 +1043,51 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                     <p>A generáláshoz még hiányzik: <?= h(implode(', ', $executionPlanMissingItems)); ?>.</p>
                 </div>
             <?php endif; ?>
+
+            <section class="mvm-form-section">
+                <div>
+                    <h3>Kiviteli terv fotói</h3>
+                    <p>Csak a kijelölt fotók kerülnek bele a kiviteli terv PDF csomagba.</p>
+                </div>
+                <div>
+                    <?php if ($executionPlanPhotoFiles === []): ?>
+                        <p class="muted-text">Ehhez az adatlaphoz még nincs csomagba fűzhető fotó.</p>
+                    <?php else: ?>
+                        <form class="form" method="post" action="<?= h($mvmPageUrl . '#execution-plan-package-section'); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="save_execution_plan_photos">
+                            <div class="file-preview-grid request-admin-preview-grid">
+                                <?php foreach ($executionPlanPhotoFiles as $photoFile): ?>
+                                    <?php
+                                    $photoId = (int) ($photoFile['id'] ?? 0);
+                                    $photoUrl = url_path('/admin/connection-requests/file') . '?id=' . $photoId;
+                                    $isSelected = isset($executionPlanSelectedPhotoIdMap[$photoId]);
+                                    ?>
+                                    <article class="file-preview-card">
+                                        <label for="execution_plan_photo_<?= $photoId; ?>">
+                                            <input id="execution_plan_photo_<?= $photoId; ?>" name="execution_plan_photo_file_ids[]" type="checkbox" value="<?= $photoId; ?>" <?= $isSelected ? 'checked' : ''; ?>>
+                                            <span>Csomagba kerül</span>
+                                        </label>
+                                        <div class="file-preview-media">
+                                            <a href="<?= h($photoUrl); ?>" target="_blank" aria-label="<?= h((string) ($photoFile['original_name'] ?? 'Fotó')); ?> megnyitása">
+                                                <img src="<?= h($photoUrl); ?>" alt="<?= h((string) ($photoFile['original_name'] ?? 'Fotó')); ?>" loading="lazy">
+                                            </a>
+                                        </div>
+                                        <div class="file-preview-meta">
+                                            <strong><?= h((string) ($photoFile['execution_plan_label'] ?? $photoFile['label'] ?? 'Fotó')); ?></strong>
+                                            <span><?= h((string) ($photoFile['original_name'] ?? '')); ?></span>
+                                            <a href="<?= h($photoUrl); ?>" target="_blank">Megnyitás</a>
+                                        </div>
+                                    </article>
+                                <?php endforeach; ?>
+                            </div>
+                            <div class="form-actions">
+                                <button class="button button-secondary" type="submit">Fotóválasztás mentése</button>
+                            </div>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </section>
 
             <?php if ($executionPlanPackageParts !== []): ?>
                 <div class="table-wrap">
