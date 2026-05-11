@@ -927,7 +927,11 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                 <div><label>Név</label><input name="requester_name" value="<?= h($customerForm['requester_name']); ?>" required></div>
                                 <div><label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>"></div>
                                 <div><label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>"></div>
-                                <div><label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required></div>
+                                <div>
+                                    <label>Telefon</label>
+                                    <input name="phone" value="<?= h($customerForm['phone']); ?>" required>
+                                    <?php if (trim((string) $customerForm['phone']) !== ''): ?><div class="phone-field-call"><?= phone_link_html($customerForm['phone'], ''); ?></div><?php endif; ?>
+                                </div>
                                 <div><label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required></div>
                                 <div><label>ÜK szám</label><input name="mvm_uk_number" value="<?= h($workForm['mvm_uk_number']); ?>" placeholder="MVM ÜK szám"></div>
                                 <div><label>Irányítószám</label><input name="postal_code" value="<?= h($customerForm['postal_code']); ?>" required></div>
@@ -1042,7 +1046,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <dl class="admin-request-data-list">
                             <div><dt>Név</dt><dd><?= h($displayCustomerName !== '' ? $displayCustomerName : '-'); ?></dd></div>
                             <div><dt>Email</dt><dd><?= h($displayCustomerEmail !== '' ? $displayCustomerEmail : '-'); ?></dd></div>
-                            <div><dt>Telefon</dt><dd><?= h($displayCustomerPhone !== '' ? $displayCustomerPhone : '-'); ?></dd></div>
+                            <div><dt>Telefon</dt><dd><?= phone_link_html($displayCustomerPhone); ?></dd></div>
                             <div><dt>ÜK szám</dt><dd><?= h((string) (($request['mvm_uk_number'] ?? '') ?: '-')); ?></dd></div>
                         </dl>
                         <form class="inline-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">

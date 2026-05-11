@@ -166,7 +166,7 @@ foreach ($requests as $requestSummary) {
                             </div>
                             <div>
                                 <span>Telefon</span>
-                                <strong><?= h($request['phone']); ?></strong>
+                                <strong><?= phone_link_html($request['phone'] ?? ''); ?></strong>
                             </div>
                             <div>
                                 <span>Mérő</span>

@@ -74,7 +74,7 @@ if (is_post()) {
             <section class="auth-panel">
                 <h2>Ügyfél és munka</h2>
                 <p><strong><?= h($request['requester_name']); ?></strong></p>
-                <p><?= h($request['email']); ?> | <?= h($request['phone']); ?></p>
+                <p><?= h($request['email']); ?> | <?= phone_link_html($request['phone'] ?? ''); ?></p>
                 <p><?= h($request['site_postal_code'] . ' ' . $request['site_address']); ?></p>
                 <p>HRSZ: <?= h($request['hrsz'] ?: '-'); ?></p>
             </section>

@@ -412,7 +412,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                         <dl>
                                                             <div><dt>Név</dt><dd><?= h((string) ($customer['requester_name'] ?: '-')); ?></dd></div>
                                                             <div><dt>Email</dt><dd><?= h((string) ($customer['email'] ?: '-')); ?></dd></div>
-                                                            <div><dt>Telefon</dt><dd><?= h((string) ($customer['phone'] ?: '-')); ?></dd></div>
+                                                            <div><dt>Telefon</dt><dd><?= phone_link_html($customer['phone'] ?? ''); ?></dd></div>
                                                             <div><dt>Cím</dt><dd><?= h($customerAddress !== '' ? $customerAddress : '-'); ?></dd></div>
                                                             <div><dt>Státusz</dt><dd><?= h((string) ($customer['status'] ?: '-')); ?></dd></div>
                                                             <div><dt>Regisztrált fiók</dt><dd><?= h($accountLabel); ?></dd></div>
@@ -478,7 +478,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                 <div class="minicrm-readable-row"><span>Vezet&#233;kn&#233;v</span><strong><?= h((string) (($profile['person_last_name'] ?? '') ?: '-')); ?></strong></div>
                                                                                 <div class="minicrm-readable-row"><span>Keresztn&#233;v</span><strong><?= h((string) (($profile['person_first_name'] ?? '') ?: '-')); ?></strong></div>
                                                                                 <div class="minicrm-readable-row"><span>Email</span><strong><?= h((string) (($profile['person_email'] ?? '') ?: '-')); ?></strong></div>
-                                                                                <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h((string) (($profile['person_phone'] ?? '') ?: '-')); ?></strong></div>
+                                                                                <div class="minicrm-readable-row"><span>Telefon</span><strong><?= phone_link_html($profile['person_phone'] ?? ''); ?></strong></div>
                                                                                 <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h((string) (($profile['person_position'] ?? '') ?: '-')); ?></strong></div>
                                                                                 <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h((string) (($profile['person_website'] ?? '') ?: '-')); ?></strong></div>
                                                                                 <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h((string) (($profile['person_consent'] ?? '') ?: '-')); ?></strong></div>

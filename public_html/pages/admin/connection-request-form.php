@@ -328,6 +328,7 @@ $pageSubtitle = $customer !== null
                         <label>Cégnév</label><input name="company_name" value="<?= h($customerForm['company_name']); ?>">
                         <label>Adószám</label><input name="tax_number" value="<?= h($customerForm['tax_number']); ?>">
                         <label>Telefon</label><input name="phone" value="<?= h($customerForm['phone']); ?>" required>
+                        <?php if (trim((string) $customerForm['phone']) !== ''): ?><div class="phone-field-call"><?= phone_link_html($customerForm['phone'], ''); ?></div><?php endif; ?>
                         <label>Email</label><input name="email" type="email" value="<?= h($customerForm['email']); ?>" required>
                         <label>ÜK szám</label><input name="mvm_uk_number" value="<?= h($form['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
                         <label>Postai cím</label><input name="postal_address" value="<?= h($customerForm['postal_address']); ?>" required>
@@ -344,7 +345,7 @@ $pageSubtitle = $customer !== null
                         <div class="status-list">
                             <li><span class="status-label">Név</span><span class="status-value"><?= h((string) $customer['requester_name']); ?></span></li>
                             <li><span class="status-label">Születési név</span><span class="status-value"><?= h((string) ($customer['birth_name'] ?? '-')); ?></span></li>
-                            <li><span class="status-label">Telefon</span><span class="status-value"><?= h((string) $customer['phone']); ?></span></li>
+                            <li><span class="status-label">Telefon</span><span class="status-value"><?= phone_link_html($customer['phone'] ?? ''); ?></span></li>
                             <li><span class="status-label">Email</span><span class="status-value"><?= h((string) $customer['email']); ?></span></li>
                             <li><span class="status-label">Postacím</span><span class="status-value"><?= h((string) $customer['postal_code'] . ' ' . (string) $customer['city'] . ', ' . (string) $customer['postal_address']); ?></span></li>
                         </div>

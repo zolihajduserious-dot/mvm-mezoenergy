@@ -268,7 +268,7 @@ function electrician_work_status_class(string $status): string
                                                         <aside class="minicrm-work-facts">
                                                             <dl>
                                                                 <div><dt>&#220;gyf&#233;l</dt><dd><?= h($customerName !== '' ? $customerName : '-'); ?></dd></div>
-                                                                <div><dt>Telefon</dt><dd><?= h($customerPhone !== '' ? $customerPhone : '-'); ?></dd></div>
+                                                                <div><dt>Telefon</dt><dd><?= phone_link_html($customerPhone); ?></dd></div>
                                                                 <div><dt>Email</dt><dd><?= h($customerEmail !== '' ? $customerEmail : '-'); ?></dd></div>
                                                                 <div><dt>&#220;K sz&#225;m</dt><dd><?= h((string) (($request['mvm_uk_number'] ?? '') ?: '-')); ?></dd></div>
                                                                 <?php if (!empty($request['work_note'])): ?><div><dt>Munka megjegyz&#233;s</dt><dd><?= h((string) $request['work_note']); ?></dd></div><?php endif; ?>

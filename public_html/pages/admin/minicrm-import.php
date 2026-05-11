@@ -1422,7 +1422,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <?php endif; ?>
                                                     </dd>
                                                 </div>
-                                                <div><dt>Telefon</dt><dd><?= h($profilePhone !== '' ? $profilePhone : 'Nincs importalt telefon'); ?></dd></div>
+                                                <div><dt>Telefon</dt><dd><?= phone_link_html($profilePhone, 'Nincs importalt telefon'); ?></dd></div>
                                                 <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
                                                 <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
                                                 <div><dt>HRSZ</dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
@@ -1660,7 +1660,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                     <div class="minicrm-readable-grid">
                                                         <div class="minicrm-readable-row"><span>N&#233;v</span><strong><?= h($profileName !== '' ? $profileName : (string) ($customerProfile['card_name'] ?? '-')); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Email</span><strong><?= h($displayEmail !== '' ? $displayEmail : '-'); ?></strong></div>
-                                                        <div class="minicrm-readable-row"><span>Telefon</span><strong><?= h($profilePhone !== '' ? $profilePhone : '-'); ?></strong></div>
+                                                        <div class="minicrm-readable-row"><span>Telefon</span><strong><?= phone_link_html($profilePhone); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Adatkezel&#233;si hozz&#225;j&#225;rul&#225;s</span><strong><?= h($profileConsent !== '' ? $profileConsent : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Beoszt&#225;s</span><strong><?= h($profilePosition !== '' ? $profilePosition : '-'); ?></strong></div>
                                                         <div class="minicrm-readable-row"><span>Weboldal</span><strong><?= h($profileWebsite !== '' ? $profileWebsite : '-'); ?></strong></div>
@@ -2018,7 +2018,10 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                     </div>
                                                                     <div>
                                                                         <dt><label for="portal_customer_phone_<?= $requestId; ?>">Telefon</label></dt>
-                                                                        <dd><input id="portal_customer_phone_<?= $requestId; ?>" name="phone" type="tel" autocomplete="tel" value="<?= h($displayPhone); ?>"></dd>
+                                                                        <dd>
+                                                                            <input id="portal_customer_phone_<?= $requestId; ?>" name="phone" type="tel" autocomplete="tel" value="<?= h($displayPhone); ?>">
+                                                                            <?php if ($displayPhone !== ''): ?><div class="phone-field-call"><?= phone_link_html($displayPhone, ''); ?></div><?php endif; ?>
+                                                                        </dd>
                                                                     </div>
                                                                     <div>
                                                                         <dt><label for="portal_mvm_uk_number_<?= $requestId; ?>">&#220;K sz&#225;m</label></dt>

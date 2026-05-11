@@ -6,6 +6,50 @@ function h(string|int|float|null $value): string
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+function phone_href(string|int|float|null $value): string
+{
+    $phone = trim((string) $value);
+
+    if ($phone === '') {
+        return '';
+    }
+
+    $phone = preg_replace('/[^\d+]+/', '', $phone) ?? '';
+
+    if ($phone === '') {
+        return '';
+    }
+
+    if (str_starts_with($phone, '00')) {
+        $phone = '+' . substr($phone, 2);
+    }
+
+    if (str_starts_with($phone, '+')) {
+        $phone = '+' . preg_replace('/\D+/', '', substr($phone, 1));
+    } else {
+        $phone = preg_replace('/\D+/', '', $phone) ?? '';
+    }
+
+    return $phone !== '' && $phone !== '+' ? 'tel:' . $phone : '';
+}
+
+function phone_link_html(string|int|float|null $value, string $emptyLabel = '-'): string
+{
+    $label = trim((string) $value);
+
+    if ($label === '') {
+        return h($emptyLabel);
+    }
+
+    $href = phone_href($label);
+
+    if ($href === '') {
+        return h($label);
+    }
+
+    return '<a class="phone-link" href="' . h($href) . '">' . h($label) . '</a>';
+}
+
 function format_bytes(int $bytes): string
 {
     if ($bytes >= 1048576) {
