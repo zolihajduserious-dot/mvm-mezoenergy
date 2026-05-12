@@ -21,6 +21,212 @@ $developmentSuggestionCounts = null;
 $workflowStages = admin_workflow_stage_definitions();
 $workflowStageCounts = array_fill_keys(array_keys($workflowStages), 0);
 $showDashboardWorkflow = false;
+$dashboardUserOverview = ['users' => [], 'errors' => []];
+
+function dashboard_user_role_key(array $userRow): string
+{
+    $role = trim((string) ($userRow['role'] ?? ''));
+
+    if ($role === '' && (int) ($userRow['is_admin'] ?? 0) === 1) {
+        return 'admin';
+    }
+
+    return $role !== '' ? $role : 'customer';
+}
+
+function dashboard_user_display_name(array $userRow): string
+{
+    $name = trim((string) ($userRow['name'] ?? ''));
+
+    if ($name !== '') {
+        return $name;
+    }
+
+    $email = trim((string) ($userRow['email'] ?? ''));
+
+    return $email !== '' ? $email : ('Felhasználó #' . (int) ($userRow['id'] ?? 0));
+}
+
+function dashboard_request_admin_url(array $request): string
+{
+    $requestId = (int) ($request['id'] ?? 0);
+
+    return url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+}
+
+function dashboard_request_display_name(array $request): string
+{
+    $projectName = trim((string) ($request['project_name'] ?? ''));
+
+    return $projectName !== '' ? $projectName : ('Adatlap #' . (int) ($request['id'] ?? 0));
+}
+
+function dashboard_request_location(array $request): string
+{
+    return trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
+}
+
+function dashboard_user_work_overview(): array
+{
+    $overview = ['users' => [], 'errors' => []];
+
+    try {
+        if (!users_table_exists()) {
+            $overview['errors'][] = 'A felhasználói tábla nem érhető el.';
+
+            return $overview;
+        }
+
+        $userRows = db_query(
+            'SELECT `id`, `name`, `email`, `role`, `is_admin`, `customer_id`
+             FROM `users`
+             ORDER BY
+                CASE `role`
+                    WHEN \'admin\' THEN 1
+                    WHEN \'specialist\' THEN 2
+                    WHEN \'electrician\' THEN 3
+                    WHEN \'general_contractor\' THEN 4
+                    WHEN \'customer\' THEN 5
+                    ELSE 6
+                END,
+                `name` ASC,
+                `email` ASC,
+                `id` ASC'
+        )->fetchAll();
+
+        $usersById = [];
+
+        foreach ($userRows as $userRow) {
+            $userId = (int) ($userRow['id'] ?? 0);
+
+            if ($userId <= 0) {
+                continue;
+            }
+
+            $usersById[$userId] = [
+                'id' => $userId,
+                'name' => dashboard_user_display_name($userRow),
+                'email' => trim((string) ($userRow['email'] ?? '')),
+                'role' => dashboard_user_role_key($userRow),
+                'submitted' => [],
+                'assigned' => [],
+                'total' => 0,
+            ];
+        }
+
+        if (!db_table_exists('connection_requests')) {
+            $overview['users'] = array_values($usersById);
+
+            return $overview;
+        }
+
+        $hasSubmittedColumn = db_column_exists('connection_requests', 'submitted_by_user_id');
+        $hasAssignedColumn = db_column_exists('connection_requests', 'assigned_electrician_user_id');
+
+        if (!$hasSubmittedColumn && !$hasAssignedColumn) {
+            $overview['users'] = array_values($usersById);
+            $overview['errors'][] = 'A munkákhoz nincs felhasználói hozzárendelés rögzítve.';
+
+            return $overview;
+        }
+
+        $hasCustomerTable = db_table_exists('customers');
+        $hasUpdatedAtColumn = db_column_exists('connection_requests', 'updated_at');
+        $customerSelect = $hasCustomerTable
+            ? ', c.requester_name, c.email AS customer_email'
+            : ', NULL AS requester_name, NULL AS customer_email';
+        $customerJoin = $hasCustomerTable
+            ? ' LEFT JOIN `customers` c ON c.id = cr.customer_id'
+            : '';
+        $submittedSelect = $hasSubmittedColumn
+            ? ', cr.submitted_by_user_id'
+            : ', NULL AS submitted_by_user_id';
+        $assignedSelect = $hasAssignedColumn
+            ? ', cr.assigned_electrician_user_id'
+            : ', NULL AS assigned_electrician_user_id';
+        $electricianStatusSelect = db_column_exists('connection_requests', 'electrician_status')
+            ? ', cr.electrician_status'
+            : ', \'unassigned\' AS electrician_status';
+        $requestStatusSelect = db_column_exists('connection_requests', 'request_status')
+            ? ', cr.request_status'
+            : ', \'draft\' AS request_status';
+        $updatedSelect = $hasUpdatedAtColumn
+            ? ', cr.updated_at'
+            : ', NULL AS updated_at';
+        $archiveWhere = connection_request_archive_columns_ready()
+            ? ' WHERE cr.archived_at IS NULL'
+            : '';
+        $orderBy = $hasUpdatedAtColumn
+            ? 'COALESCE(cr.updated_at, cr.created_at) DESC, cr.id DESC'
+            : 'cr.created_at DESC, cr.id DESC';
+
+        $requests = db_query(
+            'SELECT cr.id, cr.project_name, cr.site_postal_code, cr.site_address, cr.created_at'
+            . $updatedSelect
+            . $requestStatusSelect
+            . $submittedSelect
+            . $assignedSelect
+            . $electricianStatusSelect
+            . $customerSelect . '
+             FROM `connection_requests` cr'
+            . $customerJoin
+            . $archiveWhere . '
+             ORDER BY ' . $orderBy
+        )->fetchAll();
+
+        foreach ($requests as $request) {
+            $submittedByUserId = (int) ($request['submitted_by_user_id'] ?? 0);
+            $assignedElectricianUserId = (int) ($request['assigned_electrician_user_id'] ?? 0);
+
+            if ($submittedByUserId > 0 && isset($usersById[$submittedByUserId])) {
+                $usersById[$submittedByUserId]['submitted'][] = $request;
+            }
+
+            if ($assignedElectricianUserId > 0 && isset($usersById[$assignedElectricianUserId])) {
+                $usersById[$assignedElectricianUserId]['assigned'][] = $request;
+            }
+        }
+
+        foreach ($usersById as &$overviewUser) {
+            $overviewUser['total'] = count($overviewUser['submitted']) + count($overviewUser['assigned']);
+        }
+        unset($overviewUser);
+
+        $overviewUsers = array_values($usersById);
+        $roleOrder = [
+            'admin' => 1,
+            'specialist' => 2,
+            'electrician' => 3,
+            'general_contractor' => 4,
+            'customer' => 5,
+        ];
+
+        usort(
+            $overviewUsers,
+            static function (array $first, array $second) use ($roleOrder): int {
+                $workCountCompare = (int) $second['total'] <=> (int) $first['total'];
+
+                if ($workCountCompare !== 0) {
+                    return $workCountCompare;
+                }
+
+                $roleCompare = ($roleOrder[(string) $first['role']] ?? 99) <=> ($roleOrder[(string) $second['role']] ?? 99);
+
+                if ($roleCompare !== 0) {
+                    return $roleCompare;
+                }
+
+                return strcasecmp((string) $first['name'], (string) $second['name']);
+            }
+        );
+
+        $overview['users'] = $overviewUsers;
+    } catch (Throwable $exception) {
+        $overview['errors'][] = APP_DEBUG ? $exception->getMessage() : 'A felhasználói munkalista betöltése sikertelen.';
+    }
+
+    return $overview;
+}
 
 try {
     $customerCount = db_table_exists('customers') ? (int) db_query('SELECT COUNT(*) FROM `customers`')->fetchColumn() : 0;
@@ -40,6 +246,7 @@ try {
         )->fetchColumn()
         : null;
     $developmentSuggestionCounts = development_suggestion_counts();
+    $dashboardUserOverview = dashboard_user_work_overview();
 
     if (db_table_exists('connection_requests') && db_table_exists('minicrm_connection_request_links')) {
         $standaloneConnectionRequestCount = (int) db_query(
@@ -71,6 +278,9 @@ try {
         'message' => APP_DEBUG ? $exception->getMessage() : 'Az admin adatok betöltése sikertelen.',
     ];
 }
+
+$dashboardUsers = $dashboardUserOverview['users'] ?? [];
+$dashboardUserErrors = $dashboardUserOverview['errors'] ?? [];
 
 $dashboardCards = [
     [
@@ -231,6 +441,130 @@ if ($canManageAdminUsers) {
                 </<?= $tagName; ?>>
             <?php endforeach; ?>
         </div>
+
+        <section class="dashboard-users-section" aria-labelledby="dashboard-users-title">
+            <div class="section-heading compact-heading">
+                <p class="eyebrow">Felhasználók</p>
+                <h2 id="dashboard-users-title">Felhasználók és munkák</h2>
+                <p>Gyors áttekintés arról, hogy ki melyik munkát rögzítette, illetve szerelőként melyik munka van neki kiadva.</p>
+            </div>
+
+            <?php if ($dashboardUserErrors !== []): ?>
+                <div class="alert alert-info">
+                    <?php foreach ($dashboardUserErrors as $dashboardUserError): ?>
+                        <p><?= h((string) $dashboardUserError); ?></p>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($dashboardUsers === []): ?>
+                <div class="empty-state">
+                    <h2>Nincs megjeleníthető felhasználó</h2>
+                    <p>Amint létrejönnek a felhasználói fiókok, itt megjelennek a hozzájuk tartozó munkákkal együtt.</p>
+                </div>
+            <?php else: ?>
+                <div class="dashboard-user-grid">
+                    <?php foreach ($dashboardUsers as $dashboardUser): ?>
+                        <?php
+                        $submittedRequests = is_array($dashboardUser['submitted'] ?? null) ? $dashboardUser['submitted'] : [];
+                        $assignedRequests = is_array($dashboardUser['assigned'] ?? null) ? $dashboardUser['assigned'] : [];
+                        $submittedCount = count($submittedRequests);
+                        $assignedCount = count($assignedRequests);
+                        $totalWorkCount = $submittedCount + $assignedCount;
+                        $dashboardUserId = (int) ($dashboardUser['id'] ?? 0);
+                        ?>
+
+                        <details class="dashboard-user-card" id="dashboard-user-<?= $dashboardUserId; ?>">
+                            <summary class="dashboard-user-summary">
+                                <span class="dashboard-user-head">
+                                    <span class="dashboard-user-title">
+                                        <strong><?= h((string) ($dashboardUser['name'] ?? 'Felhasználó')); ?></strong>
+                                        <small>
+                                            <?= h(user_role_label((string) ($dashboardUser['role'] ?? 'customer'))); ?>
+                                            <?php if (!empty($dashboardUser['email'])): ?>
+                                                · <?= h((string) $dashboardUser['email']); ?>
+                                            <?php endif; ?>
+                                        </small>
+                                    </span>
+                                    <span class="dashboard-user-role"><?= h(user_role_label((string) ($dashboardUser['role'] ?? 'customer'))); ?></span>
+                                </span>
+
+                                <span class="dashboard-user-meta" aria-label="Felhasználói munkaszámok">
+                                    <span class="dashboard-user-pill">Rögzített: <?= $submittedCount; ?></span>
+                                    <span class="dashboard-user-pill">Kiadva: <?= $assignedCount; ?></span>
+                                </span>
+
+                                <span class="dashboard-user-button"><?= $totalWorkCount > 0 ? 'Munkák megtekintése' : 'Nincs munka'; ?></span>
+                            </summary>
+
+                            <div class="dashboard-user-details">
+                                <?php if ($totalWorkCount === 0): ?>
+                                    <p class="dashboard-user-empty">Ehhez a felhasználóhoz még nincs rögzített vagy kiadott munka.</p>
+                                <?php else: ?>
+                                    <?php if ($submittedRequests !== []): ?>
+                                        <div class="dashboard-user-work-group">
+                                            <h3>Rögzített munkák</h3>
+                                            <ul class="dashboard-user-work-list">
+                                                <?php foreach (array_slice($submittedRequests, 0, 8) as $request): ?>
+                                                    <?php
+                                                    $location = dashboard_request_location($request);
+                                                    $requesterName = trim((string) ($request['requester_name'] ?? ''));
+                                                    ?>
+                                                    <li>
+                                                        <a href="<?= h(dashboard_request_admin_url($request)); ?>">
+                                                            <strong><?= h(dashboard_request_display_name($request)); ?></strong>
+                                                            <span>
+                                                                <?= h($requesterName !== '' ? $requesterName : 'Nincs ügyfélnév'); ?>
+                                                                <?php if ($location !== ''): ?>
+                                                                    · <?= h($location); ?>
+                                                                <?php endif; ?>
+                                                            </span>
+                                                            <small><?= h(connection_request_status_label((string) ($request['request_status'] ?? 'draft'))); ?></small>
+                                                        </a>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                            <?php if ($submittedCount > 8): ?>
+                                                <p class="dashboard-user-more">+<?= $submittedCount - 8; ?> további rögzített munka.</p>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ($assignedRequests !== []): ?>
+                                        <div class="dashboard-user-work-group">
+                                            <h3>Kiadott kivitelezési munkák</h3>
+                                            <ul class="dashboard-user-work-list">
+                                                <?php foreach (array_slice($assignedRequests, 0, 8) as $request): ?>
+                                                    <?php
+                                                    $location = dashboard_request_location($request);
+                                                    $requesterName = trim((string) ($request['requester_name'] ?? ''));
+                                                    ?>
+                                                    <li>
+                                                        <a href="<?= h(dashboard_request_admin_url($request)); ?>">
+                                                            <strong><?= h(dashboard_request_display_name($request)); ?></strong>
+                                                            <span>
+                                                                <?= h($requesterName !== '' ? $requesterName : 'Nincs ügyfélnév'); ?>
+                                                                <?php if ($location !== ''): ?>
+                                                                    · <?= h($location); ?>
+                                                                <?php endif; ?>
+                                                            </span>
+                                                            <small><?= h(electrician_work_status_label((string) ($request['electrician_status'] ?? 'unassigned'))); ?></small>
+                                                        </a>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                            <?php if ($assignedCount > 8): ?>
+                                                <p class="dashboard-user-more">+<?= $assignedCount - 8; ?> további kiadott munka.</p>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                        </details>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
 
         <?php if ($showDashboardWorkflow && ($connectionRequestCount ?? 0) > 0): ?>
             <section class="dashboard-workflow-section">

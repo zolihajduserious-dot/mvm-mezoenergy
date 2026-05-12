@@ -36,3 +36,29 @@
         }
     });
 })();
+
+(function () {
+    const button = document.querySelector('.back-to-top');
+
+    if (!button) {
+        return;
+    }
+
+    function syncButton() {
+        const isVisible = window.scrollY > 360;
+        button.classList.toggle('is-visible', isVisible);
+        button.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+        button.tabIndex = isVisible ? 0 : -1;
+    }
+
+    button.addEventListener('click', function () {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth',
+        });
+    });
+
+    window.addEventListener('scroll', syncButton, { passive: true });
+    window.addEventListener('resize', syncButton);
+    syncButton();
+})();

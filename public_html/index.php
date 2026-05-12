@@ -460,6 +460,8 @@ try {
             <p>&copy; <?= date('Y'); ?> Mező Energy Kft. Minden jog fenntartva.</p>
         </div>
     </footer>
+
+    <button class="back-to-top" type="button" aria-label="Lap tetejére">Lap tetejére</button>
     <script src="<?= h(asset_url('js/menu.js')); ?>" defer></script>
 </body>
 </html>

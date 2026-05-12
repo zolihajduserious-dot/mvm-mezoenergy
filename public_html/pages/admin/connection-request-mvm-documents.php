@@ -953,7 +953,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 <div>
                     <p class="eyebrow">1. csomag</p>
                     <h2>MVM jóváhagyási PDF csomag</h2>
-                    <p>Sorrend: MVM dokumentum, H tarifa nyilatkozat ha ki van töltve, H tarifa esetén klíma matrica és klíma adatlap, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
+                    <p>Sorrend: MVM dokumentum, H tarifa nyilatkozat ha ki van töltve, H tarifa esetén klíma matrica és klíma adatlap, meghatalmazás, tulajdoni lap, térképmásolat, hozzájáruló nyilatkozat és nyilatkozat adatlap ha van, majd fotók. Ezt küldjük el az MVM-nek jóváhagyásra. A kiviteli terv ebbe a csomagba már nem kerül bele.</p>
                 </div>
                 <form method="post" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>

@@ -5924,6 +5924,40 @@ function connection_request_project_name_with_uk_number(string $projectName, str
     return connection_request_project_name_limit($baseName . '_' . $suffix);
 }
 
+function connection_request_generated_document_base_name(array $request): string
+{
+    $baseName = connection_request_project_name_part((string) ($request['project_name'] ?? ''));
+
+    if ($baseName === '') {
+        $requestId = (int) ($request['id'] ?? 0);
+        $baseName = $requestId > 0 ? 'Adatlap_' . $requestId : 'Adatlap';
+    }
+
+    return connection_request_project_name_truncate($baseName, 170);
+}
+
+function connection_request_generated_document_original_name(array $request, string $extension): string
+{
+    $extension = strtolower(trim($extension, ". \t\n\r\0\x0B"));
+    $baseName = connection_request_generated_document_base_name($request);
+
+    return $extension !== '' ? $baseName . '.' . $extension : $baseName;
+}
+
+function connection_request_generated_document_stored_name(array $request, string $extension, string $kind = 'generated'): string
+{
+    $extension = strtolower(trim($extension, ". \t\n\r\0\x0B"));
+    $extension = $extension !== '' ? $extension : 'bin';
+    $baseName = connection_request_project_name_truncate(connection_request_generated_document_base_name($request), 110);
+    $kindPart = connection_request_project_name_part($kind);
+
+    if ($kindPart !== '') {
+        $baseName .= '-' . connection_request_project_name_truncate($kindPart, 32);
+    }
+
+    return $baseName . '-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
+}
+
 function connection_request_join_postal_address(string $postalCode, string $address): string
 {
     $postalCode = trim($postalCode);
@@ -6018,6 +6052,7 @@ function connection_request_upload_definitions(): array
         'map_copy' => ['label' => 'Térképmásolat', 'required' => false, 'kind' => 'document'],
         'authorization' => ['label' => 'Kitöltött meghatalmazás', 'required' => false, 'kind' => 'document'],
         'consent_statement' => ['label' => 'Kitöltött hozzájáruló nyilatkozat', 'required' => false, 'kind' => 'document'],
+        'declaration_datasheet' => ['label' => 'Kitöltött nyilatkozat adatlap', 'required' => false, 'kind' => 'document'],
         'h_tariff_label' => ['label' => 'Klíma matrica', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
         'h_tariff_datasheet' => ['label' => 'Klíma adatlap', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
         'completed_document' => ['label' => 'Egyéb kitöltött dokumentum', 'required' => false, 'kind' => 'document'],
@@ -8745,7 +8780,8 @@ function save_signed_authorization_document(int $requestId, array $source): arra
 
     $targetDir = CONNECTION_UPLOAD_PATH . '/' . $requestId;
     ensure_storage_dir($targetDir);
-    $storedName = 'authorization-signed-' . date('Ymd-His') . '-' . bin2hex(random_bytes(5)) . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'authorization-signed');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $targetPath = $targetDir . '/' . $storedName;
     generate_signed_authorization_pdf_from_template($requestId, $request, $data, $signatures, $targetPath);
 
@@ -8757,7 +8793,7 @@ function save_signed_authorization_document(int $requestId, array $source): arra
             $requestId,
             'authorization',
             'Elektronikusan aláírt MVM meghatalmazás',
-            'a-szab-155-ny03-meghatalmazas-alairva.pdf',
+            $originalName,
             $storedName,
             $targetPath,
             'application/pdf',
@@ -8783,7 +8819,8 @@ function generate_prefilled_authorization_form_pdf(int $requestId): array
     try {
         $targetDir = CONNECTION_UPLOAD_PATH . '/' . $requestId;
         ensure_storage_dir($targetDir);
-        $storedName = 'authorization-prefilled-' . $requestId . '.pdf';
+        $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'authorization-prefilled');
+        $originalName = connection_request_generated_document_original_name($request, 'pdf');
         $targetPath = $targetDir . '/' . $storedName;
 
         generate_signed_authorization_pdf_from_template(
@@ -8799,7 +8836,7 @@ function generate_prefilled_authorization_form_pdf(int $requestId): array
             'ok' => true,
             'message' => 'A kitöltött meghatalmazás PDF elkészült.',
             'path' => $targetPath,
-            'filename' => 'a-szab-155-ny03-meghatalmazas-kitoltve.pdf',
+            'filename' => $originalName,
             'file_size' => is_file($targetPath) ? (int) filesize($targetPath) : 0,
         ];
     } catch (Throwable $exception) {
@@ -13298,7 +13335,8 @@ function generate_primavill_mvm_docx(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-docx';
     ensure_storage_dir($targetDir);
 
-    $storedName = $contractorKey . '-igenybejelento-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $storedName = connection_request_generated_document_stored_name($request, 'docx', 'igenybejelento');
+    $originalName = connection_request_generated_document_original_name($request, 'docx');
     $targetPath = $targetDir . '/' . $storedName;
 
     if (!copy($templatePath, $targetPath)) {
@@ -13383,7 +13421,7 @@ function generate_primavill_mvm_docx(int $requestId): array
             (int) $request['customer_id'],
             'submitted_request',
             $contractor['short_label'] . ' MVM igénybejelentő - kitöltött Word dokumentum',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -13472,7 +13510,8 @@ function generate_mvm_execution_plan_docx(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-plan-docx';
     ensure_storage_dir($targetDir);
 
-    $storedName = $contractorKey . '-tervdokumentacio-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $storedName = connection_request_generated_document_stored_name($request, 'docx', 'tervdokumentacio');
+    $originalName = connection_request_generated_document_original_name($request, 'docx');
     $targetPath = $targetDir . '/' . $storedName;
 
     if (!copy($templatePath, $targetPath)) {
@@ -13561,7 +13600,7 @@ function generate_mvm_execution_plan_docx(int $requestId): array
             (int) $request['customer_id'],
             'execution_plan',
             $contractor['short_label'] . ' kiviteli tervdokumentáció - kitöltött Word dokumentum',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -14321,7 +14360,8 @@ function generate_primavill_mvm_pdf_from_template(int $requestId): array
     $values = mvm_pdf_value_map($request, connection_request_mvm_form_values($request));
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-pdf';
     ensure_storage_dir($targetDir);
-    $storedName = 'primavill-igenybejelento-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'igenybejelento');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $targetPath = $targetDir . '/' . $storedName;
     $temporaryFiles = [];
     $coverPdfTemplateFields = mvm_pdf_template_requires_cover($templatePath);
@@ -14390,7 +14430,7 @@ function generate_primavill_mvm_pdf_from_template(int $requestId): array
             (int) $request['customer_id'],
             'submitted_request',
             'Primavill MVM igénybejelentő - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/pdf',
@@ -14436,6 +14476,7 @@ function generate_primavill_mvm_pdf(int $requestId): array
     $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
     $pdfPath = (string) $pdfResult['path'];
     $storedName = basename($pdfPath);
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     db_query(
         'INSERT INTO `connection_request_documents`
             (`connection_request_id`, `customer_id`, `document_type`, `title`, `original_name`, `stored_name`,
@@ -14446,7 +14487,7 @@ function generate_primavill_mvm_pdf(int $requestId): array
             (int) $request['customer_id'],
             'submitted_request',
             $contractor['short_label'] . ' MVM igénybejelentő - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $pdfPath,
             'application/pdf',
@@ -14492,6 +14533,7 @@ function generate_mvm_execution_plan_pdf(int $requestId): array
     $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
     $pdfPath = (string) $pdfResult['path'];
     $storedName = basename($pdfPath);
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
 
     db_query(
         'INSERT INTO `connection_request_documents`
@@ -14503,7 +14545,7 @@ function generate_mvm_execution_plan_pdf(int $requestId): array
             (int) $request['customer_id'],
             'execution_plan',
             $contractor['short_label'] . ' kiviteli tervdokumentáció - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $pdfPath,
             'application/pdf',
@@ -14565,7 +14607,8 @@ function generate_mvm_technical_handover_docx(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-technical-handover-docx';
     ensure_storage_dir($targetDir);
 
-    $storedName = $contractorKey . '-muszaki-atadas-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $storedName = connection_request_generated_document_stored_name($request, 'docx', 'muszaki-atadas');
+    $originalName = connection_request_generated_document_original_name($request, 'docx');
     $targetPath = $targetDir . '/' . $storedName;
 
     if (!copy($templatePath, $targetPath)) {
@@ -14621,7 +14664,7 @@ function generate_mvm_technical_handover_docx(int $requestId): array
             (int) $request['customer_id'],
             'technical_handover',
             $contractor['short_label'] . ' műszaki átadás-átvételi jegyzőkönyv - kitöltött Word dokumentum',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -14667,6 +14710,7 @@ function generate_mvm_technical_handover_pdf(int $requestId): array
     $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
     $pdfPath = (string) $pdfResult['path'];
     $storedName = basename($pdfPath);
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
 
     db_query(
         'INSERT INTO `connection_request_documents`
@@ -14678,7 +14722,7 @@ function generate_mvm_technical_handover_pdf(int $requestId): array
             (int) $request['customer_id'],
             'technical_handover',
             $contractor['short_label'] . ' műszaki átadás-átvételi jegyzőkönyv - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $pdfPath,
             'application/pdf',
@@ -14730,7 +14774,8 @@ function generate_mvm_seal_removal_docx(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-seal-removal-docx';
     ensure_storage_dir($targetDir);
 
-    $storedName = $contractorKey . '-plombabontasi-engedely-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $storedName = connection_request_generated_document_stored_name($request, 'docx', 'plombabontasi-engedely');
+    $originalName = connection_request_generated_document_original_name($request, 'docx');
     $targetPath = $targetDir . '/' . $storedName;
 
     if (!copy($templatePath, $targetPath)) {
@@ -14786,7 +14831,7 @@ function generate_mvm_seal_removal_docx(int $requestId): array
             (int) $request['customer_id'],
             'seal_removal',
             $contractor['short_label'] . ' plombabontási engedély - kitöltött Word dokumentum',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -14832,6 +14877,7 @@ function generate_mvm_seal_removal_pdf(int $requestId): array
     $contractor = mvm_contractor_definition($values['mvm_contractor'] ?? null);
     $pdfPath = (string) $pdfResult['path'];
     $storedName = basename($pdfPath);
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
 
     db_query(
         'INSERT INTO `connection_request_documents`
@@ -14843,7 +14889,7 @@ function generate_mvm_seal_removal_pdf(int $requestId): array
             (int) $request['customer_id'],
             'seal_removal',
             $contractor['short_label'] . ' plombabontási engedély - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $pdfPath,
             'application/pdf',
@@ -14898,7 +14944,8 @@ function generate_mvm_h_tariff_docx(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/generated-h-tariff-docx';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'h-tarifa-nyilatkozat-' . $requestId . '-' . date('Ymd-His') . '.docx';
+    $storedName = connection_request_generated_document_stored_name($request, 'docx', 'h-tarifa-nyilatkozat');
+    $originalName = connection_request_generated_document_original_name($request, 'docx');
     $targetPath = $targetDir . '/' . $storedName;
 
     if (!copy($templatePath, $targetPath)) {
@@ -14957,7 +15004,7 @@ function generate_mvm_h_tariff_docx(int $requestId): array
             (int) $request['customer_id'],
             'h_tariff_declaration',
             'H tarifa nyilatkozat - kitöltött Word dokumentum',
-            $storedName,
+            $originalName,
             $storedName,
             $targetPath,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -15001,6 +15048,7 @@ function generate_mvm_h_tariff_pdf(int $requestId): array
 
     $pdfPath = (string) $pdfResult['path'];
     $storedName = basename($pdfPath);
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
 
     db_query(
         'INSERT INTO `connection_request_documents`
@@ -15012,7 +15060,7 @@ function generate_mvm_h_tariff_pdf(int $requestId): array
             (int) $request['customer_id'],
             'h_tariff_declaration',
             'H tarifa nyilatkozat - kitöltött PDF',
-            $storedName,
+            $originalName,
             $storedName,
             $pdfPath,
             'application/pdf',
@@ -15421,6 +15469,7 @@ function connection_request_complete_package_parts(int $requestId): array
         'title_deed' => 'Tulajdoni lap',
         'map_copy' => 'Térképmásolat',
         'consent_statement' => 'Hozzájáruló nyilatkozat',
+        'declaration_datasheet' => 'Nyilatkozat adatlap',
     ] as $fileType => $group) {
         foreach ($filesByType[$fileType] ?? [] as $file) {
             if (!connection_request_package_file_is_compatible($file)) {
@@ -16210,7 +16259,8 @@ function generate_connection_request_technical_declaration(int $requestId): arra
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/technical-declaration';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'nyilatkozat-adatlap-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'nyilatkozat-adatlap');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $targetPath = $targetDir . '/' . $storedName;
 
     try {
@@ -16230,7 +16280,7 @@ function generate_connection_request_technical_declaration(int $requestId): arra
                 (int) $request['customer_id'],
                 'technical_declaration',
                 'Nyilatkozat adatlap - jóváhagyási dokumentumból kinyerve',
-                $storedName,
+                $originalName,
                 $storedName,
                 $targetPath,
                 'application/pdf',
@@ -16298,7 +16348,8 @@ function generate_connection_request_complete_package(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/complete-package';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'mvm-jovahagyasi-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'mvm-jovahagyasi-csomag');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $finalPath = $targetDir . '/' . $storedName;
     $maxBytes = 5 * 1024 * 1024;
     $lastSize = 0;
@@ -16338,7 +16389,7 @@ function generate_connection_request_complete_package(int $requestId): array
                 (int) $request['customer_id'],
                 'complete_package',
                 'MVM jóváhagyási csomag',
-                $storedName,
+                $originalName,
                 $storedName,
                 $finalPath,
                 'application/pdf',
@@ -16394,7 +16445,8 @@ function generate_connection_request_execution_plan_package(int $requestId): arr
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/execution-plan-package';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'kiviteli-terv-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'kiviteli-terv-csomag');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $finalPath = $targetDir . '/' . $storedName;
 
     try {
@@ -16414,7 +16466,7 @@ function generate_connection_request_execution_plan_package(int $requestId): arr
                 (int) $request['customer_id'],
                 'execution_plan_package',
                 'Kiviteli terv csomag',
-                $storedName,
+                $originalName,
                 $storedName,
                 $finalPath,
                 'application/pdf',
@@ -16482,7 +16534,8 @@ function generate_connection_request_technical_handover_package(int $requestId):
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/technical-handover-package';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'muszaki-atadas-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'muszaki-atadas-csomag');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $finalPath = $targetDir . '/' . $storedName;
 
     try {
@@ -16502,7 +16555,7 @@ function generate_connection_request_technical_handover_package(int $requestId):
                 (int) $request['customer_id'],
                 'technical_handover_package',
                 'Műszaki átadás csomag',
-                $storedName,
+                $originalName,
                 $storedName,
                 $finalPath,
                 'application/pdf',
@@ -16558,7 +16611,8 @@ function generate_connection_request_seal_removal_package(int $requestId): array
     $targetDir = MVM_DOCUMENT_UPLOAD_PATH . '/' . $requestId . '/seal-removal-package';
     ensure_storage_dir($targetDir);
 
-    $storedName = 'plombabontas-csomag-' . $requestId . '-' . date('Ymd-His') . '.pdf';
+    $storedName = connection_request_generated_document_stored_name($request, 'pdf', 'plombabontas-csomag');
+    $originalName = connection_request_generated_document_original_name($request, 'pdf');
     $finalPath = $targetDir . '/' . $storedName;
 
     try {
@@ -16578,7 +16632,7 @@ function generate_connection_request_seal_removal_package(int $requestId): array
                 (int) $request['customer_id'],
                 'seal_removal_package',
                 'Plombabontás csomag',
-                $storedName,
+                $originalName,
                 $storedName,
                 $finalPath,
                 'application/pdf',
