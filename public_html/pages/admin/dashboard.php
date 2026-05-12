@@ -27,7 +27,7 @@ function dashboard_user_role_key(array $userRow): string
 {
     $role = trim((string) ($userRow['role'] ?? ''));
 
-    if ($role === '' && (int) ($userRow['is_admin'] ?? 0) === 1) {
+    if ((int) ($userRow['is_admin'] ?? 0) === 1 && ($role === '' || $role === 'customer' || $role === 'guest')) {
         return 'admin';
     }
 
@@ -80,14 +80,14 @@ function dashboard_user_work_overview(): array
         $userRows = db_query(
             'SELECT `id`, `name`, `email`, `role`, `is_admin`, `customer_id`
              FROM `users`
+             WHERE `role` IN (\'admin\', \'specialist\', \'electrician\', \'general_contractor\') OR `is_admin` = 1
              ORDER BY
                 CASE `role`
                     WHEN \'admin\' THEN 1
                     WHEN \'specialist\' THEN 2
                     WHEN \'electrician\' THEN 3
                     WHEN \'general_contractor\' THEN 4
-                    WHEN \'customer\' THEN 5
-                    ELSE 6
+                    ELSE 5
                 END,
                 `name` ASC,
                 `email` ASC,
@@ -198,7 +198,6 @@ function dashboard_user_work_overview(): array
             'specialist' => 2,
             'electrician' => 3,
             'general_contractor' => 4,
-            'customer' => 5,
         ];
 
         usort(
@@ -460,7 +459,7 @@ if ($canManageAdminUsers) {
             <?php if ($dashboardUsers === []): ?>
                 <div class="empty-state">
                     <h2>Nincs megjeleníthető felhasználó</h2>
-                    <p>Amint létrejönnek a felhasználói fiókok, itt megjelennek a hozzájuk tartozó munkákkal együtt.</p>
+                    <p>Amint létrejön admin, adminisztrátor, szerelő vagy generálkivitelező fiók, itt megjelenik a hozzá tartozó munkákkal együtt.</p>
                 </div>
             <?php else: ?>
                 <div class="dashboard-user-grid">
@@ -472,6 +471,7 @@ if ($canManageAdminUsers) {
                         $assignedCount = count($assignedRequests);
                         $totalWorkCount = $submittedCount + $assignedCount;
                         $dashboardUserId = (int) ($dashboardUser['id'] ?? 0);
+                        $dashboardUserRole = (string) ($dashboardUser['role'] ?? 'customer');
                         ?>
 
                         <details class="dashboard-user-card" id="dashboard-user-<?= $dashboardUserId; ?>">
@@ -480,18 +480,20 @@ if ($canManageAdminUsers) {
                                     <span class="dashboard-user-title">
                                         <strong><?= h((string) ($dashboardUser['name'] ?? 'Felhasználó')); ?></strong>
                                         <small>
-                                            <?= h(user_role_label((string) ($dashboardUser['role'] ?? 'customer'))); ?>
+                                            <?= h(user_role_label($dashboardUserRole)); ?>
                                             <?php if (!empty($dashboardUser['email'])): ?>
                                                 · <?= h((string) $dashboardUser['email']); ?>
                                             <?php endif; ?>
                                         </small>
                                     </span>
-                                    <span class="dashboard-user-role"><?= h(user_role_label((string) ($dashboardUser['role'] ?? 'customer'))); ?></span>
+                                    <span class="dashboard-user-role"><?= h(user_role_label($dashboardUserRole)); ?></span>
                                 </span>
 
                                 <span class="dashboard-user-meta" aria-label="Felhasználói munkaszámok">
                                     <span class="dashboard-user-pill">Rögzített: <?= $submittedCount; ?></span>
-                                    <span class="dashboard-user-pill">Kiadva: <?= $assignedCount; ?></span>
+                                    <?php if ($dashboardUserRole === 'electrician' || $assignedCount > 0): ?>
+                                        <span class="dashboard-user-pill">Kiadva: <?= $assignedCount; ?></span>
+                                    <?php endif; ?>
                                 </span>
 
                                 <span class="dashboard-user-button"><?= $totalWorkCount > 0 ? 'Munkák megtekintése' : 'Nincs munka'; ?></span>
