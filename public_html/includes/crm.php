@@ -8459,6 +8459,271 @@ function authorization_signature_token_is_valid(array $request, string $token): 
     return false;
 }
 
+function customer_document_upload_token(array $request): string
+{
+    return customer_document_upload_token_for_parts(
+        (int) ($request['id'] ?? 0),
+        (int) ($request['customer_id'] ?? 0)
+    );
+}
+
+function customer_document_upload_token_for_parts(int $requestId, int $customerId, string $email = ''): string
+{
+    return hash_hmac(
+        'sha256',
+        'document-upload|' . (string) $requestId . '|' . (string) $customerId . ($email !== '' ? '|' . $email : ''),
+        DB_PASS
+    );
+}
+
+function customer_document_upload_token_is_valid(array $request, string $token): bool
+{
+    $token = trim($token);
+    $requestId = (int) ($request['id'] ?? 0);
+    $customerId = (int) ($request['customer_id'] ?? 0);
+    $email = (string) ($request['email'] ?? '');
+    $validTokens = [
+        customer_document_upload_token_for_parts($requestId, $customerId),
+        customer_document_upload_token_for_parts($requestId, $customerId, $email),
+    ];
+
+    foreach (array_unique($validTokens) as $validToken) {
+        if (hash_equals($validToken, $token)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function customer_document_upload_type_keys(): array
+{
+    return [
+        'authorization',
+        'title_deed',
+        'map_copy',
+        'consent_statement',
+        'declaration_datasheet',
+        'h_tariff_label',
+        'h_tariff_datasheet',
+        'utility_bill',
+        'identity_card',
+        'address_card',
+        'meter_close',
+        'meter_far',
+        'roof_hook',
+        'utility_pole',
+        'distribution_board',
+        'completed_document',
+    ];
+}
+
+function customer_document_upload_definitions(): array
+{
+    $definitions = connection_request_upload_definitions();
+    $ordered = [];
+
+    foreach (customer_document_upload_type_keys() as $key) {
+        if (isset($definitions[$key])) {
+            $ordered[$key] = $definitions[$key];
+        }
+    }
+
+    return $ordered;
+}
+
+function customer_document_upload_package_type_keys(): array
+{
+    return [
+        'authorization',
+        'title_deed',
+        'map_copy',
+        'consent_statement',
+        'declaration_datasheet',
+        'h_tariff_label',
+        'h_tariff_datasheet',
+    ];
+}
+
+function customer_document_upload_is_package_type(string $fileType): bool
+{
+    return in_array($fileType, customer_document_upload_package_type_keys(), true);
+}
+
+function customer_document_upload_requested_types_from_source(mixed $value): array
+{
+    if (is_string($value)) {
+        $decoded = json_decode($value, true);
+        $value = is_array($decoded) ? $decoded : preg_split('/[\s,;]+/', $value);
+    }
+
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $definitions = customer_document_upload_definitions();
+    $types = [];
+
+    foreach ($value as $item) {
+        foreach (preg_split('/[\s,;]+/', (string) $item) ?: [] as $type) {
+            $type = trim($type);
+
+            if ($type !== '' && isset($definitions[$type]) && !in_array($type, $types, true)) {
+                $types[] = $type;
+            }
+        }
+    }
+
+    return $types;
+}
+
+function customer_document_upload_default_types(int $requestId): array
+{
+    $types = [];
+
+    foreach (['authorization', 'title_deed', 'map_copy'] as $fileType) {
+        if (!customer_document_upload_type_has_file($requestId, $fileType)) {
+            $types[] = $fileType;
+        }
+    }
+
+    if (connection_request_has_h_tariff_requirement($requestId)) {
+        foreach (array_keys(h_tariff_required_file_types()) as $fileType) {
+            if (!customer_document_upload_type_has_file($requestId, (string) $fileType)) {
+                $types[] = (string) $fileType;
+            }
+        }
+    }
+
+    if (!connection_request_has_photo_file($requestId)) {
+        array_push($types, 'meter_close', 'meter_far', 'roof_hook', 'utility_pole', 'distribution_board');
+    }
+
+    return customer_document_upload_requested_types_from_source($types);
+}
+
+function customer_document_upload_accept(string $fileType, array $definition): string
+{
+    if (($definition['kind'] ?? '') === 'image') {
+        return 'image/jpeg,image/png,image/webp';
+    }
+
+    if (customer_document_upload_is_package_type($fileType) || connection_request_upload_pdf_or_image_only($definition)) {
+        return connection_request_package_file_accept();
+    }
+
+    return connection_request_upload_accept($definition);
+}
+
+function customer_document_upload_validate_file(string $fileType, array $definition, array $file): array
+{
+    $errors = validate_portal_file_upload(
+        $file,
+        (string) ($definition['label'] ?? 'Dokumentum'),
+        ($definition['kind'] ?? '') === 'image'
+    );
+
+    if ($errors !== []) {
+        return $errors;
+    }
+
+    $extension = strtolower(pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+
+    if (
+        (customer_document_upload_is_package_type($fileType) || connection_request_upload_pdf_or_image_only($definition))
+        && !in_array($extension, connection_request_package_file_extensions(), true)
+    ) {
+        $errors[] = (string) ($definition['label'] ?? 'Dokumentum') . ': ehhez PDF vagy kép tölthető fel, mert bekerülhet az MVM csomagba.';
+    }
+
+    return $errors;
+}
+
+function customer_document_upload_type_has_file(int $requestId, string $fileType): bool
+{
+    $definition = customer_document_upload_definitions()[$fileType] ?? null;
+
+    if ($definition === null) {
+        return false;
+    }
+
+    if (customer_document_upload_is_package_type($fileType) || connection_request_upload_pdf_or_image_only($definition)) {
+        return connection_request_has_package_file_type($requestId, $fileType);
+    }
+
+    return connection_request_has_file_type($requestId, $fileType);
+}
+
+function customer_document_upload_url(array $request, array $requestedTypes = []): string
+{
+    return absolute_url(customer_document_upload_path($request, customer_document_upload_token($request), $requestedTypes));
+}
+
+function customer_document_upload_path(array $request, string $token, array $requestedTypes = []): string
+{
+    $types = customer_document_upload_requested_types_from_source($requestedTypes);
+    $path = '/document-upload?id=' . (int) ($request['id'] ?? 0) . '&token=' . rawurlencode($token);
+
+    if ($types !== []) {
+        $path .= '&types=' . rawurlencode(implode(',', $types));
+    }
+
+    return url_path($path);
+}
+
+function customer_document_upload_type_help_text(string $fileType): string
+{
+    return [
+        'authorization' => 'Aláírt meghatalmazás fotózva vagy PDF-ként.',
+        'title_deed' => 'Friss tulajdoni lap PDF-ben vagy jól olvasható fotón.',
+        'map_copy' => 'Térképmásolat PDF-ben vagy jól olvasható fotón.',
+        'consent_statement' => 'Kitöltött, aláírt hozzájáruló nyilatkozat.',
+        'declaration_datasheet' => 'Kitöltött nyilatkozat/adatlap.',
+        'h_tariff_label' => 'A klíma vagy hőszivattyú matricája, amin az adatok olvashatók.',
+        'h_tariff_datasheet' => 'Klíma vagy hőszivattyú adatlap PDF-ben vagy fotón.',
+        'utility_bill' => 'Villanyszámla, amin a fogyasztási hely és a mérő adatai látszanak.',
+        'identity_card' => 'Személyi igazolvány olvasható fotója vagy másolata.',
+        'address_card' => 'Lakcímkártya olvasható fotója vagy másolata.',
+        'meter_close' => 'Közeli fotó, ahol a mérő gyári száma is olvasható.',
+        'meter_far' => 'Távoli fotó, ahol a mérőszekrény és a környezete látszik.',
+        'roof_hook' => 'A tetőtartó vagy falihorog rögzítése legyen a képen.',
+        'utility_pole' => 'Az ingatlanhoz tartozó vagy közeli villanyoszlop teljesen látszódjon.',
+        'distribution_board' => 'A lakás elosztója nyitva, olvasható kismegszakítókkal.',
+        'completed_document' => 'Bármilyen további kitöltött dokumentum.',
+    ][$fileType] ?? 'A bekért dokumentum vagy fotó feltöltése.';
+}
+
+function customer_document_upload_photo_examples(): array
+{
+    return [
+        'meter_close' => [
+            'title' => 'Mérő közelről',
+            'body' => 'A gyári szám, a plombák és a kismegszakítók legyenek élesek.',
+            'variant' => 'meter-close',
+        ],
+        'meter_far' => [
+            'title' => 'Mérő távolról',
+            'body' => 'Látszódjon a teljes mérőszekrény és a fal körülötte.',
+            'variant' => 'meter-far',
+        ],
+        'roof_hook' => [
+            'title' => 'Tetőtartó vagy falihorog',
+            'body' => 'A bekötés rögzítése és a vezeték iránya is kerüljön a képre.',
+            'variant' => 'roof-hook',
+        ],
+        'utility_pole' => [
+            'title' => 'Villanyoszlop',
+            'body' => 'A teljes oszlop, a leágazás és az ingatlan iránya látszódjon.',
+            'variant' => 'utility-pole',
+        ],
+        'distribution_board' => [
+            'title' => 'Lakás elosztó',
+            'body' => 'Nyitott ajtóval fotózza, hogy a kapcsolók feliratai olvashatók legyenek.',
+            'variant' => 'distribution-board',
+        ],
+    ];
+}
+
 function decode_signature_data_uri(string $value, string $label): array
 {
     if (!preg_match('/^data:image\/png;base64,([A-Za-z0-9+\/=]+)$/', trim($value), $matches)) {
@@ -8935,6 +9200,113 @@ function send_prefilled_authorization_form_email(int $requestId): array
         );
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A meghatalmazás email küldése sikertelen.'];
+    }
+}
+
+function send_connection_request_customer_document_upload_request(int $requestId, array $requestedTypes): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az igény nem található.'];
+    }
+
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $recipientEmail = trim((string) ($request['email'] ?? ''));
+    $recipientName = email_recipient_name($request['requester_name'] ?? '');
+
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'A dokumentum bekérő email nem küldhető, mert hiányzik az ügyfél email címe.'];
+    }
+
+    $definitions = customer_document_upload_definitions();
+    $requestedTypes = customer_document_upload_requested_types_from_source($requestedTypes);
+
+    if ($requestedTypes === []) {
+        return ['ok' => false, 'message' => 'Válassz legalább egy bekérendő dokumentumot vagy fotót.'];
+    }
+
+    $requestedLabels = [];
+
+    foreach ($requestedTypes as $fileType) {
+        $requestedLabels[] = (string) ($definitions[$fileType]['label'] ?? $fileType);
+    }
+
+    $uploadUrl = customer_document_upload_url($request, $requestedTypes);
+    $token = customer_email_thread_token($requestId, 'document-upload');
+    $subject = customer_email_thread_subject(APP_NAME . ' hiányzó dokumentumok feltöltése - ' . ($request['project_name'] ?? 'mérőhelyi igény'), $token);
+    $replyAddress = mvm_mail_reply_address();
+    $emailTitle = 'Hiányzó dokumentumok feltöltése';
+    $emailLead = 'Az ügyintézéshez még szükségünk van néhány dokumentumra vagy fotóra. Regisztráció nélkül, az alábbi biztonságos feltöltőlinken tudja beküldeni őket.';
+    $sections = [
+        [
+            'title' => 'Igény adatai',
+            'rows' => [
+                ['label' => 'Igény', 'value' => $request['project_name'] ?? '-'],
+                ['label' => 'Ügyfél', 'value' => $request['requester_name'] ?? '-'],
+                ['label' => 'Felhasználási hely', 'value' => trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''))],
+                ['label' => 'Válaszazonosító', 'value' => $token],
+            ],
+        ],
+        [
+            'title' => 'Kért dokumentumok',
+            'items' => $requestedLabels,
+        ],
+        [
+            'title' => 'Teendő',
+            'items' => [
+                'Kattintson a feltöltő gombra.',
+                'Válassza ki a fenti dokumentumokat vagy fotókat.',
+                'Ha fotót kérünk, a feltöltő oldalon példaképek is segítenek.',
+            ],
+        ],
+    ];
+    $actions = [
+        ['label' => 'Dokumentumok feltöltése', 'url' => $uploadUrl],
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress($recipientEmail, $recipientName);
+        $mail->addReplyTo($replyAddress, MAIL_FROM_NAME);
+        $mail->Subject = $subject;
+        apply_branded_email($mail, $emailTitle, $emailLead, $sections, $actions, $recipientName);
+        $mail->send();
+
+        $messageId = method_exists($mail, 'getLastMessageID') ? (string) $mail->getLastMessageID() : '';
+        record_customer_email_thread(
+            $requestId,
+            $token,
+            $recipientEmail,
+            $subject,
+            'Hiányzó dokumentumok bekérése',
+            branded_email_text($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            branded_email_html($emailTitle, $emailLead, $sections, $actions, $recipientName),
+            $messageId !== '' ? $messageId : null
+        );
+
+        db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [null, $recipientEmail, $subject, 'sent']);
+        record_connection_request_activity(
+            $requestId,
+            'customer_document_upload_request',
+            'Ügyféldokumentum bekérő email elküldve',
+            implode(', ', $requestedLabels)
+        );
+
+        return ['ok' => true, 'message' => 'A dokumentum bekérő emailt elküldtük az ügyfélnek.'];
+    } catch (Throwable $exception) {
+        db_query(
+            'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+            [null, $recipientEmail, $subject, 'failed', $exception->getMessage()]
+        );
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A dokumentum bekérő email küldése sikertelen.'];
     }
 }
 

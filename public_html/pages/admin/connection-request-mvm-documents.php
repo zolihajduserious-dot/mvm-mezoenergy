@@ -350,6 +350,11 @@ if (is_post()) {
         $result = send_prefilled_authorization_form_email((int) $request['id']);
         set_flash($result['ok'] ? 'success' : 'error', $result['message']);
         redirect($mvmRedirectPath);
+    } elseif ($action === 'send_customer_document_upload_request') {
+        $requestedDocumentTypes = customer_document_upload_requested_types_from_source($_POST['requested_document_types'] ?? []);
+        $result = send_connection_request_customer_document_upload_request((int) $request['id'], $requestedDocumentTypes);
+        set_flash($result['ok'] ? 'success' : 'error', $result['message']);
+        redirect($mvmRedirectPath . '&customer_document_notice=1#customer-document-request-panel');
     } elseif ($action === 'send_package') {
         $documentId = filter_input(INPUT_POST, 'document_id', FILTER_VALIDATE_INT);
         $document = $documentId ? find_connection_request_document($documentId) : null;
@@ -445,6 +450,16 @@ $sealRemovalDocument = latest_connection_request_seal_removal_document((int) $re
 $hTariffDeclarationDocument = latest_connection_request_h_tariff_declaration_document((int) $request['id'], false);
 $hTariffSectionFilled = mvm_h_tariff_form_values_are_filled($mvmFormValues);
 $authorizationPart = latest_connection_request_authorization_package_part((int) $request['id']);
+$customerDocumentUploadDefinitions = customer_document_upload_definitions();
+$customerDocumentDefaultTypes = customer_document_upload_default_types((int) $request['id']);
+$customerDocumentDefaultTypeMap = array_fill_keys($customerDocumentDefaultTypes, true);
+$customerDocumentExistingTypeMap = [];
+
+foreach (array_keys($customerDocumentUploadDefinitions) as $customerDocumentFileType) {
+    $customerDocumentExistingTypeMap[$customerDocumentFileType] = customer_document_upload_type_has_file((int) $request['id'], (string) $customerDocumentFileType);
+}
+
+$customerDocumentRecipientEmail = trim((string) ($request['email'] ?? ''));
 $completedInterventionSheetDocument = latest_connection_request_technical_document((int) $request['id'], 'completed_intervention_sheet');
 $constructionLogDocument = latest_connection_request_technical_document((int) $request['id'], 'construction_log');
 $technicalDeclarationDocument = latest_connection_request_technical_document((int) $request['id'], 'technical_declaration');
@@ -532,11 +547,13 @@ $mvmNoticeTarget = (string) ($_GET['mvm_notice'] ?? '') === '1';
 $handoverNoticeTarget = (string) ($_GET['handover_notice'] ?? '') === '1';
 $sealRemovalNoticeTarget = (string) ($_GET['seal_removal_notice'] ?? '') === '1';
 $hTariffNoticeTarget = (string) ($_GET['h_tariff_notice'] ?? '') === '1';
-$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget || $sealRemovalNoticeTarget || $hTariffNoticeTarget) ? null : $flash;
+$customerDocumentNoticeTarget = (string) ($_GET['customer_document_notice'] ?? '') === '1';
+$topFlash = ($mvmNoticeTarget || $handoverNoticeTarget || $sealRemovalNoticeTarget || $hTariffNoticeTarget || $customerDocumentNoticeTarget) ? null : $flash;
 $mvmFormFlash = $mvmNoticeTarget ? $flash : null;
 $technicalHandoverFlash = $handoverNoticeTarget ? $flash : null;
 $sealRemovalFlash = $sealRemovalNoticeTarget ? $flash : null;
 $hTariffFlash = $hTariffNoticeTarget ? $flash : null;
+$customerDocumentFlash = $customerDocumentNoticeTarget ? $flash : null;
 $topErrors = $isMvmFormPost ? [] : $errors;
 $mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost && !$isSealRemovalFormPost && !$isHTariffFormPost) ? $errors : [];
 $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
@@ -947,6 +964,60 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 <p>HRSZ: <?= h($request['hrsz'] ?: '-'); ?></p>
             </section>
         </div>
+
+        <section id="customer-document-request-panel" class="auth-panel form-block customer-document-request-panel">
+            <div class="admin-header compact">
+                <div>
+                    <p class="eyebrow">Ügyféldokumentum</p>
+                    <h2>Dokumentum bekérése ügyféltől</h2>
+                    <p>Tokenes feltöltőlinket küld az ügyfél email címére, így regisztráció nélkül tudja pótolni a hiányzó dokumentumokat és fotókat. A feltöltés közvetlenül erre az adatlapra kerül.</p>
+                </div>
+                <span class="status-badge <?= $customerDocumentRecipientEmail !== '' ? 'status-badge-sent' : 'status-badge-failed'; ?>">
+                    <?= $customerDocumentRecipientEmail !== '' ? h($customerDocumentRecipientEmail) : 'Nincs email cím'; ?>
+                </span>
+            </div>
+
+            <?php if ($customerDocumentRecipientEmail === ''): ?>
+                <div class="alert alert-error"><p>Az ügyfél email címe hiányzik, ezért a bekérő link nem küldhető ki.</p></div>
+            <?php endif; ?>
+
+            <?php if ($customerDocumentFlash !== null): ?>
+                <div class="alert alert-<?= h((string) $customerDocumentFlash['type']); ?>"><p><?= h((string) $customerDocumentFlash['message']); ?></p></div>
+            <?php endif; ?>
+
+            <form class="form" method="post" action="<?= h($mvmPageUrl . '#customer-document-request-panel'); ?>">
+                <?= csrf_field(); ?>
+                <input type="hidden" name="action" value="send_customer_document_upload_request">
+
+                <div class="customer-document-request-list">
+                    <?php foreach ($customerDocumentUploadDefinitions as $fileType => $definition): ?>
+                        <?php
+                        $hasCustomerDocumentFile = !empty($customerDocumentExistingTypeMap[$fileType]);
+                        $isDefaultCustomerDocument = isset($customerDocumentDefaultTypeMap[$fileType]);
+                        ?>
+                        <label class="customer-document-request-option">
+                            <input
+                                type="checkbox"
+                                name="requested_document_types[]"
+                                value="<?= h((string) $fileType); ?>"
+                                <?= $isDefaultCustomerDocument ? 'checked' : ''; ?>
+                            >
+                            <span>
+                                <strong><?= h((string) $definition['label']); ?></strong>
+                                <small><?= h(customer_document_upload_type_help_text((string) $fileType)); ?></small>
+                            </span>
+                            <span class="status-badge <?= $hasCustomerDocumentFile ? 'status-badge-sent' : 'status-badge-pending'; ?>">
+                                <?= $hasCustomerDocumentFile ? 'Már van' : 'Hiányzik'; ?>
+                            </span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+
+                <div class="form-actions">
+                    <button class="button" type="submit" <?= $customerDocumentRecipientEmail === '' ? 'disabled' : ''; ?>>Bekérő email küldése</button>
+                </div>
+            </form>
+        </section>
 
         <section class="auth-panel form-block">
             <div class="admin-header">

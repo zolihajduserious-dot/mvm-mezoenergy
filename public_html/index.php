@@ -123,6 +123,14 @@ $routes = [
         'title' => 'Aláírt meghatalmazás feltöltése',
         'file' => PAGE_PATH . '/authorization-upload.php',
     ],
+    'document-upload' => [
+        'title' => 'Dokumentumok feltöltése',
+        'file' => PAGE_PATH . '/document-upload.php',
+    ],
+    'document-upload/file' => [
+        'title' => 'Feltöltött dokumentum',
+        'file' => PAGE_PATH . '/document-upload-file.php',
+    ],
     'quote' => [
         'title' => 'Árajánlat megtekintése',
         'file' => PAGE_PATH . '/quote-public.php',
