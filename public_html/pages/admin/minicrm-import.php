@@ -668,14 +668,20 @@ $itemsByStatus = [];
 $selectedItemId = isset($_GET['item']) ? max(0, (int) $_GET['item']) : 0;
 $selectedRequestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
 $standaloneRequestsByWorkflowStage = [];
+$workItemWorkflowStages = minicrm_import_work_item_workflow_stages($items);
 $standaloneRequestWorkflowStages = minicrm_import_request_list_workflow_stages($standaloneRequests);
 
 foreach ($items as $item) {
+    $itemId = (int) ($item['id'] ?? 0);
+
     if ($selectedItemId === 0 && $selectedRequestId === 0) {
-        $selectedItemId = (int) ($item['id'] ?? 0);
+        $selectedItemId = $itemId;
     }
 
-    $statusName = trim((string) ($item['minicrm_status'] ?? '')) ?: 'Nincs státusz';
+    $workflowStage = $workItemWorkflowStages[$itemId] ?? null;
+    $statusName = $workflowStage !== null
+        ? admin_workflow_stage_label($workflowStage)
+        : (trim((string) ($item['minicrm_status'] ?? '')) ?: 'Nincs státusz');
     $itemsByStatus[$statusName][] = $item;
 }
 
@@ -810,6 +816,92 @@ function minicrm_import_connection_request_document_type_map(array $requestIds):
     }
 
     return $map;
+}
+
+function minicrm_import_work_item_request_links(array $items): array
+{
+    $workItemIds = array_values(array_unique(array_filter(array_map(
+        static fn (array $item): int => (int) ($item['id'] ?? 0),
+        $items
+    ))));
+
+    if ($workItemIds === [] || minicrm_connection_request_link_schema_errors() !== []) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT `work_item_id`, `connection_request_id`
+         FROM `minicrm_connection_request_links`
+         WHERE `work_item_id` IN (' . db_in_placeholders($workItemIds) . ')',
+        $workItemIds
+    )->fetchAll();
+    $links = [];
+
+    foreach ($rows as $row) {
+        $workItemId = (int) ($row['work_item_id'] ?? 0);
+        $requestId = (int) ($row['connection_request_id'] ?? 0);
+
+        if ($workItemId > 0 && $requestId > 0) {
+            $links[$workItemId] = $requestId;
+        }
+    }
+
+    return $links;
+}
+
+function minicrm_import_connection_requests_by_ids(array $requestIds): array
+{
+    $requestIds = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+
+    if ($requestIds === [] || !db_table_exists('connection_requests')) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT *
+         FROM `connection_requests`
+         WHERE `id` IN (' . db_in_placeholders($requestIds) . ')',
+        $requestIds
+    )->fetchAll();
+    $requests = [];
+
+    foreach ($rows as $row) {
+        $requestId = (int) ($row['id'] ?? 0);
+
+        if ($requestId > 0) {
+            $requests[$requestId] = $row;
+        }
+    }
+
+    return $requests;
+}
+
+function minicrm_import_work_item_workflow_stages(array $items): array
+{
+    $links = minicrm_import_work_item_request_links($items);
+
+    if ($links === []) {
+        return [];
+    }
+
+    $requestsById = minicrm_import_connection_requests_by_ids(array_values($links));
+    $documentTypesByRequest = minicrm_import_connection_request_document_type_map(array_values($links));
+    $stages = [];
+
+    foreach ($links as $workItemId => $requestId) {
+        $request = $requestsById[$requestId] ?? null;
+
+        if (!is_array($request)) {
+            continue;
+        }
+
+        $stages[(int) $workItemId] = minicrm_import_request_list_workflow_stage(
+            $request,
+            array_keys($documentTypesByRequest[$requestId] ?? [])
+        );
+    }
+
+    return $stages;
 }
 
 function minicrm_import_request_list_workflow_stages(array $requests): array
@@ -1257,6 +1349,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             <?php
                             $itemId = (int) ($item['id'] ?? 0);
                             $isSelectedItem = $itemId === $selectedItemId;
+                            $rowWorkflowStage = $workItemWorkflowStages[$itemId] ?? null;
+                            $rowWorkflowLabel = $rowWorkflowStage !== null ? admin_workflow_stage_label($rowWorkflowStage) : '';
                             $siteAddress = trim((string) ($item['postal_code'] ?? '') . ' ' . (string) ($item['site_address'] ?? ''));
                             $statusClass = minicrm_status_class($item['minicrm_status'] ?? null);
                             $displayDate = trim((string) ($item['submitted_date'] ?: $item['date_value'] ?: $item['updated_at'] ?: $item['created_at'] ?: ''));
@@ -1287,7 +1381,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $linkedAssignedElectricianUserId = is_array($linkedMvmRequest) ? (int) ($linkedMvmRequest['assigned_electrician_user_id'] ?? 0) : 0;
                             $linkedWorkflowStage = is_array($linkedMvmRequest)
                                 ? connection_request_admin_workflow_stage($linkedMvmRequest, $linkedMiniCrmQuotes[0] ?? null, $linkedAcceptedQuote, $linkedMvmDocuments)
-                                : 'case_starting';
+                                : ($rowWorkflowStage ?? 'case_starting');
                             $linkedWorkflowDefinition = admin_workflow_stage_definitions()[$linkedWorkflowStage] ?? null;
                             $customerProfile = $customerProfilesBySource[minicrm_source_id_key((string) ($item['source_id'] ?? ''))] ?? null;
                             if ($customerProfile === null && $isSelectedItem) {
@@ -1309,6 +1403,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 (string) ($item['source_id'] ?? ''),
                                 (string) ($item['responsible'] ?? ''),
                                 (string) ($item['minicrm_status'] ?? ''),
+                                $rowWorkflowLabel,
                                 $assignedElectricianName,
                                 $profileName,
                                 $displayEmail,
