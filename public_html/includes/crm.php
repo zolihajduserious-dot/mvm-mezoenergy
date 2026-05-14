@@ -3142,6 +3142,18 @@ function send_quote_registration_offer(int $quoteId): array
         return ['ok' => true, 'message' => 'Az ügyfélnek már van saját profilja.'];
     }
 
+    if (!empty($quote['connection_request_id'])) {
+        $syncedRequest = minicrm_sync_connection_request_customer_contact((int) $quote['connection_request_id']);
+
+        if ($syncedRequest !== null) {
+            $quote = find_quote($quoteId) ?? $quote;
+        }
+    }
+
+    if (!filter_var((string) ($quote['email'] ?? ''), FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Az email kuldesehez ervenyes ugyfel email cim szukseges.'];
+    }
+
     $token = ensure_quote_public_token($quoteId);
 
     if ($token !== null) {
@@ -6154,6 +6166,26 @@ function send_quote_email(int $quoteId): array
 
     if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve. Futtasd: composer install, majd töltsd fel a vendor mappát.'];
+    }
+
+    if (!empty($quote['connection_request_id'])) {
+        $syncedRequest = minicrm_sync_connection_request_customer_contact((int) $quote['connection_request_id']);
+
+        if ($syncedRequest !== null) {
+            $refreshedQuote = find_quote($quoteId);
+
+            if ($refreshedQuote !== null) {
+                if ($token !== null) {
+                    $refreshedQuote['public_token'] = $token;
+                }
+
+                $quote = $refreshedQuote;
+            }
+        }
+    }
+
+    if (!filter_var((string) ($quote['email'] ?? ''), FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Az email kuldesehez ervenyes ugyfel email cim szukseges.'];
     }
 
     $pdfResult = generate_quote_pdf($quoteId);
@@ -20827,6 +20859,128 @@ function minicrm_work_item_id_for_connection_request(int $requestId): ?int
     $ids = minicrm_work_item_ids_for_connection_request($requestId);
 
     return $ids[0] ?? null;
+}
+
+function minicrm_connection_request_contact_data(array $request): array
+{
+    $contact = [
+        'requester_name' => trim((string) ($request['requester_name'] ?? '')),
+        'email' => trim((string) ($request['email'] ?? '')),
+        'phone' => trim((string) ($request['phone'] ?? '')),
+        'postal_address' => trim((string) ($request['postal_address'] ?? '')),
+        'postal_code' => trim((string) ($request['postal_code'] ?? '')),
+        'city' => trim((string) ($request['city'] ?? '')),
+        'mailing_address' => trim((string) ($request['mailing_address'] ?? '')),
+    ];
+    $sources = [];
+    $profile = minicrm_customer_profile_for_connection_request($request);
+
+    if (is_array($profile)) {
+        $sources[] = [
+            'requester_name' => minicrm_customer_profile_display_value($profile, 'person_name', ['Szemely1 Nev', 'Szemely1: Nev', 'Nev']),
+            'email' => minicrm_customer_profile_display_value($profile, 'person_email', ['Szemely1 Email', 'Szemely1: Email', 'Ceg Email', 'Email']),
+            'phone' => minicrm_customer_profile_display_value($profile, 'person_phone', ['Szemely1 Telefon', 'Szemely1: Telefon', 'Ceg Telefon', 'Telefon']),
+        ];
+    }
+
+    foreach (minicrm_work_item_ids_for_connection_request((int) ($request['id'] ?? 0)) as $workItemId) {
+        $item = find_minicrm_work_item((int) $workItemId);
+
+        if (is_array($item)) {
+            $sources[] = minicrm_work_item_customer_data($item);
+        }
+    }
+
+    foreach ($sources as $source) {
+        $sourceName = trim((string) ($source['requester_name'] ?? ''));
+        $sourceEmail = trim((string) ($source['email'] ?? ''));
+        $sourcePhone = trim((string) ($source['phone'] ?? ''));
+        $currentNameKey = minicrm_import_key($contact['requester_name']);
+
+        if (
+            $sourceName !== ''
+            && (
+                $contact['requester_name'] === ''
+                || in_array($currentNameKey, ['minicrmugyfel', 'minicrmimport'], true)
+            )
+        ) {
+            $contact['requester_name'] = $sourceName;
+        }
+
+        if ($sourceEmail !== '' && filter_var($sourceEmail, FILTER_VALIDATE_EMAIL) && !filter_var($contact['email'], FILTER_VALIDATE_EMAIL)) {
+            $contact['email'] = $sourceEmail;
+        }
+
+        if ($sourcePhone !== '' && $contact['phone'] === '') {
+            $contact['phone'] = $sourcePhone;
+        }
+
+        foreach (['postal_address', 'postal_code', 'city', 'mailing_address'] as $field) {
+            $sourceValue = trim((string) ($source[$field] ?? ''));
+
+            if ($sourceValue !== '' && $contact[$field] === '') {
+                $contact[$field] = $sourceValue;
+            }
+        }
+    }
+
+    return $contact;
+}
+
+function minicrm_sync_connection_request_customer_contact(int $requestId): ?array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return null;
+    }
+
+    $customerId = (int) ($request['customer_id'] ?? 0);
+    $customer = $customerId > 0 ? find_customer($customerId) : null;
+
+    if ($customer === null) {
+        return $request;
+    }
+
+    $contact = minicrm_connection_request_contact_data($request);
+    $customerData = normalize_customer_data($customer);
+    $changed = false;
+    $currentNameKey = minicrm_import_key($customerData['requester_name']);
+
+    if (
+        $contact['requester_name'] !== ''
+        && (
+            $customerData['requester_name'] === ''
+            || in_array($currentNameKey, ['minicrmugyfel', 'minicrmimport'], true)
+        )
+    ) {
+        $customerData['requester_name'] = $contact['requester_name'];
+        $changed = true;
+    }
+
+    if ($contact['email'] !== '' && filter_var($contact['email'], FILTER_VALIDATE_EMAIL) && !filter_var($customerData['email'], FILTER_VALIDATE_EMAIL)) {
+        $customerData['email'] = $contact['email'];
+        $changed = true;
+    }
+
+    if ($contact['phone'] !== '' && trim((string) $customerData['phone']) === '') {
+        $customerData['phone'] = $contact['phone'];
+        $changed = true;
+    }
+
+    foreach (['postal_address', 'postal_code', 'city', 'mailing_address'] as $field) {
+        if ($contact[$field] !== '' && trim((string) $customerData[$field]) === '') {
+            $customerData[$field] = $contact[$field];
+            $changed = true;
+        }
+    }
+
+    if ($changed) {
+        update_customer($customerId, $customerData);
+        $request = find_connection_request($requestId) ?? $request;
+    }
+
+    return $request;
 }
 
 function set_minicrm_work_item_archived(int $workItemId, bool $archive): array

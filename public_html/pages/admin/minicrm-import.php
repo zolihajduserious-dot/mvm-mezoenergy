@@ -1506,6 +1506,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                             <?php if ($linkedWorkflowDefinition !== null): ?><span class="status-badge status-badge-<?= h((string) ($linkedWorkflowDefinition['variant'] ?? 'draft')); ?>"><?= h((string) $linkedWorkflowDefinition['title']); ?></span><?php endif; ?>
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) ($item['minicrm_status'] ?: 'Nincs státusz')); ?></span>
                                             <?php if (!empty($item['responsible'])): ?><span class="status-badge status-badge-finalized"><?= h((string) $item['responsible']); ?></span><?php endif; ?>
+                                            <a class="button" href="<?= h(url_path('/quick-quote') . '?minicrm_item=' . $itemId); ?>">&#193;raj&#225;nlat</a>
                                             <a class="button button-secondary" href="<?= h($mvmGeneratorUrl); ?>">MVM dokumentumok</a>
                                         </div>
                                     </div>
@@ -1804,12 +1805,17 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                 <?php endif; ?>
                                             </section>
 
-                                            <?php if ($linkedMiniCrmQuotes !== []): ?>
-                                                <section class="minicrm-document-preview-panel minicrm-quote-panel">
+                                            <section class="minicrm-document-preview-panel minicrm-quote-panel">
                                                     <div class="admin-request-section-title">
                                                         <h3>Árajánlatok</h3>
                                                         <span><?= count($linkedMiniCrmQuotes); ?> ajánlat</span>
                                                     </div>
+                                                    <div class="form-actions">
+                                                        <a class="button" href="<?= h(url_path('/quick-quote') . '?minicrm_item=' . $itemId); ?>">&#218;j aj&#225;nlat k&#233;sz&#237;t&#233;se</a>
+                                                    </div>
+                                                    <?php if ($linkedMiniCrmQuotes === []): ?>
+                                                        <p class="request-admin-empty">Ehhez a MiniCRM munk&#225;hoz m&#233;g nincs aj&#225;nlat. A gomb automatikusan norm&#225;l munk&#225;hoz kapcsolja az adatlapot.</p>
+                                                    <?php endif; ?>
                                                     <div class="quote-mini-list">
                                                         <?php foreach ($linkedMiniCrmQuotes as $quote): ?>
                                                             <?php
@@ -1836,8 +1842,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                             </article>
                                                         <?php endforeach; ?>
                                                     </div>
-                                                </section>
-                                            <?php endif; ?>
+                                            </section>
 
                                             <section class="minicrm-document-preview-panel minicrm-mvm-generator-panel">
                                                 <div class="admin-request-section-title">

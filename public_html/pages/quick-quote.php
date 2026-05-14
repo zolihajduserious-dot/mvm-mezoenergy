@@ -205,6 +205,18 @@ if ($quote === null && $requestId && ($request === null || !quick_quote_user_can
     redirect('/quick-quote');
 }
 
+if ($request !== null) {
+    $syncedRequest = minicrm_sync_connection_request_customer_contact((int) $request['id']);
+
+    if ($syncedRequest !== null) {
+        $request = $syncedRequest;
+
+        if ($quote !== null) {
+            $quote = find_quote((int) $quote['id']) ?? $quote;
+        }
+    }
+}
+
 $customer = null;
 
 if ($quote !== null) {

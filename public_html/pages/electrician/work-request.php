@@ -21,6 +21,10 @@ if ($schemaErrors === [] && $requestId && ($request === null || !electrician_can
     return;
 }
 
+if ($schemaErrors === [] && $request !== null) {
+    $request = minicrm_sync_connection_request_customer_contact((int) $request['id']) ?? $request;
+}
+
 $errors = [];
 $flash = get_flash();
 $requestTypeOptions = connection_request_type_options();
