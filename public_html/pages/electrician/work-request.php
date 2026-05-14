@@ -570,16 +570,29 @@ $requestDocuments = $request !== null ? connection_request_documents((int) $requ
 $beforeFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'before') : [];
 $afterFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'after') : [];
 $requestFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
+$minicrmFiles = $request !== null ? minicrm_connection_request_files((int) $request['id']) : [];
 $customerFiles = [];
 $internalRequestFiles = [];
+$requestFileStoragePaths = [];
 
 foreach ($requestFiles as $requestFile) {
+    $requestFileStoragePath = (string) ($requestFile['storage_path'] ?? '');
+
+    if ($requestFileStoragePath !== '') {
+        $requestFileStoragePaths[$requestFileStoragePath] = true;
+    }
+
     if (connection_request_file_is_internal_upload($requestFile)) {
         $internalRequestFiles[] = $requestFile;
     } else {
         $customerFiles[] = $requestFile;
     }
 }
+
+$minicrmFiles = array_values(array_filter(
+    $minicrmFiles,
+    static fn (array $file): bool => !isset($requestFileStoragePaths[(string) ($file['storage_path'] ?? '')])
+));
 
 $workflowStage = $request !== null ? connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $requestDocuments) : 'case_starting';
 $workflowDefinition = admin_workflow_stage_definitions()[$workflowStage] ?? null;
@@ -1147,9 +1160,9 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 
                         <div class="admin-request-section-title admin-request-subtitle">
                             <h3>Szerelői és MiniCRM fájlok</h3>
-                            <span><?= count($internalRequestFiles); ?> db</span>
+                            <span><?= count($internalRequestFiles) + count($minicrmFiles); ?> db</span>
                         </div>
-                        <?php if ($internalRequestFiles === []): ?>
+                        <?php if ($internalRequestFiles === [] && $minicrmFiles === []): ?>
                             <p class="request-admin-empty">Nincs szerelő, admin vagy MiniCRM által feltöltött fájl ehhez a munkához.</p>
                         <?php else: ?>
                             <div class="admin-request-doc-grid">
@@ -1179,6 +1192,31 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                                 <?= csrf_field(); ?>
                                                 <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
                                             </form>
+                                        </div>
+                                    </article>
+                                <?php endforeach; ?>
+                                <?php foreach ($minicrmFiles as $file): ?>
+                                    <?php
+                                    $fileUrl = url_path('/electrician/work-requests/minicrm-file') . '?id=' . (int) $file['id'];
+                                    $previewKind = portal_file_preview_kind($file);
+                                    ?>
+                                    <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                        <div class="admin-request-doc-thumb">
+                                            <?php if ($previewKind === 'image'): ?>
+                                                <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?> megnyitása">
+                                                    <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?>" width="112" height="112" loading="lazy">
+                                                </a>
+                                            <?php elseif ($previewKind === 'pdf'): ?>
+                                                <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?>" width="112" height="112" loading="lazy"></iframe>
+                                            <?php else: ?>
+                                                <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="admin-request-doc-meta">
+                                            <strong><?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?></strong>
+                                            <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                            <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
+                                            <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                         </div>
                                     </article>
                                 <?php endforeach; ?>

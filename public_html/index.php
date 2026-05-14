@@ -179,6 +179,10 @@ $routes = [
         'title' => 'Ügyfél által feltöltött fájl',
         'file' => PAGE_PATH . '/electrician/customer-request-file.php',
     ],
+    'electrician/work-requests/minicrm-file' => [
+        'title' => 'MiniCRM fájl',
+        'file' => PAGE_PATH . '/electrician/minicrm-file.php',
+    ],
     'electrician/profile' => [
         'title' => 'Szerelői profil',
         'file' => PAGE_PATH . '/profile.php',

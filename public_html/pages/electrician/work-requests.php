@@ -190,10 +190,25 @@ function electrician_work_status_class(string $status): string
                                             $status = (string) ($request['electrician_status'] ?? 'assigned');
                                             $statusLabel = $statusLabels[$status] ?? $status;
                                             $customerFiles = connection_request_files($requestId);
+                                            $minicrmFiles = minicrm_connection_request_files($requestId);
+                                            $customerFileStoragePaths = [];
+
+                                            foreach ($customerFiles as $customerFile) {
+                                                $customerFileStoragePath = (string) ($customerFile['storage_path'] ?? '');
+
+                                                if ($customerFileStoragePath !== '') {
+                                                    $customerFileStoragePaths[$customerFileStoragePath] = true;
+                                                }
+                                            }
+
+                                            $minicrmFiles = array_values(array_filter(
+                                                $minicrmFiles,
+                                                static fn (array $file): bool => !isset($customerFileStoragePaths[(string) ($file['storage_path'] ?? '')])
+                                            ));
                                             $beforeFiles = connection_request_work_files($requestId, 'before');
                                             $afterFiles = connection_request_work_files($requestId, 'after');
                                             $requestDocuments = connection_request_documents($requestId);
-                                            $allVisibleFilesCount = count($customerFiles) + count($beforeFiles) + count($afterFiles);
+                                            $allVisibleFilesCount = count($customerFiles) + count($minicrmFiles) + count($beforeFiles) + count($afterFiles);
                                             $quotes = quotes_for_connection_request($requestId);
                                             $acceptedQuote = accepted_quote_for_connection_request($requestId);
                                             $latestQuote = $quotes[0] ?? null;
@@ -323,6 +338,32 @@ function electrician_work_status_class(string $status): string
                                                                                 <div class="admin-request-doc-meta">
                                                                                     <strong><?= h((string) ($file['label'] ?? 'Fájl')); ?></strong>
                                                                                     <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <a href="<?= h($fileUrl); ?>" target="_blank">Megnyit&#225;s</a>
+                                                                                </div>
+                                                                            </article>
+                                                                        <?php endforeach; ?>
+
+                                                                        <?php foreach ($minicrmFiles as $file): ?>
+                                                                            <?php
+                                                                            $fileUrl = url_path('/electrician/work-requests/minicrm-file') . '?id=' . (int) $file['id'];
+                                                                            $previewKind = portal_file_preview_kind($file);
+                                                                            ?>
+                                                                            <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                                                                <div class="admin-request-doc-thumb">
+                                                                                    <?php if ($previewKind === 'image'): ?>
+                                                                                        <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?> megnyit&#225;sa">
+                                                                                            <img src="<?= h($fileUrl); ?>" alt="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?>" width="92" height="92" loading="lazy">
+                                                                                        </a>
+                                                                                    <?php elseif ($previewKind === 'pdf'): ?>
+                                                                                        <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?>" width="92" height="92" loading="lazy"></iframe>
+                                                                                    <?php else: ?>
+                                                                                        <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                                                                    <?php endif; ?>
+                                                                                </div>
+                                                                                <div class="admin-request-doc-meta">
+                                                                                    <strong><?= h((string) ($file['label'] ?? 'MiniCRM fájl')); ?></strong>
+                                                                                    <span><?= h((string) ($file['original_name'] ?? '-')); ?></span>
+                                                                                    <span><?= h(portal_file_uploader_label($file)); ?></span>
                                                                                     <a href="<?= h($fileUrl); ?>" target="_blank">Megnyit&#225;s</a>
                                                                                 </div>
                                                                             </article>

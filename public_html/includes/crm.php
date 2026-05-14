@@ -20536,17 +20536,109 @@ function minicrm_work_item_connection_link_for_request(int $requestId): ?array
     return is_array($link) ? $link : null;
 }
 
-function minicrm_work_item_id_for_connection_request(int $requestId): ?int
+function minicrm_work_item_ids_for_connection_request(int $requestId): array
 {
-    $link = minicrm_work_item_connection_link_for_request($requestId);
-
-    if ($link === null) {
-        return null;
+    if ($requestId <= 0 || !db_table_exists('connection_requests') || !db_table_exists('minicrm_work_items')) {
+        return [];
     }
 
-    $workItemId = (int) ($link['work_item_id'] ?? 0);
+    $ids = [];
 
-    return $workItemId > 0 ? $workItemId : null;
+    if (minicrm_connection_request_link_schema_errors() === []) {
+        $rows = db_query(
+            'SELECT `work_item_id`
+             FROM `minicrm_connection_request_links`
+             WHERE `connection_request_id` = ?',
+            [$requestId]
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $ids[] = (int) ($row['work_item_id'] ?? 0);
+        }
+    }
+
+    if (db_table_exists('minicrm_customer_profiles')) {
+        $rows = db_query(
+            'SELECT w.`id`
+             FROM `connection_requests` cr
+             INNER JOIN `minicrm_customer_profiles` p ON p.`customer_id` = cr.`customer_id`
+             INNER JOIN `minicrm_work_items` w ON LOWER(w.`source_id`) = LOWER(p.`source_id`)
+             WHERE cr.`id` = ?
+             ORDER BY COALESCE(w.`updated_at`, w.`created_at`) DESC, w.`id` DESC',
+            [$requestId]
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $ids[] = (int) ($row['id'] ?? 0);
+        }
+    }
+
+    if (db_column_exists('customers', 'notes')) {
+        $rows = db_query(
+            'SELECT w.`id`
+             FROM `connection_requests` cr
+             INNER JOIN `customers` c ON c.`id` = cr.`customer_id`
+             INNER JOIN `minicrm_work_items` w ON c.`notes` LIKE CONCAT(\'%\', w.`source_id`, \'%\')
+             WHERE cr.`id` = ?
+             ORDER BY COALESCE(w.`updated_at`, w.`created_at`) DESC, w.`id` DESC
+             LIMIT 5',
+            [$requestId]
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $ids[] = (int) ($row['id'] ?? 0);
+        }
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request !== null) {
+        $projectName = trim((string) ($request['project_name'] ?? ''));
+        $siteAddress = trim((string) ($request['site_address'] ?? ''));
+
+        if ($projectName !== '' || $siteAddress !== '') {
+            $rows = db_query(
+                'SELECT `id`
+                 FROM `minicrm_work_items`
+                 WHERE (? <> \'\' AND LOWER(`card_name`) = LOWER(?))
+                    OR (? <> \'\' AND LOWER(`site_address`) = LOWER(?))
+                 ORDER BY
+                    CASE
+                        WHEN ? <> \'\' AND LOWER(`card_name`) = LOWER(?) THEN 0
+                        WHEN ? <> \'\' AND LOWER(`site_address`) = LOWER(?) THEN 1
+                        ELSE 2
+                    END,
+                    COALESCE(`updated_at`, `created_at`) DESC,
+                    `id` DESC
+                 LIMIT 5',
+                [
+                    $projectName,
+                    $projectName,
+                    $siteAddress,
+                    $siteAddress,
+                    $projectName,
+                    $projectName,
+                    $siteAddress,
+                    $siteAddress,
+                ]
+            )->fetchAll();
+
+            foreach ($rows as $row) {
+                $ids[] = (int) ($row['id'] ?? 0);
+            }
+        }
+    }
+
+    $ids = array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0)));
+
+    return $ids;
+}
+
+function minicrm_work_item_id_for_connection_request(int $requestId): ?int
+{
+    $ids = minicrm_work_item_ids_for_connection_request($requestId);
+
+    return $ids[0] ?? null;
 }
 
 function set_minicrm_work_item_archived(int $workItemId, bool $archive): array
@@ -21434,13 +21526,19 @@ function minicrm_connection_request_document_type(array $file): ?string
 
 function sync_minicrm_connection_request_files(int $requestId): array
 {
-    $workItemId = minicrm_work_item_id_for_connection_request($requestId);
+    $workItemIds = minicrm_work_item_ids_for_connection_request($requestId);
 
-    if ($workItemId === null) {
+    if ($workItemIds === []) {
         return [];
     }
 
-    return sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId);
+    $warnings = [];
+
+    foreach ($workItemIds as $workItemId) {
+        $warnings = array_merge($warnings, sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId));
+    }
+
+    return $warnings;
 }
 
 function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int $requestId): array
@@ -22101,6 +22199,32 @@ function minicrm_work_item_files(int $workItemId): array
     )->fetchAll();
 }
 
+function minicrm_connection_request_files(int $requestId): array
+{
+    $workItemIds = minicrm_work_item_ids_for_connection_request($requestId);
+
+    if ($workItemIds === [] || !db_table_exists('minicrm_work_item_files')) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT *
+         FROM `minicrm_work_item_files`
+         WHERE `work_item_id` IN (' . db_in_placeholders($workItemIds) . ')
+         ORDER BY `created_at` DESC, `project_id` ASC, `original_name` ASC, `id` ASC',
+        $workItemIds
+    )->fetchAll();
+
+    foreach ($rows as &$row) {
+        $row['uploaded_by_role'] = 'minicrm';
+        $row['uploaded_by_name'] = 'MiniCRM import';
+        $row['uploaded_by_email'] = '';
+    }
+    unset($row);
+
+    return $rows;
+}
+
 function find_minicrm_work_item_file(int $fileId): ?array
 {
     if (!db_table_exists('minicrm_work_item_files')) {
@@ -22110,6 +22234,85 @@ function find_minicrm_work_item_file(int $fileId): ?array
     $file = db_query('SELECT * FROM `minicrm_work_item_files` WHERE `id` = ? LIMIT 1', [$fileId])->fetch();
 
     return is_array($file) ? $file : null;
+}
+
+function electrician_can_view_minicrm_work_item_file(array $file): bool
+{
+    $user = current_user();
+
+    if (!is_array($user) || current_user_role() !== 'electrician') {
+        return false;
+    }
+
+    $workItemId = (int) ($file['work_item_id'] ?? 0);
+
+    if ($workItemId <= 0) {
+        return false;
+    }
+
+    $requestIds = [];
+    $linkedRequestId = minicrm_work_item_connection_request_id($workItemId);
+
+    if ($linkedRequestId !== null) {
+        $requestIds[] = $linkedRequestId;
+    }
+
+    if (db_table_exists('connection_requests') && db_table_exists('minicrm_customer_profiles')) {
+        $rows = db_query(
+            'SELECT cr.`id`
+             FROM `minicrm_work_items` w
+             INNER JOIN `minicrm_customer_profiles` p ON LOWER(p.`source_id`) = LOWER(w.`source_id`)
+             INNER JOIN `connection_requests` cr ON cr.`customer_id` = p.`customer_id`
+             WHERE w.`id` = ?',
+            [$workItemId]
+        )->fetchAll();
+
+        foreach ($rows as $row) {
+            $requestIds[] = (int) ($row['id'] ?? 0);
+        }
+    }
+
+    $item = find_minicrm_work_item($workItemId);
+
+    if (is_array($item) && db_table_exists('connection_requests')) {
+        $cardName = trim((string) ($item['card_name'] ?? ''));
+        $siteAddress = trim((string) ($item['site_address'] ?? ''));
+
+        if ($cardName !== '' || $siteAddress !== '') {
+            $rows = db_query(
+                'SELECT `id`
+                 FROM `connection_requests`
+                 WHERE ((? <> \'\' AND LOWER(`project_name`) = LOWER(?))
+                    OR (? <> \'\' AND LOWER(`site_address`) = LOWER(?)))
+                   AND (`assigned_electrician_user_id` = ? OR `submitted_by_user_id` = ?)
+                 LIMIT 5',
+                [
+                    $cardName,
+                    $cardName,
+                    $siteAddress,
+                    $siteAddress,
+                    (int) $user['id'],
+                    (int) $user['id'],
+                ]
+            )->fetchAll();
+
+            foreach ($rows as $row) {
+                $requestIds[] = (int) ($row['id'] ?? 0);
+            }
+        }
+    }
+
+    $requestIds = array_values(array_unique(array_filter($requestIds, static fn (int $id): bool => $id > 0)));
+
+    foreach ($requestIds as $requestId) {
+        $request = find_connection_request($requestId);
+
+        if ($request !== null && electrician_can_manage_connection_request($request)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function store_minicrm_work_item_files(int $workItemId, array $files, string $label = 'Kézi feltöltés'): array
