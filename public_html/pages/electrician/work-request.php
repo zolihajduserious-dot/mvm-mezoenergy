@@ -569,7 +569,18 @@ $quoteStatusLabels = quote_status_labels();
 $requestDocuments = $request !== null ? connection_request_documents((int) $request['id']) : [];
 $beforeFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'before') : [];
 $afterFiles = $request !== null ? connection_request_work_files((int) $request['id'], 'after') : [];
-$customerFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
+$requestFiles = $request !== null ? connection_request_files((int) $request['id']) : [];
+$customerFiles = [];
+$internalRequestFiles = [];
+
+foreach ($requestFiles as $requestFile) {
+    if (connection_request_file_is_internal_upload($requestFile)) {
+        $internalRequestFiles[] = $requestFile;
+    } else {
+        $customerFiles[] = $requestFile;
+    }
+}
+
 $workflowStage = $request !== null ? connection_request_admin_workflow_stage($request, $latestQuote, $acceptedQuote, $requestDocuments) : 'case_starting';
 $workflowDefinition = admin_workflow_stage_definitions()[$workflowStage] ?? null;
 $nextWorkflowStage = next_admin_workflow_stage($workflowStage);
@@ -1122,6 +1133,47 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                         <div class="admin-request-doc-meta">
                                             <strong><?= h((string) $file['label']); ?></strong>
                                             <span><?= h((string) $file['original_name']); ?></span>
+                                            <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
+                                            <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
+                                            <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
+                                                <?= csrf_field(); ?>
+                                                <button class="table-action-button table-action-danger" name="delete_request_file_id" value="<?= (int) $file['id']; ?>" type="submit" onclick="return confirm('Biztosan törlöd ezt a fájlt?');">Törlés</button>
+                                            </form>
+                                        </div>
+                                    </article>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <div class="admin-request-section-title admin-request-subtitle">
+                            <h3>Szerelői és MiniCRM fájlok</h3>
+                            <span><?= count($internalRequestFiles); ?> db</span>
+                        </div>
+                        <?php if ($internalRequestFiles === []): ?>
+                            <p class="request-admin-empty">Nincs szerelő, admin vagy MiniCRM által feltöltött fájl ehhez a munkához.</p>
+                        <?php else: ?>
+                            <div class="admin-request-doc-grid">
+                                <?php foreach ($internalRequestFiles as $file): ?>
+                                    <?php
+                                    $fileUrl = url_path('/electrician/work-requests/customer-file') . '?id=' . (int) $file['id'];
+                                    $previewKind = portal_file_preview_kind($file);
+                                    ?>
+                                    <article class="admin-request-doc-card admin-request-doc-card-<?= h($previewKind); ?>">
+                                        <div class="admin-request-doc-thumb">
+                                            <?php if ($previewKind === 'image'): ?>
+                                                <a href="<?= h($fileUrl); ?>" target="_blank" aria-label="<?= h((string) $file['label']); ?> megnyitása">
+                                                    <img src="<?= h($fileUrl); ?>" alt="<?= h((string) $file['label']); ?>" width="112" height="112" loading="lazy">
+                                                </a>
+                                            <?php elseif ($previewKind === 'pdf'): ?>
+                                                <iframe src="<?= h($fileUrl); ?>#toolbar=0&navpanes=0" title="<?= h((string) $file['label']); ?>" width="112" height="112" loading="lazy"></iframe>
+                                            <?php else: ?>
+                                                <div class="admin-request-doc-fallback"><span><?= h(portal_file_preview_extension($file)); ?></span></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="admin-request-doc-meta">
+                                            <strong><?= h((string) $file['label']); ?></strong>
+                                            <span><?= h((string) $file['original_name']); ?></span>
+                                            <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                             <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                             <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
                                                 <?= csrf_field(); ?>
@@ -1135,7 +1187,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 
                         <div class="admin-request-section-title admin-request-subtitle" id="electrician-request-files">
                             <h3>Fotók és dokumentumok feltöltése</h3>
-                            <span>ügyfél-dokumentum</span>
+                            <span>adatlap dokumentum</span>
                         </div>
                         <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
                             <?= csrf_field(); ?>
@@ -1330,6 +1382,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                     <div class="admin-request-doc-meta">
                                         <strong><?= h((string) $file['label']); ?></strong>
                                         <span><?= h((string) $file['original_name']); ?></span>
+                                        <span>Feltöltő: <?= h(portal_file_uploader_label($file)); ?></span>
                                         <a href="<?= h($fileUrl); ?>" target="_blank">Megnyitás</a>
                                         <form method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
                                             <?= csrf_field(); ?>

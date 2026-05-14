@@ -601,6 +601,44 @@ if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request') 
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_quote_fee_request_sms') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    $quoteId = max(0, (int) ($_POST['quote_id'] ?? 0));
+    $requestId = $workItemId > 0 ? minicrm_work_item_connection_request_id($workItemId) : null;
+
+    if ($workItemId <= 0 || $quoteId <= 0) {
+        set_flash('error', 'Hiányzó MiniCRM munka vagy árajánlat azonosító.');
+        redirect('/admin/minicrm-import');
+    }
+
+    if ($requestId === null) {
+        $linkResult = ensure_minicrm_work_item_connection_request($workItemId);
+
+        if (!($linkResult['ok'] ?? false)) {
+            set_flash('error', (string) ($linkResult['message'] ?? 'A MiniCRM munka normál igényhez kapcsolása sikertelen.'));
+            redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+        }
+
+        $requestId = (int) ($linkResult['request_id'] ?? 0);
+    }
+
+    $quoteIds = array_map(
+        static fn (array $quote): int => (int) $quote['id'],
+        $requestId > 0 ? quotes_for_connection_request($requestId) : []
+    );
+
+    if (!in_array($quoteId, $quoteIds, true)) {
+        set_flash('error', 'Ez az árajánlat nem ehhez a MiniCRM munkához tartozik.');
+        redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+    }
+
+    $result = send_quote_fee_request_reminder_sms($quoteId);
+    set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A díjbekérő SMS küldése sikertelen.'));
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'send_minicrm_service_fee_request') {
     require_valid_csrf_token();
 
@@ -2388,6 +2426,11 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                             $quoteEmailLastOpenedAt = trim((string) ($quote['email_last_opened_at'] ?? ''));
                                                                             $quoteViewedAt = trim((string) ($quote['viewed_at'] ?? ''));
                                                                             $quoteLastViewedAt = trim((string) ($quote['last_viewed_at'] ?? ''));
+                                                                            $quoteFeeRequestFileUrl = quote_fee_request_file_is_available($quote)
+                                                                                ? url_path('/admin/quotes/fee-request-file') . '?id=' . $quoteId
+                                                                                : null;
+                                                                            $quoteFeeRequestSmsState = $quoteFeeRequestFileUrl !== null ? quote_fee_request_reminder_sms_state($quoteId) : null;
+                                                                            $quoteLatestSmsLog = quote_latest_sms_log($quoteId);
                                                                             ?>
                                                                             <article class="quote-mini-card quote-mini-card-with-engagement">
                                                                                 <div>
@@ -2408,12 +2451,27 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                                     <?php if ($quoteLastViewedAt !== '' && $quoteLastViewedAt !== $quoteViewedAt): ?>
                                                                                         <span>Utolsó ajánlatoldal megnyitás: <strong><?= h($quoteLastViewedAt); ?></strong></span>
                                                                                     <?php endif; ?>
+                                                                                    <?php if ($quoteLatestSmsLog !== null): ?>
+                                                                                        <span>D&#237;jbek&#233;r&#337; SMS: <strong><?= h((string) $quoteLatestSmsLog['created_at']); ?></strong> (<?= h((string) $quoteLatestSmsLog['status']); ?>)</span>
+                                                                                    <?php elseif ($quoteFeeRequestSmsState !== null && !($quoteFeeRequestSmsState['can_send'] ?? false)): ?>
+                                                                                        <span>SMS: <strong><?= h((string) ($quoteFeeRequestSmsState['message'] ?? 'nem k&#252;ldhet&#337;')); ?></strong></span>
+                                                                                    <?php endif; ?>
                                                                                 </div>
                                                                                 <div class="inline-link-list">
                                                                                     <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . $quoteId); ?>">Szerkeszt&#233;s</a>
                                                                                     <a href="<?= h(url_path('/quick-quote') . '?quote_id=' . $quoteId); ?>">PDF / email</a>
                                                                                     <?php if (quote_file_is_available($quote)): ?>
                                                                                         <a href="<?= h(url_path('/admin/quotes/file') . '?id=' . $quoteId); ?>" target="_blank">PDF megnyit&#225;sa</a>
+                                                                                    <?php endif; ?>
+                                                                                    <?php if ($quoteFeeRequestFileUrl !== null): ?>
+                                                                                        <a href="<?= h($quoteFeeRequestFileUrl); ?>" target="_blank">D&#237;jbek&#233;r&#337; PDF</a>
+                                                                                        <form method="post" action="<?= h(url_path('/admin/minicrm-import') . '?item=' . (int) $item['id'] . '#minicrm-work-' . (int) $item['id']); ?>">
+                                                                                            <?= csrf_field(); ?>
+                                                                                            <input type="hidden" name="action" value="send_minicrm_quote_fee_request_sms">
+                                                                                            <input type="hidden" name="work_item_id" value="<?= (int) $item['id']; ?>">
+                                                                                            <input type="hidden" name="quote_id" value="<?= $quoteId; ?>">
+                                                                                            <button class="text-button" type="submit" <?= !($quoteFeeRequestSmsState['can_send'] ?? false) ? 'disabled' : ''; ?>>D&#237;jbek&#233;r&#337; SMS</button>
+                                                                                        </form>
                                                                                     <?php endif; ?>
                                                                                 </div>
                                                                             </article>

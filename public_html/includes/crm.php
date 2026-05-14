@@ -1530,12 +1530,21 @@ function delete_customer_with_related_data(int $customerId): array
         if ($quoteIds !== []) {
             $quotePlaceholders = db_in_placeholders($quoteIds);
             db_query('DELETE FROM `email_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+
+            if (db_table_exists('sms_logs')) {
+                db_query('DELETE FROM `sms_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            }
+
             db_query('DELETE FROM `quote_lines` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
             db_query('DELETE FROM `quote_photos` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
         }
 
         if ($requestIds !== []) {
             $requestPlaceholders = db_in_placeholders($requestIds);
+
+            if (db_table_exists('sms_logs')) {
+                db_query('DELETE FROM `sms_logs` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
+            }
 
             if (db_table_exists('mvm_email_messages')) {
                 db_query('DELETE FROM `mvm_email_messages` WHERE `connection_request_id` IN (' . $requestPlaceholders . ')', $requestIds);
@@ -1679,6 +1688,10 @@ function delete_connection_request_with_related_data(int $requestId): array
                 db_query('DELETE FROM `email_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
             }
 
+            if (db_table_exists('sms_logs')) {
+                db_query('DELETE FROM `sms_logs` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
+            }
+
             db_query('DELETE FROM `quote_lines` WHERE `quote_id` IN (' . $quotePlaceholders . ')', $quoteIds);
 
             if (db_table_exists('quote_photos')) {
@@ -1694,6 +1707,10 @@ function delete_connection_request_with_related_data(int $requestId): array
 
         if (db_table_exists('mvm_email_messages')) {
             db_query('DELETE FROM `mvm_email_messages` WHERE `connection_request_id` = ?', [$requestId]);
+        }
+
+        if (db_table_exists('sms_logs')) {
+            db_query('DELETE FROM `sms_logs` WHERE `connection_request_id` = ?', [$requestId]);
         }
 
         if (db_table_exists('mvm_email_threads')) {
@@ -1852,6 +1869,7 @@ function actor_role_display_label(?string $role): string
     $labels = user_role_labels();
     $labels['guest'] = 'Nyilvános link / nincs belépve';
     $labels['specialist'] = 'Adminisztrátor';
+    $labels['minicrm'] = 'MiniCRM import';
 
     if ($role === '') {
         return 'Ismeretlen szerepkör';
@@ -5253,6 +5271,507 @@ function szamlazz_config_bool(string $key, bool $default = false): bool
     return filter_var($value, FILTER_VALIDATE_BOOLEAN);
 }
 
+function sms_config_value(string $key, string $default = ''): string
+{
+    if (defined($key)) {
+        $constantValue = constant($key);
+
+        if (is_bool($constantValue)) {
+            return $constantValue ? 'true' : 'false';
+        }
+
+        $constantValue = (string) $constantValue;
+
+        if ($constantValue !== '') {
+            return $constantValue;
+        }
+    }
+
+    $environmentValue = getenv($key);
+
+    if ($environmentValue !== false && $environmentValue !== '') {
+        return (string) $environmentValue;
+    }
+
+    $values = szamlazz_config_values();
+
+    return array_key_exists($key, $values) ? (string) $values[$key] : $default;
+}
+
+function sms_config_bool(string $key, bool $default = false): bool
+{
+    return filter_var(sms_config_value($key, $default ? 'true' : 'false'), FILTER_VALIDATE_BOOLEAN);
+}
+
+function sms_log_schema_errors(): array
+{
+    if (db_table_exists('sms_logs')) {
+        return [];
+    }
+
+    try {
+        db_query(
+            "CREATE TABLE IF NOT EXISTS `sms_logs` (
+                `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `quote_id` INT UNSIGNED NULL,
+                `connection_request_id` INT UNSIGNED NULL,
+                `recipient_phone` VARCHAR(60) NOT NULL,
+                `message` TEXT NOT NULL,
+                `status` ENUM('sent', 'failed', 'skipped') NOT NULL,
+                `provider` VARCHAR(80) DEFAULT NULL,
+                `provider_message_id` VARCHAR(190) DEFAULT NULL,
+                `provider_response` TEXT DEFAULT NULL,
+                `error_message` TEXT DEFAULT NULL,
+                `actor_user_id` INT UNSIGNED NULL,
+                `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_sms_logs_quote_id` (`quote_id`),
+                KEY `idx_sms_logs_connection_request_id` (`connection_request_id`),
+                KEY `idx_sms_logs_created_at` (`created_at`)
+            ) ENGINE=InnoDB
+              DEFAULT CHARSET=utf8mb4
+              COLLATE=utf8mb4_unicode_ci"
+        );
+    } catch (Throwable $exception) {
+        return [
+            APP_DEBUG
+                ? 'Az SMS napló tábla automatikus létrehozása nem sikerült: ' . $exception->getMessage()
+                : 'Az SMS napló adatbázis frissítése szükséges.',
+        ];
+    }
+
+    return db_table_exists('sms_logs') ? [] : ['Az SMS napló tábla nem érhető el.'];
+}
+
+function sms_normalize_phone(string $phone): string
+{
+    $phone = trim($phone);
+
+    if ($phone === '') {
+        return '';
+    }
+
+    $phone = preg_replace('/[^\d+]+/', '', $phone) ?? '';
+
+    if ($phone === '') {
+        return '';
+    }
+
+    if (str_starts_with($phone, '00')) {
+        $phone = '+' . substr($phone, 2);
+    } elseif (str_starts_with($phone, '06')) {
+        $phone = '+36' . substr($phone, 2);
+    } elseif (str_starts_with($phone, '36')) {
+        $phone = '+' . $phone;
+    } elseif (!str_starts_with($phone, '+')) {
+        $phone = '+36' . $phone;
+    }
+
+    if (str_starts_with($phone, '+')) {
+        $phone = '+' . preg_replace('/\D+/', '', substr($phone, 1));
+    } else {
+        $phone = preg_replace('/\D+/', '', $phone) ?? '';
+    }
+
+    return preg_match('/^\+\d{8,15}$/', $phone) ? $phone : '';
+}
+
+function sms_json_payload(string $phone, string $message): string
+{
+    $template = sms_config_value('SMS_API_PAYLOAD_TEMPLATE');
+    $sender = sms_config_value('SMS_SENDER', 'MezoEnergy');
+
+    if ($template !== '') {
+        $payloadJson = strtr($template, [
+            '{to}' => $phone,
+            '{phone}' => $phone,
+            '{message}' => $message,
+            '{sender}' => $sender,
+        ]);
+        $payload = json_decode($payloadJson, true);
+
+        if (is_array($payload)) {
+            return (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+    }
+
+    return (string) json_encode([
+        'to' => $phone,
+        'message' => $message,
+        'sender' => $sender,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+function sms_response_message_id(string $body): ?string
+{
+    $decoded = json_decode($body, true);
+
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    foreach (['message_id', 'messageId', 'id', 'sms_id', 'smsId'] as $key) {
+        if (!empty($decoded[$key]) && is_scalar($decoded[$key])) {
+            return (string) $decoded[$key];
+        }
+    }
+
+    return null;
+}
+
+function sms_send_http_json(string $phone, string $message): array
+{
+    $url = sms_config_value('SMS_API_URL');
+
+    if ($url === '') {
+        return ['ok' => false, 'message' => 'Nincs beállítva az SMS API URL (SMS_API_URL).'];
+    }
+
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'message' => 'A PHP cURL bővítmény nem elérhető, ezért az SMS nem küldhető.'];
+    }
+
+    $headers = [
+        'Accept: application/json',
+        'Content-Type: application/json; charset=utf-8',
+    ];
+    $token = sms_config_value('SMS_API_TOKEN');
+    $authHeader = sms_config_value('SMS_API_AUTH_HEADER');
+
+    if ($authHeader !== '') {
+        $headers[] = strtr($authHeader, [
+            '{token}' => $token,
+        ]);
+    } elseif ($token !== '') {
+        $headers[] = 'Authorization: Bearer ' . $token;
+    }
+
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => sms_json_payload($phone, $message),
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_FAILONERROR => false,
+    ]);
+
+    $apiUser = sms_config_value('SMS_API_USER');
+    $apiPassword = sms_config_value('SMS_API_PASSWORD');
+
+    if ($apiUser !== '' || $apiPassword !== '') {
+        curl_setopt($curl, CURLOPT_USERPWD, $apiUser . ':' . $apiPassword);
+    }
+
+    $body = curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    $responseBody = is_string($body) ? trim($body) : '';
+
+    if ($body === false || $statusCode < 200 || $statusCode >= 300) {
+        $error = 'Az SMS szolgáltató nem adott sikeres választ. HTTP: ' . $statusCode . '.';
+
+        if ($curlError !== '') {
+            $error .= ' cURL: ' . $curlError . '.';
+        }
+
+        if ($responseBody !== '') {
+            $error .= ' Válasz: ' . (function_exists('mb_substr') ? mb_substr($responseBody, 0, 500, 'UTF-8') : substr($responseBody, 0, 500));
+        }
+
+        return [
+            'ok' => false,
+            'message' => $error,
+            'provider_response' => $responseBody,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'SMS elküldve az ügyfél telefonszámára.',
+        'provider_message_id' => sms_response_message_id($responseBody),
+        'provider_response' => $responseBody,
+    ];
+}
+
+function sms_send_seeme(string $phone, string $message): array
+{
+    $apiKey = sms_config_value('SMS_API_TOKEN', sms_config_value('SEEME_API_KEY'));
+
+    if ($apiKey === '') {
+        return ['ok' => false, 'message' => 'Nincs beállítva a SeeMe API kulcs (SMS_API_TOKEN vagy SEEME_API_KEY).'];
+    }
+
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'message' => 'A PHP cURL bővítmény nem elérhető, ezért az SMS nem küldhető.'];
+    }
+
+    $url = sms_config_value('SMS_API_URL', 'https://seemesms.com/gateway');
+    $number = ltrim($phone, '+');
+    $params = [
+        'key' => $apiKey,
+        'message' => $message,
+        'number' => $number,
+        'format' => 'json',
+    ];
+    $sender = sms_config_value('SMS_SENDER', 'MezoEnergy');
+
+    if ($sender !== '') {
+        $params['sender'] = $sender;
+    }
+
+    $curl = curl_init($url . '?' . http_build_query($params));
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_FAILONERROR => false,
+    ]);
+
+    $body = curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    $responseBody = is_string($body) ? trim($body) : '';
+    $decoded = json_decode($responseBody, true);
+    $gatewayResult = is_array($decoded) ? strtoupper((string) ($decoded['result'] ?? '')) : '';
+    $gatewayCode = is_array($decoded) ? (int) ($decoded['code'] ?? -1) : -1;
+
+    if ($body === false || $statusCode < 200 || $statusCode >= 300 || $gatewayResult !== 'OK' || $gatewayCode !== 0) {
+        $error = 'A SeeMe SMS Gateway nem adott sikeres választ. HTTP: ' . $statusCode . '.';
+
+        if (is_array($decoded) && trim((string) ($decoded['message'] ?? '')) !== '') {
+            $error .= ' Válasz: ' . (string) $decoded['message'] . '.';
+        } elseif ($responseBody !== '') {
+            $error .= ' Válasz: ' . (function_exists('mb_substr') ? mb_substr($responseBody, 0, 500, 'UTF-8') : substr($responseBody, 0, 500));
+        }
+
+        if ($curlError !== '') {
+            $error .= ' cURL: ' . $curlError . '.';
+        }
+
+        return [
+            'ok' => false,
+            'message' => $error,
+            'provider_response' => $responseBody,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'SMS elküldve az ügyfél telefonszámára.',
+        'provider_response' => $responseBody,
+    ];
+}
+
+function sms_send_text_message(string $phone, string $message): array
+{
+    $provider = strtolower(trim(sms_config_value('SMS_PROVIDER', 'disabled')));
+
+    if (sms_config_bool('SMS_DRY_RUN', false)) {
+        return [
+            'ok' => true,
+            'message' => 'SMS próba módban naplózva, külső szolgáltató felé nem ment ki.',
+            'skipped' => true,
+        ];
+    }
+
+    if ($provider === '' || in_array($provider, ['disabled', 'none', 'off'], true)) {
+        return [
+            'ok' => false,
+            'message' => 'Nincs beállítva aktív SMS szolgáltató (SMS_PROVIDER).',
+        ];
+    }
+
+    return match ($provider) {
+        'seeme' => sms_send_seeme($phone, $message),
+        'http_json' => sms_send_http_json($phone, $message),
+        default => [
+            'ok' => false,
+            'message' => 'Ismeretlen SMS szolgáltató: ' . $provider . '. Támogatott értékek: seeme, http_json.',
+        ],
+    };
+}
+
+function log_sms_message(?int $quoteId, ?int $requestId, string $phone, string $message, array $result): void
+{
+    $schemaErrors = sms_log_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return;
+    }
+
+    $status = !($result['ok'] ?? false) ? 'failed' : (!empty($result['skipped']) ? 'skipped' : 'sent');
+    $user = current_user();
+    $actorUserId = is_array($user) && !empty($user['id']) ? (int) $user['id'] : null;
+
+    db_query(
+        'INSERT INTO `sms_logs`
+            (`quote_id`, `connection_request_id`, `recipient_phone`, `message`, `status`, `provider`,
+             `provider_message_id`, `provider_response`, `error_message`, `actor_user_id`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $quoteId !== null && $quoteId > 0 ? $quoteId : null,
+            $requestId !== null && $requestId > 0 ? $requestId : null,
+            $phone,
+            $message,
+            $status,
+            sms_config_value('SMS_PROVIDER', 'disabled'),
+            $result['provider_message_id'] ?? null,
+            $result['provider_response'] ?? null,
+            ($result['ok'] ?? false) ? null : (string) ($result['message'] ?? ''),
+            $actorUserId,
+        ]
+    );
+}
+
+function quote_latest_sms_log(int $quoteId, string $status = ''): ?array
+{
+    if (!db_table_exists('sms_logs')) {
+        return null;
+    }
+
+    if ($status !== '') {
+        $statement = db_query(
+            'SELECT * FROM `sms_logs` WHERE `quote_id` = ? AND `status` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT 1',
+            [$quoteId, $status]
+        );
+    } else {
+        $statement = db_query(
+            'SELECT * FROM `sms_logs` WHERE `quote_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT 1',
+            [$quoteId]
+        );
+    }
+
+    $row = $statement->fetch();
+
+    return is_array($row) ? $row : null;
+}
+
+function quote_fee_request_reminder_sms_text(array $quote, ?array $request = null): string
+{
+    $recipientName = email_recipient_name($quote['requester_name'] ?? ($request['requester_name'] ?? ''));
+    $greeting = $recipientName !== '' ? 'Tisztelt ' . $recipientName . '!' : 'Tisztelt Ügyfelünk!';
+
+    return $greeting . ' Kérjük, figyeljen az ügykezelési díj díjbekérőjének fizetési határidejére. '
+        . 'A munkát csak a díj beérkezése után tudjuk elindítani, a leadott dokumentumok határideje közben lejárhat. '
+        . 'Ha mégsem kéri a kivitelezést, kérjük jelezze felénk, és töröljük az adatlapját. Köszönjük, Mező Energy Kft.';
+}
+
+function quote_fee_request_reminder_sms_state(int $quoteId): array
+{
+    if (!is_staff_user()) {
+        return ['can_send' => false, 'message' => 'Díjbekérő emlékeztető SMS-t csak admin vagy specialista küldhet.'];
+    }
+
+    $schemaErrors = mvm_submission_guard_schema_errors();
+
+    if ($schemaErrors !== []) {
+        return ['can_send' => false, 'message' => implode(' ', $schemaErrors)];
+    }
+
+    $quote = find_quote($quoteId);
+
+    if ($quote === null) {
+        return ['can_send' => false, 'message' => 'Az ajánlat nem található.'];
+    }
+
+    if ((string) ($quote['status'] ?? '') !== 'accepted') {
+        return ['can_send' => false, 'message' => 'SMS csak elfogadott ajánlat után küldhető.'];
+    }
+
+    $quote = quote_with_fee_request_billing_fallback($quote);
+
+    if (!quote_fee_request_file_is_available($quote)) {
+        return ['can_send' => false, 'message' => 'SMS csak kiállított díjbekérő után küldhető.'];
+    }
+
+    $requestId = (int) ($quote['connection_request_id'] ?? 0);
+
+    if ($requestId <= 0) {
+        return ['can_send' => false, 'message' => 'Ehhez az ajánlathoz nincs kapcsolt adatlap, ezért a befizetés állapota nem ellenőrizhető.'];
+    }
+
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['can_send' => false, 'message' => 'A kapcsolt adatlap nem található.'];
+    }
+
+    if (connection_request_mvm_fee_payment_is_confirmed($request)) {
+        return ['can_send' => false, 'message' => 'Az ügykezelési díj már fizetettként van jelölve.'];
+    }
+
+    $displayPhone = trim((string) ($quote['phone'] ?? '')) ?: trim((string) ($request['phone'] ?? ''));
+    $phone = sms_normalize_phone($displayPhone);
+
+    if ($phone === '') {
+        return ['can_send' => false, 'message' => 'Az ügyfél telefonszáma hiányzik vagy nem SMS-képes formátumú.'];
+    }
+
+    if (!sms_config_bool('SMS_DRY_RUN', false)) {
+        $provider = strtolower(trim(sms_config_value('SMS_PROVIDER', 'disabled')));
+
+        if ($provider === '' || in_array($provider, ['disabled', 'none', 'off'], true)) {
+            return ['can_send' => false, 'message' => 'Nincs beállítva aktív SMS szolgáltató (SMS_PROVIDER).'];
+        }
+
+        if (!in_array($provider, ['seeme', 'http_json'], true)) {
+            return ['can_send' => false, 'message' => 'Ismeretlen SMS szolgáltató: ' . $provider . '. Támogatott értékek: seeme, http_json.'];
+        }
+
+        if ($provider === 'seeme' && sms_config_value('SMS_API_TOKEN', sms_config_value('SEEME_API_KEY')) === '') {
+            return ['can_send' => false, 'message' => 'Nincs beállítva a SeeMe API kulcs (SMS_API_TOKEN vagy SEEME_API_KEY).'];
+        }
+
+        if ($provider === 'http_json' && sms_config_value('SMS_API_URL') === '') {
+            return ['can_send' => false, 'message' => 'Nincs beállítva az SMS API URL (SMS_API_URL).'];
+        }
+    }
+
+    return [
+        'can_send' => true,
+        'message' => 'Díjbekérő emlékeztető SMS küldhető.',
+        'phone' => $phone,
+        'display_phone' => $displayPhone,
+        'quote' => $quote,
+        'request' => $request,
+    ];
+}
+
+function send_quote_fee_request_reminder_sms(int $quoteId): array
+{
+    $state = quote_fee_request_reminder_sms_state($quoteId);
+
+    if (!($state['can_send'] ?? false)) {
+        return ['ok' => false, 'message' => (string) ($state['message'] ?? 'Az SMS nem küldhető.')];
+    }
+
+    $quote = is_array($state['quote'] ?? null) ? $state['quote'] : find_quote($quoteId);
+    $request = is_array($state['request'] ?? null) ? $state['request'] : null;
+    $requestId = is_array($request) ? (int) ($request['id'] ?? 0) : (int) ($quote['connection_request_id'] ?? 0);
+    $phone = (string) ($state['phone'] ?? '');
+    $message = quote_fee_request_reminder_sms_text($quote ?? [], $request);
+    $result = sms_send_text_message($phone, $message);
+
+    log_sms_message($quoteId, $requestId > 0 ? $requestId : null, $phone, $message, $result);
+
+    if (($result['ok'] ?? false) && empty($result['skipped']) && $requestId > 0) {
+        record_connection_request_activity(
+            $requestId,
+            'fee_request_sms_sent',
+            'Díjbekérő emlékeztető SMS elküldve',
+            'Címzett: ' . $phone
+        );
+    }
+
+    return $result;
+}
+
 function szamlazz_append_text(DOMDocument $document, DOMElement $parent, string $name, string $value): DOMElement
 {
     $element = $document->createElement($name);
@@ -8303,6 +8822,12 @@ function connection_requests_for_electrician(int $electricianUserId): array
 
 function connection_request_files(int $requestId): array
 {
+    try {
+        sync_minicrm_connection_request_files($requestId);
+    } catch (Throwable) {
+        // The portal files should remain visible even if the MiniCRM side table is not available.
+    }
+
     return db_query(
         'SELECT * FROM `connection_request_files` WHERE `connection_request_id` = ? ORDER BY `id` ASC',
         [$requestId]
@@ -9655,6 +10180,21 @@ function portal_file_preview_extension(array $file): string
     $extension = strtoupper(pathinfo((string) ($file['original_name'] ?? $file['storage_path'] ?? ''), PATHINFO_EXTENSION));
 
     return $extension !== '' ? $extension : 'FÁJL';
+}
+
+function connection_request_file_is_internal_upload(array $file): bool
+{
+    $role = strtolower(trim((string) ($file['uploaded_by_role'] ?? '')));
+
+    if (in_array($role, ['admin', 'specialist', 'electrician', 'general_contractor', 'minicrm'], true)) {
+        return true;
+    }
+
+    if ($role === 'customer' || $role === 'guest') {
+        return false;
+    }
+
+    return !empty($file['uploaded_by_user_id']);
 }
 
 function portal_file_uploader_label(array $file, string $fallback = 'Feltöltő ismeretlen'): string
@@ -19982,6 +20522,33 @@ function minicrm_work_item_connection_request_id(int $workItemId): ?int
     return $request !== null ? (int) $request['id'] : null;
 }
 
+function minicrm_work_item_connection_link_for_request(int $requestId): ?array
+{
+    if ($requestId <= 0 || minicrm_connection_request_link_schema_errors() !== []) {
+        return null;
+    }
+
+    $link = db_query(
+        'SELECT * FROM `minicrm_connection_request_links` WHERE `connection_request_id` = ? LIMIT 1',
+        [$requestId]
+    )->fetch();
+
+    return is_array($link) ? $link : null;
+}
+
+function minicrm_work_item_id_for_connection_request(int $requestId): ?int
+{
+    $link = minicrm_work_item_connection_link_for_request($requestId);
+
+    if ($link === null) {
+        return null;
+    }
+
+    $workItemId = (int) ($link['work_item_id'] ?? 0);
+
+    return $workItemId > 0 ? $workItemId : null;
+}
+
 function set_minicrm_work_item_archived(int $workItemId, bool $archive): array
 {
     if (!minicrm_work_item_archive_columns_ready()) {
@@ -20865,6 +21432,17 @@ function minicrm_connection_request_document_type(array $file): ?string
     return null;
 }
 
+function sync_minicrm_connection_request_files(int $requestId): array
+{
+    $workItemId = minicrm_work_item_id_for_connection_request($requestId);
+
+    if ($workItemId === null) {
+        return [];
+    }
+
+    return sync_minicrm_work_item_files_to_connection_request($workItemId, $requestId);
+}
+
 function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int $requestId): array
 {
     $request = find_connection_request($requestId);
@@ -20874,6 +21452,7 @@ function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int
     }
 
     $definitions = connection_request_upload_definitions();
+    $storeActor = connection_request_file_actor_columns_ready();
     $warnings = [];
 
     foreach (minicrm_work_item_files($workItemId) as $file) {
@@ -20886,33 +21465,68 @@ function sync_minicrm_work_item_files_to_connection_request(int $workItemId, int
         $fileType = minicrm_connection_request_file_type($file);
         $label = (string) ($definitions[$fileType]['label'] ?? ($file['label'] ?? 'MiniCRM dokumentum'));
         $existingFile = db_query(
-            'SELECT `id`, `file_type` FROM `connection_request_files` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
+            'SELECT * FROM `connection_request_files` WHERE `connection_request_id` = ? AND `storage_path` = ? LIMIT 1',
             [$requestId, $storagePath]
         )->fetch();
 
         if (!is_array($existingFile)) {
-            db_query(
-                'INSERT INTO `connection_request_files`
-                    (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                    $requestId,
-                    $fileType,
-                    minicrm_db_text($label, 160),
-                    minicrm_db_text((string) ($file['original_name'] ?? basename($storagePath)), 190),
-                    minicrm_db_text((string) ($file['stored_name'] ?? basename($storagePath)), 190),
-                    minicrm_db_text($storagePath, 255),
-                    minicrm_db_text((string) ($file['mime_type'] ?? 'application/octet-stream'), 80),
-                    min((int) ($file['file_size'] ?? filesize($storagePath)), 2147483647),
-                ]
-            );
-        } elseif ((string) ($existingFile['file_type'] ?? '') === 'completed_document' && $fileType !== 'completed_document') {
-            db_query(
-                'UPDATE `connection_request_files`
-                 SET `file_type` = ?, `label` = ?
-                 WHERE `id` = ?',
-                [$fileType, minicrm_db_text($label, 160), (int) $existingFile['id']]
-            );
+            $fileValues = [
+                $requestId,
+                $fileType,
+                minicrm_db_text($label, 160),
+                minicrm_db_text((string) ($file['original_name'] ?? basename($storagePath)), 190),
+                minicrm_db_text((string) ($file['stored_name'] ?? basename($storagePath)), 190),
+                minicrm_db_text($storagePath, 255),
+                minicrm_db_text((string) ($file['mime_type'] ?? 'application/octet-stream'), 80),
+                min((int) ($file['file_size'] ?? filesize($storagePath)), 2147483647),
+            ];
+
+            if ($storeActor) {
+                db_query(
+                    'INSERT INTO `connection_request_files`
+                        (`connection_request_id`, `uploaded_by_user_id`, `uploaded_by_role`, `uploaded_by_name`, `uploaded_by_email`,
+                         `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        $requestId,
+                        null,
+                        'minicrm',
+                        'MiniCRM import',
+                        null,
+                        ...array_slice($fileValues, 1),
+                    ]
+                );
+            } else {
+                db_query(
+                    'INSERT INTO `connection_request_files`
+                        (`connection_request_id`, `file_type`, `label`, `original_name`, `stored_name`, `storage_path`, `mime_type`, `file_size`)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    $fileValues
+                );
+            }
+        } else {
+            if ((string) ($existingFile['file_type'] ?? '') === 'completed_document' && $fileType !== 'completed_document') {
+                db_query(
+                    'UPDATE `connection_request_files`
+                     SET `file_type` = ?, `label` = ?
+                     WHERE `id` = ?',
+                    [$fileType, minicrm_db_text($label, 160), (int) $existingFile['id']]
+                );
+            }
+
+            $missingActor = trim((string) ($existingFile['uploaded_by_name'] ?? '')) === ''
+                && trim((string) ($existingFile['uploaded_by_email'] ?? '')) === ''
+                && empty($existingFile['uploaded_by_user_id'])
+                && in_array((string) ($existingFile['uploaded_by_role'] ?? ''), ['', 'guest'], true);
+
+            if ($storeActor && $missingActor) {
+                db_query(
+                    'UPDATE `connection_request_files`
+                     SET `uploaded_by_role` = ?, `uploaded_by_name` = ?
+                     WHERE `id` = ?',
+                    ['minicrm', 'MiniCRM import', (int) $existingFile['id']]
+                );
+            }
         }
 
         $documentType = minicrm_connection_request_document_type($file);
@@ -21570,6 +22184,22 @@ function store_minicrm_work_item_files(int $workItemId, array $files, string $la
         $message .= ' Figyelmeztetés: ' . implode(' ', $messages);
     }
 
+    $linkedRequestId = minicrm_work_item_connection_request_id($workItemId);
+
+    if ($linkedRequestId !== null) {
+        try {
+            $syncWarnings = sync_minicrm_work_item_files_to_connection_request($workItemId, $linkedRequestId);
+
+            if ($syncWarnings !== []) {
+                $message .= ' ' . implode(' ', $syncWarnings);
+            }
+        } catch (Throwable $exception) {
+            $message .= APP_DEBUG
+                ? ' MiniCRM fajlok portálos szinkronja sikertelen: ' . $exception->getMessage()
+                : ' A portálos fájllistába szinkronizálás nem sikerült.';
+        }
+    }
+
     return ['ok' => true, 'message' => $message, 'saved' => $saved];
 }
 
@@ -21581,8 +22211,19 @@ function delete_minicrm_work_item_file(int $fileId, ?int $workItemId = null): ar
         return ['ok' => false, 'message' => 'A törlendő MiniCRM fájl nem található.'];
     }
 
+    $storagePath = (string) ($file['storage_path'] ?? '');
+
     db_query('DELETE FROM `minicrm_work_item_files` WHERE `id` = ?', [$fileId]);
-    delete_storage_files([(string) ($file['storage_path'] ?? '')]);
+
+    if ($storagePath !== '' && db_table_exists('connection_request_files')) {
+        db_query('DELETE FROM `connection_request_files` WHERE `storage_path` = ?', [$storagePath]);
+    }
+
+    if ($storagePath !== '' && db_table_exists('connection_request_documents')) {
+        db_query('DELETE FROM `connection_request_documents` WHERE `storage_path` = ?', [$storagePath]);
+    }
+
+    delete_storage_files([$storagePath]);
 
     return ['ok' => true, 'message' => 'A MiniCRM fájl törölve.'];
 }

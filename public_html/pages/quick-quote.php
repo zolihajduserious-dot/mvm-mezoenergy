@@ -399,6 +399,13 @@ if (is_post()) {
         redirect('/quick-quote?quote_id=' . (int) $quote['id']);
     }
 
+    if ($quote !== null && $action === 'fee_request_sms') {
+        $result = send_quote_fee_request_reminder_sms((int) $quote['id']);
+        $message = quick_quote_customer_operation_message($result);
+        set_flash($result['ok'] ? 'success' : 'error', $message);
+        redirect('/quick-quote?quote_id=' . (int) $quote['id']);
+    }
+
     if ($quote !== null && $action === 'save_quote') {
         $form = [
             'requester_name' => trim((string) ($_POST['requester_name'] ?? '')),
@@ -726,6 +733,8 @@ $feeRequestSelection = $quote !== null ? quote_fee_request_selection((int) $quot
 $feeRequestFileUrl = $quote !== null && quote_fee_request_file_is_available($quote)
     ? url_path('/admin/quotes/fee-request-file') . '?id=' . (int) $quote['id']
     : null;
+$feeRequestSmsState = $quote !== null ? quote_fee_request_reminder_sms_state((int) $quote['id']) : null;
+$latestFeeRequestSmsLog = $quote !== null ? quote_latest_sms_log((int) $quote['id']) : null;
 $quickQuoteCreateAction = url_path('/quick-quote');
 
 if ($quote === null) {
@@ -794,6 +803,10 @@ if ($quote === null) {
                     <?php if ((string) ($quote['status'] ?? '') === 'accepted'): ?>
                         <?php if ($feeRequestFileUrl !== null): ?>
                             <a class="button button-secondary" href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a>
+                            <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
+                                <?= csrf_field(); ?>
+                                <button class="button button-secondary" name="quick_action" value="fee_request_sms" type="submit" <?= !($feeRequestSmsState['can_send'] ?? false) ? 'disabled' : ''; ?>>Díjbekérő SMS</button>
+                            </form>
                         <?php else: ?>
                             <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
                                 <?= csrf_field(); ?>
@@ -805,6 +818,14 @@ if ($quote === null) {
 
                 <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestSelection !== null && !($feeRequestSelection['ok'] ?? false)): ?>
                     <div class="alert alert-info"><p><?= h((string) ($feeRequestSelection['message'] ?? 'Ehhez az árajánlathoz nem készül díjbekérő.')); ?></p></div>
+                <?php endif; ?>
+
+                <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl !== null && $feeRequestSmsState !== null && !($feeRequestSmsState['can_send'] ?? false)): ?>
+                    <div class="alert alert-info"><p><?= h((string) ($feeRequestSmsState['message'] ?? 'A díjbekérő SMS jelenleg nem küldhető.')); ?></p></div>
+                <?php endif; ?>
+
+                <?php if ($latestFeeRequestSmsLog !== null): ?>
+                    <div class="alert alert-info"><p>Legutóbbi díjbekérő SMS: <?= h((string) $latestFeeRequestSmsLog['created_at']); ?> · <?= h((string) $latestFeeRequestSmsLog['status']); ?> · <?= h((string) $latestFeeRequestSmsLog['recipient_phone']); ?></p></div>
                 <?php endif; ?>
 
                 <?php if ($quoteLines !== []): ?>
