@@ -20536,6 +20536,190 @@ function minicrm_work_item_connection_link_for_request(int $requestId): ?array
     return is_array($link) ? $link : null;
 }
 
+function minicrm_identity_digits(string $value): string
+{
+    return preg_replace('/\D+/', '', $value) ?? '';
+}
+
+function minicrm_identity_meter_values(string $value): array
+{
+    $values = [];
+
+    foreach (preg_split('/[,;\r\n]+/', $value) ?: [] as $part) {
+        $key = minicrm_import_key($part);
+
+        if ($key !== '') {
+            $values[$key] = $key;
+        }
+    }
+
+    return array_values($values);
+}
+
+function minicrm_work_item_ids_matching_connection_request_identity(array $request, int $limit = 10): array
+{
+    if (!db_table_exists('minicrm_work_items')) {
+        return [];
+    }
+
+    $requestId = (int) ($request['id'] ?? 0);
+    $projectName = trim((string) ($request['project_name'] ?? ''));
+    $customerName = trim((string) ($request['requester_name'] ?? ''));
+    $email = strtolower(trim((string) ($request['email'] ?? '')));
+    $phoneDigits = minicrm_identity_digits((string) ($request['phone'] ?? ''));
+    $phoneNeedle = strlen($phoneDigits) >= 7 ? substr($phoneDigits, -7) : '';
+    $siteAddress = trim((string) ($request['site_address'] ?? ''));
+    $sitePostalCode = trim((string) ($request['site_postal_code'] ?? ''));
+    $siteFull = trim($sitePostalCode . ' ' . $siteAddress);
+    $mvmUkNumber = connection_request_normalize_mvm_uk_number((string) ($request['mvm_uk_number'] ?? ''));
+    $consumptionPlaceId = trim((string) ($request['consumption_place_id'] ?? ''));
+    $meterValues = minicrm_identity_meter_values((string) ($request['meter_serial'] ?? ''));
+    $conditions = [];
+    $params = [];
+
+    if ($mvmUkNumber !== '') {
+        $conditions[] = 'LOWER(w.`mvm_uk_number`) = LOWER(?)';
+        $params[] = $mvmUkNumber;
+    }
+
+    if ($consumptionPlaceId !== '') {
+        $conditions[] = 'LOWER(w.`consumption_place_id`) = LOWER(?)';
+        $params[] = $consumptionPlaceId;
+    }
+
+    foreach ($meterValues as $meterValue) {
+        $conditions[] = '(LOWER(w.`meter_serial`) LIKE ? OR LOWER(w.`controlled_meter_serial`) LIKE ?)';
+        $params[] = '%' . $meterValue . '%';
+        $params[] = '%' . $meterValue . '%';
+    }
+
+    if ($email !== '') {
+        $conditions[] = '(LOWER(COALESCE(p.`person_email`, \'\')) = ? OR LOWER(COALESCE(w.`raw_payload`, \'\')) LIKE ?)';
+        $params[] = $email;
+        $params[] = '%' . $email . '%';
+    }
+
+    if ($phoneNeedle !== '') {
+        $conditions[] = '(COALESCE(p.`person_phone`, \'\') LIKE ? OR COALESCE(w.`raw_payload`, \'\') LIKE ?)';
+        $params[] = '%' . $phoneNeedle . '%';
+        $params[] = '%' . $phoneNeedle . '%';
+    }
+
+    foreach (array_filter([$siteFull, $siteAddress]) as $addressValue) {
+        $addressKey = trim((string) minicrm_import_lower($addressValue));
+
+        if ($addressKey !== '') {
+            $conditions[] = 'LOWER(w.`site_address`) LIKE ?';
+            $params[] = '%' . $addressKey . '%';
+        }
+    }
+
+    if ($projectName !== '') {
+        $conditions[] = 'LOWER(w.`card_name`) LIKE ?';
+        $params[] = '%' . trim((string) minicrm_import_lower($projectName)) . '%';
+    }
+
+    if ($customerName !== '') {
+        $customerKey = trim((string) minicrm_import_lower($customerName));
+        $conditions[] = '(LOWER(w.`customer_name`) LIKE ? OR LOWER(w.`card_name`) LIKE ? OR LOWER(COALESCE(p.`person_name`, \'\')) LIKE ?)';
+        $params[] = '%' . $customerKey . '%';
+        $params[] = '%' . $customerKey . '%';
+        $params[] = '%' . $customerKey . '%';
+    }
+
+    if ($conditions === []) {
+        return [];
+    }
+
+    $profileJoin = db_table_exists('minicrm_customer_profiles')
+        ? ' LEFT JOIN `minicrm_customer_profiles` p ON LOWER(p.`source_id`) = LOWER(w.`source_id`)'
+        : ' LEFT JOIN (SELECT NULL AS `source_id`, NULL AS `person_email`, NULL AS `person_phone`, NULL AS `person_name`) p ON 1 = 0';
+    $rows = db_query(
+        'SELECT w.*, p.`person_email` AS profile_person_email, p.`person_phone` AS profile_person_phone, p.`person_name` AS profile_person_name
+         FROM `minicrm_work_items` w'
+         . $profileJoin . '
+         WHERE ' . implode(' OR ', $conditions) . '
+         ORDER BY COALESCE(w.`updated_at`, w.`created_at`) DESC, w.`id` DESC
+         LIMIT 100',
+        $params
+    )->fetchAll();
+
+    $requestProjectKey = minicrm_import_key($projectName);
+    $requestCustomerKey = minicrm_import_key($customerName);
+    $requestSiteKeys = array_values(array_filter(array_unique([
+        minicrm_import_key($siteFull),
+        minicrm_import_key($siteAddress),
+    ])));
+    $scored = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $score = 0;
+
+        if ($mvmUkNumber !== '' && strcasecmp($mvmUkNumber, (string) ($row['mvm_uk_number'] ?? '')) === 0) {
+            $score += 90;
+        }
+
+        if ($consumptionPlaceId !== '' && strcasecmp($consumptionPlaceId, (string) ($row['consumption_place_id'] ?? '')) === 0) {
+            $score += 80;
+        }
+
+        $rowMeterText = minicrm_import_key((string) ($row['meter_serial'] ?? '') . ' ' . (string) ($row['controlled_meter_serial'] ?? ''));
+
+        foreach ($meterValues as $meterValue) {
+            if ($meterValue !== '' && str_contains($rowMeterText, $meterValue)) {
+                $score += 70;
+                break;
+            }
+        }
+
+        $rowEmail = strtolower(trim((string) ($row['profile_person_email'] ?? '')));
+        $rowRaw = strtolower((string) ($row['raw_payload'] ?? ''));
+
+        if ($email !== '' && ($rowEmail === $email || str_contains($rowRaw, $email))) {
+            $score += 45;
+        }
+
+        if ($phoneNeedle !== '') {
+            $rowPhoneDigits = minicrm_identity_digits((string) ($row['profile_person_phone'] ?? '') . ' ' . (string) ($row['raw_payload'] ?? ''));
+
+            if (str_contains($rowPhoneDigits, $phoneNeedle)) {
+                $score += 45;
+            }
+        }
+
+        $rowSiteKey = minicrm_import_key((string) ($row['site_address'] ?? ''));
+
+        foreach ($requestSiteKeys as $requestSiteKey) {
+            if ($rowSiteKey !== '' && ($rowSiteKey === $requestSiteKey || str_contains($rowSiteKey, $requestSiteKey) || str_contains($requestSiteKey, $rowSiteKey))) {
+                $score += 40;
+                break;
+            }
+        }
+
+        $rowNameKey = minicrm_import_key((string) ($row['card_name'] ?? '') . ' ' . (string) ($row['customer_name'] ?? '') . ' ' . (string) ($row['profile_person_name'] ?? ''));
+
+        if ($requestProjectKey !== '' && str_contains($rowNameKey, $requestProjectKey)) {
+            $score += 35;
+        }
+
+        if ($requestCustomerKey !== '' && str_contains($rowNameKey, $requestCustomerKey)) {
+            $score += 25;
+        }
+
+        if ($score >= 60 || ($score >= 50 && $requestSiteKeys !== [])) {
+            $scored[(int) $row['id']] = $score;
+        }
+    }
+
+    arsort($scored);
+
+    return array_slice(array_keys($scored), 0, max(1, $limit));
+}
+
 function minicrm_work_item_ids_for_connection_request(int $requestId): array
 {
     if ($requestId <= 0 || !db_table_exists('connection_requests') || !db_table_exists('minicrm_work_items')) {
@@ -20593,6 +20777,10 @@ function minicrm_work_item_ids_for_connection_request(int $requestId): array
     $request = find_connection_request($requestId);
 
     if ($request !== null) {
+        foreach (minicrm_work_item_ids_matching_connection_request_identity($request) as $matchedId) {
+            $ids[] = $matchedId;
+        }
+
         $projectName = trim((string) ($request['project_name'] ?? ''));
         $siteAddress = trim((string) ($request['site_address'] ?? ''));
 
