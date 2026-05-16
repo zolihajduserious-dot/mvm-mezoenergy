@@ -1160,6 +1160,24 @@ function current_contractor(): ?array
     return find_contractor_by_user((int) $user['id']);
 }
 
+function contractor_users(): array
+{
+    if (!users_table_exists() || !db_table_exists('contractors')) {
+        return [];
+    }
+
+    $verifiedSelect = user_email_verification_column_exists()
+        ? ', u.email_verified_at'
+        : ', NULL AS email_verified_at';
+
+    return db_query(
+        'SELECT ct.*, u.id AS user_id, u.name AS user_name, u.email AS user_email' . $verifiedSelect . '
+         FROM `contractors` ct
+         INNER JOIN `users` u ON u.id = ct.user_id
+         ORDER BY ct.contractor_name ASC, ct.contact_name ASC, ct.id DESC'
+    )->fetchAll();
+}
+
 function normalize_electrician_data(array $source): array
 {
     return [
@@ -1177,6 +1195,10 @@ function validate_electrician_data(array $data, bool $passwordRequired = true, s
 
     if ($data['name'] === '') {
         $errors[] = 'A szerelő neve kötelező.';
+    }
+
+    if ($data['phone'] === '') {
+        $errors[] = 'Telefonszám megadása kötelező.';
     }
 
     if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
@@ -1213,26 +1235,21 @@ function current_electrician(): ?array
     return find_electrician_by_user((int) $user['id']);
 }
 
-function create_electrician_account(array $electricianData, string $password): int
+function create_electrician_account(array $electricianData, string $password, bool $emailVerified = false): int
 {
     $pdo = db();
     $pdo->beginTransaction();
 
     try {
-        db_query(
-            'INSERT INTO `users` (`name`, `email`, `password_hash`, `is_admin`, `role`, `customer_id`)
-             VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                $electricianData['name'],
-                $electricianData['email'],
-                password_hash($password, PASSWORD_DEFAULT),
-                0,
-                'electrician',
-                null,
-            ]
+        $userId = create_user_account_record(
+            (string) $electricianData['name'],
+            (string) $electricianData['email'],
+            $password,
+            'electrician',
+            null,
+            false,
+            $emailVerified
         );
-
-        $userId = (int) $pdo->lastInsertId();
 
         db_query(
             'INSERT INTO `electricians` (`user_id`, `name`, `phone`, `email`, `is_active`, `notes`)
@@ -1265,7 +1282,10 @@ function electrician_users(bool $onlyActive = true): array
         return [];
     }
 
-    $sql = 'SELECT e.*, u.id AS user_id, u.name AS user_name, u.email AS user_email
+    $verifiedSelect = user_email_verification_column_exists()
+        ? ', u.email_verified_at'
+        : ', NULL AS email_verified_at';
+    $sql = 'SELECT e.*, u.id AS user_id, u.name AS user_name, u.email AS user_email' . $verifiedSelect . '
             FROM `electricians` e
             INNER JOIN `users` u ON u.id = e.user_id';
     $params = [];
@@ -1286,20 +1306,12 @@ function create_contractor_account(array $contractorData, string $password): int
     $pdo->beginTransaction();
 
     try {
-        db_query(
-            'INSERT INTO `users` (`name`, `email`, `password_hash`, `is_admin`, `role`, `customer_id`)
-             VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                $contractorData['contact_name'],
-                $contractorData['email'],
-                password_hash($password, PASSWORD_DEFAULT),
-                0,
-                'general_contractor',
-                null,
-            ]
+        $userId = create_user_account_record(
+            (string) $contractorData['contact_name'],
+            (string) $contractorData['email'],
+            $password,
+            'general_contractor'
         );
-
-        $userId = (int) $pdo->lastInsertId();
 
         db_query(
             'INSERT INTO `contractors`
@@ -1439,6 +1451,172 @@ function delete_storage_files(array $paths): int
     }
 
     return $deleted;
+}
+
+function admin_user_accounts(): array
+{
+    if (!users_table_exists()) {
+        return [];
+    }
+
+    $select = 'SELECT u.`id`, u.`name`, u.`email`, u.`is_admin`, u.`role`, u.`customer_id`, u.`created_at`';
+    $select .= user_email_verification_column_exists()
+        ? ', u.`email_verified_at`'
+        : ', NULL AS `email_verified_at`';
+    $joins = '';
+
+    if (db_table_exists('customers')) {
+        $select .= ', c.`requester_name` AS `customer_name`, c.`phone` AS `customer_phone`';
+        $joins .= ' LEFT JOIN `customers` c ON c.`id` = u.`customer_id`';
+    } else {
+        $select .= ', NULL AS `customer_name`, NULL AS `customer_phone`';
+    }
+
+    if (db_table_exists('electricians')) {
+        $select .= ', e.`name` AS `electrician_name`, e.`phone` AS `electrician_phone`, e.`is_active` AS `electrician_is_active`';
+        $joins .= ' LEFT JOIN `electricians` e ON e.`user_id` = u.`id`';
+    } else {
+        $select .= ', NULL AS `electrician_name`, NULL AS `electrician_phone`, NULL AS `electrician_is_active`';
+    }
+
+    if (db_table_exists('contractors')) {
+        $select .= ', ct.`contractor_name`, ct.`contact_name` AS `contractor_contact_name`, ct.`phone` AS `contractor_phone`';
+        $joins .= ' LEFT JOIN `contractors` ct ON ct.`user_id` = u.`id`';
+    } else {
+        $select .= ', NULL AS `contractor_name`, NULL AS `contractor_contact_name`, NULL AS `contractor_phone`';
+    }
+
+    return db_query(
+        $select . '
+         FROM `users` u' . $joins . '
+         ORDER BY
+            CASE WHEN u.`is_admin` = 1 OR u.`role` = \'admin\' THEN 1
+                 WHEN u.`role` = \'specialist\' THEN 2
+                 WHEN u.`role` = \'electrician\' THEN 3
+                 WHEN u.`role` = \'general_contractor\' THEN 4
+                 ELSE 5
+            END,
+            u.`created_at` DESC,
+            u.`id` DESC'
+    )->fetchAll();
+}
+
+function can_delete_user_account(array $targetUser): bool
+{
+    if (!is_admin_user()) {
+        return false;
+    }
+
+    $currentUser = current_user();
+    $targetUserId = (int) ($targetUser['id'] ?? 0);
+
+    if ($targetUserId <= 0 || (is_array($currentUser) && (int) ($currentUser['id'] ?? 0) === $targetUserId)) {
+        return false;
+    }
+
+    $role = (string) ($targetUser['role'] ?? '');
+    $isAdmin = (int) ($targetUser['is_admin'] ?? 0) === 1 || $role === 'admin';
+
+    if ($isAdmin) {
+        $adminCount = (int) db_query(
+            'SELECT COUNT(*) FROM `users` WHERE `is_admin` = ? OR `role` = ?',
+            [1, 'admin']
+        )->fetchColumn();
+
+        if ($adminCount <= 1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function delete_user_account_with_related_data(int $userId): array
+{
+    $user = find_user_by_id($userId);
+
+    if ($user === null) {
+        throw new RuntimeException('A felhasználó nem található.');
+    }
+
+    if (!can_delete_user_account($user)) {
+        throw new RuntimeException('Ezt a felhasználót nem lehet törölni.');
+    }
+
+    $role = (string) ($user['role'] ?? 'customer');
+
+    if ($role === 'customer' && !empty($user['customer_id']) && db_table_exists('customers')) {
+        $summary = delete_customer_with_related_data((int) $user['customer_id']);
+        $summary['user_name'] = (string) ($user['name'] ?? '');
+        $summary['role'] = $role;
+
+        return $summary;
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        if (password_reset_table_exists()) {
+            db_query('DELETE FROM `password_reset_tokens` WHERE `user_id` = ?', [$userId]);
+        }
+
+        if (email_verification_table_exists()) {
+            db_query('DELETE FROM `email_verification_codes` WHERE `user_id` = ?', [$userId]);
+        }
+
+        if (db_table_exists('connection_requests')) {
+            if (db_column_exists('connection_requests', 'submitted_by_user_id')) {
+                db_query('UPDATE `connection_requests` SET `submitted_by_user_id` = NULL WHERE `submitted_by_user_id` = ?', [$userId]);
+            }
+
+            if (db_column_exists('connection_requests', 'assigned_electrician_user_id')) {
+                $setStatus = db_column_exists('connection_requests', 'electrician_status')
+                    ? ', `electrician_status` = ?'
+                    : '';
+                $params = $setStatus !== '' ? ['unassigned', $userId] : [$userId];
+                db_query(
+                    'UPDATE `connection_requests` SET `assigned_electrician_user_id` = NULL' . $setStatus . ' WHERE `assigned_electrician_user_id` = ?',
+                    $params
+                );
+            }
+        }
+
+        if (db_table_exists('customers')) {
+            if (db_column_exists('customers', 'created_by_user_id')) {
+                db_query('UPDATE `customers` SET `created_by_user_id` = NULL WHERE `created_by_user_id` = ?', [$userId]);
+            }
+
+            db_query('UPDATE `customers` SET `user_id` = NULL WHERE `user_id` = ?', [$userId]);
+        }
+
+        if (db_table_exists('electricians')) {
+            db_query('DELETE FROM `electricians` WHERE `user_id` = ?', [$userId]);
+        }
+
+        if (db_table_exists('contractors')) {
+            db_query('DELETE FROM `contractors` WHERE `user_id` = ?', [$userId]);
+        }
+
+        db_query('DELETE FROM `users` WHERE `id` = ?', [$userId]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+
+    return [
+        'user_name' => (string) ($user['name'] ?? ''),
+        'role' => $role,
+        'requests' => 0,
+        'quotes' => 0,
+        'users' => 1,
+        'files' => 0,
+    ];
 }
 
 function delete_customer_with_related_data(int $customerId): array
@@ -1591,6 +1769,10 @@ function delete_customer_with_related_data(int $customerId): array
         if ($userIds !== []) {
             if (password_reset_table_exists()) {
                 db_query('DELETE FROM `password_reset_tokens` WHERE `user_id` IN (' . db_in_placeholders($userIds) . ')', $userIds);
+            }
+
+            if (email_verification_table_exists()) {
+                db_query('DELETE FROM `email_verification_codes` WHERE `user_id` IN (' . db_in_placeholders($userIds) . ')', $userIds);
             }
 
             db_query('DELETE FROM `users` WHERE `id` IN (' . db_in_placeholders($userIds) . ') AND `role` = ?', array_merge($userIds, ['customer']));
@@ -2343,20 +2525,14 @@ function create_customer_account(array $customerData, string $password, ?int $cl
             $customerId = create_customer($customerData, null);
         }
 
-        db_query(
-            'INSERT INTO `users` (`name`, `email`, `password_hash`, `is_admin`, `role`, `customer_id`)
-             VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                $customerData['requester_name'],
-                $customerData['email'],
-                password_hash($password, PASSWORD_DEFAULT),
-                0,
-                'customer',
-                $customerId,
-            ]
+        $userId = create_user_account_record(
+            (string) $customerData['requester_name'],
+            (string) $customerData['email'],
+            $password,
+            'customer',
+            $customerId
         );
 
-        $userId = (int) db()->lastInsertId();
         db_query(
             'UPDATE `customers`
              SET `user_id` = ?, `created_by_user_id` = COALESCE(`created_by_user_id`, ?)
@@ -4429,6 +4605,145 @@ function send_password_reset_email(array $user, string $token): array
 
         return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A jelszó-visszaállító email küldése sikertelen.'];
     }
+}
+
+function send_email_verification_email(array $user, string $code): array
+{
+    if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
+        return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
+    }
+
+    $email = (string) ($user['email'] ?? '');
+    $verifyUrl = absolute_url('/verify-email?email=' . rawurlencode($email));
+    $subject = APP_NAME . ' email megerősítés';
+    $emailTitle = 'Email megerősítés';
+    $emailLead = 'A regisztráció befejezéséhez add meg ezt a 6 számjegyű kódot. A kód 30 percig érvényes.';
+    $emailSections = [
+        [
+            'title' => 'Megerősítő kód',
+            'rows' => [
+                ['label' => 'Kód', 'value' => $code],
+                ['label' => 'Érvényesség', 'value' => '30 perc'],
+                ['label' => 'Email', 'value' => $email],
+            ],
+        ],
+    ];
+    $emailActions = [
+        ['label' => 'Kód megadása', 'url' => $verifyUrl],
+    ];
+    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        configure_mailer_transport($mail);
+        $mail->CharSet = 'UTF-8';
+        $mail->setFrom(MAIL_FROM, MAIL_FROM_NAME);
+        $mail->addAddress($email, (string) ($user['name'] ?? ''));
+        $mail->Subject = $subject;
+        apply_branded_email($mail, $emailTitle, $emailLead, $emailSections, $emailActions, (string) ($user['name'] ?? ''));
+        $mail->send();
+
+        if (db_table_exists('email_logs')) {
+            db_query(
+                'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)',
+                [null, $email, $subject, 'sent']
+            );
+        }
+
+        return ['ok' => true, 'message' => 'A megerősítő kódot elküldtük emailben.'];
+    } catch (Throwable $exception) {
+        if (db_table_exists('email_logs')) {
+            db_query(
+                'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
+                [null, $email, $subject, 'failed', $exception->getMessage()]
+            );
+        }
+
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A megerősítő email küldése sikertelen.'];
+    }
+}
+
+function send_verified_registration_admin_notification(array $user): array
+{
+    $role = (string) ($user['role'] ?? 'customer');
+    $name = (string) ($user['name'] ?? '');
+    $email = (string) ($user['email'] ?? '');
+
+    if ($role === 'general_contractor') {
+        $contractor = find_contractor_by_user((int) $user['id']) ?? [];
+
+        return send_admin_activity_notification(
+            'Új generálkivitelező emailt erősített meg',
+            'Új generálkivitelező fiók jött létre, és az email címét sikeresen megerősítette.',
+            [
+                [
+                    'title' => 'Generálkivitelező adatai',
+                    'rows' => [
+                        ['label' => 'Név / cég', 'value' => $contractor['contractor_name'] ?? $name],
+                        ['label' => 'Cégnév', 'value' => $contractor['company_name'] ?? '-'],
+                        ['label' => 'Kapcsolattartó', 'value' => $contractor['contact_name'] ?? $name],
+                        ['label' => 'Email', 'value' => $contractor['email'] ?? $email],
+                        ['label' => 'Telefon', 'value' => $contractor['phone'] ?? '-'],
+                    ],
+                ],
+            ],
+            [
+                ['label' => 'Felhasználók megnyitása', 'url' => absolute_url('/admin/users')],
+            ],
+            ['email' => $email, 'name' => $name],
+            null,
+            'Generálkivitelező regisztráció'
+        );
+    }
+
+    if ($role === 'electrician') {
+        $electrician = find_electrician_by_user((int) $user['id']) ?? [];
+
+        return send_admin_activity_notification(
+            'Új szerelő emailt erősített meg',
+            'Új szerelői fiók jött létre, és az email címét sikeresen megerősítette.',
+            [
+                [
+                    'title' => 'Szerelő adatai',
+                    'rows' => [
+                        ['label' => 'Név', 'value' => $electrician['name'] ?? $name],
+                        ['label' => 'Email', 'value' => $electrician['email'] ?? $email],
+                        ['label' => 'Telefon', 'value' => $electrician['phone'] ?? '-'],
+                        ['label' => 'Megjegyzés', 'value' => $electrician['notes'] ?? '-'],
+                    ],
+                ],
+            ],
+            [
+                ['label' => 'Szerelők megnyitása', 'url' => absolute_url('/admin/electricians')],
+            ],
+            ['email' => $email, 'name' => $name],
+            null,
+            'Szerelő regisztráció'
+        );
+    }
+
+    $customer = !empty($user['customer_id']) ? find_customer((int) $user['customer_id']) : null;
+
+    return send_admin_activity_notification(
+        'Új ügyfél emailt erősített meg',
+        'Új ügyfélfiók jött létre, és az email címét sikeresen megerősítette.',
+        [
+            [
+                'title' => 'Ügyfél adatai',
+                'rows' => [
+                    ['label' => 'Név', 'value' => $customer['requester_name'] ?? $name],
+                    ['label' => 'Email', 'value' => $customer['email'] ?? $email],
+                    ['label' => 'Telefon', 'value' => $customer['phone'] ?? '-'],
+                    ['label' => 'Cím', 'value' => trim((string) ($customer['postal_code'] ?? '') . ' ' . (string) ($customer['city'] ?? '') . ' ' . (string) ($customer['postal_address'] ?? ''))],
+                ],
+            ],
+        ],
+        [
+            ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+        ],
+        ['email' => $email, 'name' => $name],
+        null,
+        'Ügyfél regisztráció'
+    );
 }
 
 function send_uploaded_quote_notification(int $quoteId): array
@@ -6582,15 +6897,23 @@ function connection_request_auto_project_name(array $data, ?array $customer = nu
 
 function h_tariff_required_file_types(): array
 {
-    return [
+    $types = [
         'h_tariff_label' => 'Klíma matrica',
         'h_tariff_datasheet' => 'Klíma adatlap',
     ];
+
+    if (function_exists('crm_custom_field_label')) {
+        foreach ($types as $key => $label) {
+            $types[$key] = crm_custom_field_label('customer_record', 'request_upload_' . (string) $key, (string) $label);
+        }
+    }
+
+    return $types;
 }
 
 function connection_request_upload_definitions(): array
 {
-    return [
+    $definitions = [
         'utility_bill' => ['label' => 'Villanyszámla', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
         'identity_card' => ['label' => 'Személyi igazolvány', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
         'address_card' => ['label' => 'Lakcímkártya', 'required' => false, 'kind' => 'document', 'prefill_source' => true],
@@ -6608,6 +6931,12 @@ function connection_request_upload_definitions(): array
         'h_tariff_datasheet' => ['label' => 'Klíma adatlap', 'required' => false, 'kind' => 'document', 'h_tariff_required' => true],
         'completed_document' => ['label' => 'Egyéb kitöltött dokumentum', 'required' => false, 'kind' => 'document'],
     ];
+
+    if (function_exists('crm_customize_connection_request_upload_definitions')) {
+        return crm_customize_connection_request_upload_definitions($definitions);
+    }
+
+    return $definitions;
 }
 
 function connection_request_package_file_extensions(): array
@@ -8840,6 +9169,21 @@ function connection_requests_for_electrician(int $electricianUserId): array
         return [];
     }
 
+    if (is_admin_user()) {
+        $where = db_table_exists('electricians')
+            ? 'WHERE cr.assigned_electrician_user_id IS NOT NULL
+                  OR cr.submitted_by_user_id IN (SELECT e.user_id FROM `electricians` e)'
+            : 'WHERE cr.assigned_electrician_user_id IS NOT NULL';
+
+        return db_query(
+            'SELECT cr.*, c.requester_name, c.email, c.phone
+             FROM `connection_requests` cr
+             INNER JOIN `customers` c ON c.id = cr.customer_id
+             ' . $where . '
+             ORDER BY cr.created_at DESC, cr.id DESC'
+        )->fetchAll();
+    }
+
     connection_request_auto_assign_submitted_electrician_items($electricianUserId);
 
     return db_query(
@@ -9084,6 +9428,10 @@ function customer_document_upload_definitions(): array
         if (isset($definitions[$key])) {
             $ordered[$key] = $definitions[$key];
         }
+    }
+
+    if (function_exists('crm_customize_connection_request_upload_definitions')) {
+        return crm_customize_connection_request_upload_definitions($ordered, 'mvm_documents', 'customer_document_');
     }
 
     return $ordered;
@@ -10508,6 +10856,10 @@ function mvm_document_types(bool $includeSystemTypes = true): array
         $types['execution_plan_package'] = 'Kiviteli terv csomag';
         $types['technical_handover_package'] = 'Műszaki átadás csomag';
         $types['seal_removal_package'] = 'Plombabontás csomag';
+    }
+
+    if (function_exists('crm_customize_document_type_labels')) {
+        return crm_customize_document_type_labels($types);
     }
 
     return $types;
@@ -12020,7 +12372,7 @@ function mvm_h_tariff_operating_system_label(?string $value): string
 
 function mvm_form_field_sections(): array
 {
-    return [
+    $sections = [
         'basic_mvm' => [
             'title' => 'MVM alapadatok',
             'description' => 'A sablon felső részén és a munka tárgya blokknál megjelenő admin adatok.',
@@ -12210,6 +12562,12 @@ function mvm_form_field_sections(): array
             ],
         ],
     ];
+
+    if (function_exists('crm_customize_mvm_form_sections')) {
+        return crm_customize_mvm_form_sections($sections);
+    }
+
+    return $sections;
 }
 
 function mvm_form_field_definitions(): array
@@ -12226,18 +12584,28 @@ function mvm_form_field_definitions(): array
         $fields[$key] = $field;
     }
 
+    if (function_exists('crm_customize_mvm_field_definitions')) {
+        return crm_customize_mvm_field_definitions($fields);
+    }
+
     return $fields;
 }
 
 function mvm_technical_handover_form_field_definitions(): array
 {
-    return [
+    $definitions = [
         'mgyszv' => ['label' => 'Felszerelt mérő gyáriszáma', 'type' => 'text', 'required' => true],
         'felszerelt_plomba_1_szama' => ['label' => 'Felszerelt plomba 1 száma', 'type' => 'text', 'required' => true],
         'felszerelt_plomba_2_szama' => ['label' => 'Felszerelt plomba 2 száma', 'type' => 'text'],
         'felszerelt_plomba_3_szama' => ['label' => 'Felszerelt plomba 3 száma', 'type' => 'text'],
         'felszerelt_plomba_4_szama' => ['label' => 'Felszerelt plomba 4 száma', 'type' => 'text'],
     ];
+
+    if (function_exists('crm_customize_mvm_field_definitions')) {
+        return crm_customize_mvm_field_definitions($definitions);
+    }
+
+    return $definitions;
 }
 
 function mvm_technical_handover_required_missing_items(array $values): array
@@ -17789,6 +18157,10 @@ function electrician_can_manage_connection_request(array $request): bool
 {
     $user = current_user();
 
+    if (is_array($user) && is_admin_user()) {
+        return true;
+    }
+
     return is_array($user)
         && current_user_role() === 'electrician'
         && (
@@ -22582,13 +22954,21 @@ function electrician_can_view_minicrm_work_item_file(array $file): bool
 {
     $user = current_user();
 
-    if (!is_array($user) || current_user_role() !== 'electrician') {
+    if (!is_array($user)) {
         return false;
     }
 
     $workItemId = (int) ($file['work_item_id'] ?? 0);
 
     if ($workItemId <= 0) {
+        return false;
+    }
+
+    if (is_admin_user()) {
+        return true;
+    }
+
+    if (current_user_role() !== 'electrician') {
         return false;
     }
 

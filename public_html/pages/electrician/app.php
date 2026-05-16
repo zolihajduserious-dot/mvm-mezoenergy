@@ -7,7 +7,7 @@ $schemaErrors = electrician_schema_errors();
 $user = current_user();
 $electrician = current_electrician();
 
-if (!is_array($user) || ($schemaErrors === [] && $electrician === null)) {
+if (!is_array($user) || ($schemaErrors === [] && $electrician === null && !is_admin_user())) {
     set_flash('error', 'A szerelői adatok nem találhatók.');
     redirect('/login');
 }
@@ -40,6 +40,7 @@ foreach ($requests as $request) {
 }
 
 $visibleRequests = array_slice($activeRequests, 0, 18);
+$electricianHomeModules = ui_modules_for_area('electrician_app_home');
 
 function electrician_mobile_app_detail_url(int $requestId, ?string $workStage = null): string
 {
@@ -108,19 +109,26 @@ function electrician_mobile_app_next_action_label(array $request): string
                 <?php foreach ($schemaErrors as $schemaError): ?><p><?= h($schemaError); ?></p><?php endforeach; ?>
             </div>
         <?php else: ?>
-            <div class="electrician-app-actions" aria-label="Szerelői gyors műveletek">
-                <a class="electrician-app-action electrician-app-action-primary" href="<?= h(url_path('/quick-quote')); ?>">
-                    <span>Gyors árajánlat</span>
-                    <strong>Új ajánlat</strong>
-                </a>
-                <a class="electrician-app-action" href="<?= h(url_path('/electrician/work-request')); ?>">
-                    <span>Új felmérés</span>
-                    <strong>Adatlap + fotók</strong>
-                </a>
-                <a class="electrician-app-action" href="<?= h(url_path('/electrician/work-requests')); ?>">
-                    <span>Minden munka</span>
-                    <strong>Teljes lista</strong>
-                </a>
+            <div class="electrician-app-actions ui-module-action-list" aria-label="Szerelői gyors műveletek">
+                <?php foreach ($electricianHomeModules as $homeModule): ?>
+                    <?php
+                    $homeModuleHref = ui_module_public_url((string) ($homeModule['href'] ?? ''));
+
+                    if ($homeModuleHref === '#') {
+                        continue;
+                    }
+
+                    $homeModuleClasses = 'electrician-app-action ui-configurable-module';
+
+                    if ((string) ($homeModule['variant'] ?? '') === 'primary') {
+                        $homeModuleClasses .= ' electrician-app-action-primary';
+                    }
+                    ?>
+                    <a class="<?= h($homeModuleClasses); ?>" data-ui-module="<?= h((string) $homeModule['module_key']); ?>" style="order: <?= (int) $homeModule['sort_order']; ?>;" href="<?= h($homeModuleHref); ?>">
+                        <span><?= h((string) $homeModule['subtitle']); ?></span>
+                        <strong><?= h((string) $homeModule['title']); ?></strong>
+                    </a>
+                <?php endforeach; ?>
             </div>
 
             <div class="electrician-app-stats" aria-label="Munkák összesítése">

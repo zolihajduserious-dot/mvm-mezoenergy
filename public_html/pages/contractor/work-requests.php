@@ -11,6 +11,13 @@ if (!is_array($user) || $contractor === null) {
     redirect('/login');
 }
 
+function contractor_work_status_dom_id(string $value): string
+{
+    $normalized = strtolower(trim($value));
+    $normalized = preg_replace('/[^a-z0-9]+/i', '-', $normalized) ?: 'status';
+    return trim($normalized, '-') ?: 'status';
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'save_mvm_uk_number') {
     require_valid_csrf_token();
 
@@ -55,9 +62,22 @@ $emailStatusLabels = [
 ];
 $draftCount = 0;
 $finalizedCount = 0;
+$requestsByStatus = [];
 
 foreach ($requests as $requestSummary) {
-    if ((string) ($requestSummary['request_status'] ?? 'finalized') === 'finalized') {
+    $statusKey = (string) ($requestSummary['request_status'] ?? 'finalized');
+    $statusLabel = $requestStatusLabels[$statusKey] ?? ($statusKey !== '' ? $statusKey : 'Ismeretlen státusz');
+
+    if (!isset($requestsByStatus[$statusKey])) {
+        $requestsByStatus[$statusKey] = [
+            'label' => $statusLabel,
+            'items' => [],
+        ];
+    }
+
+    $requestsByStatus[$statusKey]['items'][] = $requestSummary;
+
+    if ($statusKey === 'finalized') {
         $finalizedCount++;
     } else {
         $draftCount++;
@@ -124,8 +144,28 @@ foreach ($requests as $requestSummary) {
                 </div>
             </div>
         <?php else: ?>
-            <div class="portal-card-grid">
-                <?php foreach ($requests as $request): ?>
+            <nav class="minicrm-status-nav" aria-label="Generalkivitelezo igeny statuszok">
+                <?php foreach ($requestsByStatus as $statusKey => $statusGroup): ?>
+                    <a href="#contractor-status-<?= h(contractor_work_status_dom_id((string) $statusKey)); ?>">
+                        <span><?= h((string) $statusGroup['label']); ?></span>
+                        <strong><?= count($statusGroup['items']); ?></strong>
+                    </a>
+                <?php endforeach; ?>
+            </nav>
+
+            <div class="minicrm-status-groups contractor-status-groups">
+                <?php foreach ($requestsByStatus as $statusKey => $statusGroup): ?>
+                    <details class="minicrm-status-group contractor-status-group" id="contractor-status-<?= h(contractor_work_status_dom_id((string) $statusKey)); ?>">
+                        <summary class="minicrm-status-group-head">
+                            <div>
+                                <span class="status-badge status-badge-<?= h((string) $statusKey); ?>"><?= h((string) $statusGroup['label']); ?></span>
+                                <strong><?= count($statusGroup['items']); ?> igény</strong>
+                            </div>
+                            <span><?= count($statusGroup['items']); ?> látható</span>
+                        </summary>
+
+                        <div class="portal-card-grid">
+                <?php foreach ($statusGroup['items'] as $request): ?>
                     <?php $files = connection_request_files((int) $request['id']); ?>
                     <?php
                     $quotes = quotes_for_connection_request((int) $request['id']);
@@ -294,6 +334,9 @@ foreach ($requests as $requestSummary) {
                             </div>
                         </div>
                     </article>
+                <?php endforeach; ?>
+                        </div>
+                    </details>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>

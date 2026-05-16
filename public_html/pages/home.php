@@ -32,6 +32,7 @@ if (is_logged_in()) {
             </p>
             <div class="hero-actions">
                 <a class="button" href="<?= h(url_path($primaryDashboardUrl)); ?>"><?= h($primaryDashboardLabel); ?></a>
+                <a class="button button-secondary" href="<?= h(url_path('/mvm-ugyintezes')); ?>">MVM ügyintézés</a>
                 <?php if (!is_logged_in()): ?>
                     <a class="button button-secondary" href="<?= h(url_path('/electrician/register')); ?>">Szerelői regisztráció</a>
                     <a class="button button-secondary" href="<?= h(url_path('/electrician/login')); ?>">Szerelői belépés</a>
@@ -65,6 +66,13 @@ if (is_logged_in()) {
             <h2>Árajánlatok</h2>
             <p>A Mező Energy Kft. által elkészített árajánlatok megtekintése és elfogadása az ügyfélportálon.</p>
             <a href="<?= h(url_path('/customer/quotes')); ?>">Ajánlataim</a>
+        </article>
+
+        <article class="service-card">
+            <span>04</span>
+            <h2>MVM ügyintézés előkészítése</h2>
+            <p>Ügyfélbarát adatbekérés árambővítéshez, fázisbővítéshez, H tarifához és helyszínrajzi előkészítéshez.</p>
+            <a href="<?= h(url_path('/mvm-ugyintezes')); ?>">Részletek</a>
         </article>
     </div>
 </section>

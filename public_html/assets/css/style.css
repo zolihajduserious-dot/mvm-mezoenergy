@@ -1,4 +1,9 @@
 :root {
+    --font-sans: "Inter", "Aptos", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-heading: "Inter", "Aptos Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-weight-strong: 560;
+    --font-weight-heading: 600;
+    --font-weight-label: 500;
     --color-bg: #f2f6f7;
     --color-surface: #ffffff;
     --color-text: #17212f;
@@ -23,11 +28,33 @@ html {
 body {
     min-height: 100%;
     margin: 0;
-    font-family: Arial, Helvetica, sans-serif;
-    line-height: 1.6;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.55;
     color: var(--color-text);
     background: var(--color-bg);
+    letter-spacing: 0;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-heading);
+    letter-spacing: 0;
+}
+
+strong,
+b {
+    font-weight: var(--font-weight-strong);
 }
 
 a {
@@ -305,7 +332,7 @@ video {
 
 .service-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 18px;
 }
 
@@ -715,6 +742,36 @@ video {
 .checkbox-row input {
     width: 18px;
     min-height: 18px;
+}
+
+.checkbox-row a {
+    color: var(--color-primary-dark);
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.legal-consent-group {
+    display: grid;
+    gap: 10px;
+    margin-top: 8px;
+    padding: 14px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #f7fffc;
+}
+
+.legal-consent-title {
+    margin: 0;
+    color: var(--color-primary-dark);
+    font-size: 0.92rem;
+    font-weight: 850;
+    line-height: 1.4;
+}
+
+.legal-consent-row {
+    align-items: flex-start;
+    margin-top: 0;
 }
 
 .form-actions {
@@ -2864,6 +2921,134 @@ a.metric-card {
     min-height: 72px;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.footer-legal-links {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 14px;
+    font-weight: 700;
+}
+
+.footer-legal-links a {
+    color: var(--color-primary-dark);
+}
+
+.legal-container {
+    max-width: 980px;
+}
+
+.legal-header {
+    align-items: flex-end;
+}
+
+.legal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.legal-document {
+    padding: 36px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-soft);
+}
+
+.legal-document h2,
+.legal-document h3,
+.legal-document h4,
+.legal-document p,
+.legal-document ul,
+.legal-document ol,
+.legal-document blockquote,
+.legal-table-wrap {
+    margin-top: 0;
+}
+
+.legal-document h2 {
+    margin-bottom: 18px;
+    color: var(--color-primary-dark);
+    font-size: 2rem;
+    line-height: 1.15;
+}
+
+.legal-document h3 {
+    margin: 34px 0 12px;
+    color: var(--color-primary-dark);
+    font-size: 1.35rem;
+    line-height: 1.25;
+}
+
+.legal-document h4 {
+    margin: 28px 0 10px;
+    color: var(--color-text);
+    font-size: 1.08rem;
+}
+
+.legal-document p,
+.legal-document li {
+    color: var(--color-text);
+}
+
+.legal-document ul,
+.legal-document ol {
+    padding-left: 24px;
+}
+
+.legal-document blockquote {
+    margin: 20px 0;
+    padding: 16px 18px;
+    border-left: 4px solid var(--color-primary);
+    border-radius: 8px;
+    background: #eefaf7;
+}
+
+.legal-document blockquote p {
+    margin: 0;
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+.legal-document a {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.legal-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 24px;
+}
+
+.legal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.94rem;
+}
+
+.legal-table th,
+.legal-table td {
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.legal-table th {
+    background: #eefaf7;
+    color: var(--color-primary-dark);
+}
+
+.legal-table td {
+    background: #ffffff;
 }
 
 .back-to-top {
@@ -3281,6 +3466,22 @@ a.metric-card {
 
     .admin-header {
         flex-direction: column;
+    }
+
+    .site-footer .container {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 18px 0;
+    }
+
+    .footer-legal-links,
+    .legal-actions {
+        justify-content: flex-start;
+    }
+
+    .legal-document {
+        padding: 22px;
     }
 }
 
@@ -4220,8 +4421,35 @@ a.metric-card {
     justify-content: space-between;
     gap: 14px;
     padding: 12px 14px;
-    border-bottom: 1px solid rgba(223, 230, 238, 0.9);
+    border-bottom: 0;
     background: #f8fbfc;
+    cursor: pointer;
+    list-style: none;
+}
+
+.minicrm-status-group[open] > .minicrm-status-group-head {
+    border-bottom: 1px solid rgba(223, 230, 238, 0.9);
+}
+
+.minicrm-status-group-head::-webkit-details-marker {
+    display: none;
+}
+
+.minicrm-status-group-head::after {
+    content: "Megnyitás";
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border: 1px solid rgba(0, 140, 115, 0.2);
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--color-primary-dark);
+    font-size: 0.74rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.minicrm-status-group[open] > .minicrm-status-group-head::after {
+    content: "Összecsukás";
 }
 
 .minicrm-status-group-head div {
@@ -4240,6 +4468,14 @@ a.metric-card {
 
 .minicrm-work-table {
     display: grid;
+}
+
+.contractor-status-groups {
+    padding: 0;
+}
+
+.contractor-status-group .portal-card-grid {
+    padding: 16px;
 }
 
 .minicrm-work-table-head,
@@ -5275,6 +5511,244 @@ a.metric-card {
 .customer-work-request-crm-page .form select,
 .customer-work-request-crm-page .form textarea {
     border-radius: 6px;
+}
+
+.mvm-customer-wizard {
+    display: grid;
+    gap: 18px;
+}
+
+.mvm-wizard-shell {
+    display: grid;
+    gap: 18px;
+}
+
+.mvm-wizard-progress {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid rgba(0, 140, 115, 0.16);
+    border-radius: 8px;
+    background: #e8eceb;
+}
+
+.mvm-wizard-progress-item {
+    position: relative;
+    min-height: 74px;
+    padding: 16px 18px 14px;
+    border: 0;
+    border-top: 5px solid rgba(255, 255, 255, 0.96);
+    background: transparent;
+    color: var(--color-muted);
+    text-align: left;
+    cursor: pointer;
+}
+
+.mvm-wizard-progress-item + .mvm-wizard-progress-item {
+    border-left: 1px solid rgba(255, 255, 255, 0.72);
+}
+
+.mvm-wizard-progress-item span {
+    display: block;
+    color: inherit;
+    font-size: 0.72rem;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.mvm-wizard-progress-item strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
+.mvm-wizard-progress-item.is-active,
+.mvm-wizard-progress-item.is-complete {
+    border-top-color: var(--color-primary);
+    background: rgba(255, 255, 255, 0.48);
+}
+
+.mvm-wizard-panel {
+    display: grid;
+    gap: 18px;
+}
+
+.mvm-wizard-panel-head {
+    display: grid;
+    gap: 6px;
+}
+
+.mvm-wizard-panel-head h2,
+.mvm-wizard-panel-head p {
+    margin: 0;
+}
+
+.mvm-network-choice,
+.mvm-inline-choice-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.mvm-network-card,
+.mvm-small-choice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    min-height: 58px;
+    padding: 14px;
+    border: 1px solid rgba(0, 140, 115, 0.18);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.mvm-network-card.is-selected {
+    border-color: var(--color-primary);
+    box-shadow: 0 10px 28px rgba(0, 140, 115, 0.1);
+}
+
+.mvm-network-icon {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ffc400;
+    color: #ffffff;
+    font-weight: 950;
+}
+
+.mvm-network-card strong,
+.mvm-network-card small {
+    display: block;
+}
+
+.mvm-network-card small {
+    margin-top: 3px;
+    color: var(--color-muted);
+}
+
+.mvm-subsection {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: 12px;
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(145, 158, 171, 0.24);
+}
+
+.mvm-subsection h3 {
+    margin: 0;
+    color: var(--color-primary-dark);
+    font-size: 1rem;
+}
+
+.mvm-inline-choice-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.mvm-small-choice {
+    min-height: 52px;
+    margin: 0;
+    font-weight: 800;
+}
+
+.mvm-small-choice input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
+}
+
+.mvm-power-stack {
+    display: grid;
+    gap: 14px;
+}
+
+.mvm-power-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(0, 140, 115, 0.16);
+    border-radius: 8px;
+    background: #f7fffc;
+}
+
+.mvm-power-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.mvm-power-card-head h3 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 1rem;
+}
+
+.mvm-phase-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.mvm-phase-grid label {
+    display: grid;
+    gap: 6px;
+}
+
+.mvm-power-card output {
+    justify-self: end;
+    min-width: 76px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-primary-dark);
+    font-weight: 900;
+    text-align: center;
+}
+
+.mvm-wizard-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    justify-content: center;
+    padding: 14px 0;
+    border-top: 3px solid var(--color-primary);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(10px);
+}
+
+.mvm-wizard-actions .button[hidden] {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .mvm-wizard-progress {
+        grid-template-columns: 1fr;
+    }
+
+    .mvm-wizard-progress-item + .mvm-wizard-progress-item {
+        border-left: 0;
+        border-top-width: 1px;
+    }
+
+    .mvm-wizard-progress-item.is-active,
+    .mvm-wizard-progress-item.is-complete {
+        border-top-width: 5px;
+    }
+
+    .mvm-phase-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mvm-power-card-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
 }
 
 .admin-request-doc-grid {
@@ -7790,8 +8264,1006 @@ a.metric-card {
     }
 }
 
+/* Electrician portal mobile hardening for long MiniCRM-derived names. */
+.electrician-work-detail-page,
+.electrician-work-page,
+.electrician-mobile-app {
+    overflow-x: hidden;
+    overflow-x: clip;
+}
+
+.electrician-work-detail-page .admin-header > div,
+.electrician-work-detail-page .request-admin-card-head > div,
+.electrician-work-page .admin-header > div,
+.electrician-work-page .request-admin-card-head > div,
+.electrician-work-page .admin-workflow-stage-head > div,
+.electrician-mobile-app .electrician-app-header > div,
+.electrician-mobile-app .electrician-app-work-main {
+    min-width: 0;
+}
+
+.electrician-work-detail-page .admin-header h1,
+.electrician-work-detail-page .admin-header p,
+.electrician-work-detail-page .request-admin-card-head h2,
+.electrician-work-detail-page .request-admin-card-head p,
+.electrician-work-page .admin-header h1,
+.electrician-work-page .admin-header p,
+.electrician-work-page .request-admin-card-head h2,
+.electrician-work-page .request-admin-card-head p,
+.electrician-work-page .portal-work-row .admin-workflow-request-main strong,
+.electrician-work-page .portal-work-row .admin-workflow-request-main small,
+.electrician-work-page .portal-work-row .admin-workflow-request-meta strong,
+.electrician-work-page .portal-work-row .admin-workflow-request-meta span,
+.electrician-mobile-app .electrician-app-header h1,
+.electrician-mobile-app .electrician-app-work-main h3,
+.electrician-mobile-app .electrician-app-work-main p,
+.electrician-mobile-app .electrician-app-work-main small {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.electrician-work-detail-page .button,
+.electrician-work-page .button,
+.electrician-mobile-app .button,
+.electrician-mobile-app .electrician-app-inline-link,
+.electrician-mobile-app .electrician-app-more {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+}
+
+@media (max-width: 760px) {
+    .electrician-work-detail-page,
+    .electrician-work-page {
+        padding-top: 24px;
+    }
+
+    .electrician-work-detail-page .admin-requests-container,
+    .electrician-work-page .admin-requests-container {
+        width: min(100% - 18px, 1120px);
+    }
+
+    .electrician-work-detail-page .admin-header,
+    .electrician-work-page .admin-header {
+        gap: 16px;
+        margin-bottom: 20px;
+        padding: 18px;
+    }
+
+    .electrician-work-detail-page .admin-header h1,
+    .electrician-work-page .admin-header h1 {
+        font-size: clamp(1.85rem, 10vw, 2.25rem);
+    }
+
+    .electrician-work-detail-page .admin-actions,
+    .electrician-work-detail-page .admin-actions form,
+    .electrician-work-page .form-actions {
+        width: 100%;
+    }
+
+    .electrician-work-detail-page .admin-actions .button,
+    .electrician-work-detail-page .admin-actions form .button,
+    .electrician-work-page .form-actions .button,
+    .electrician-mobile-app .electrician-app-work-actions .button,
+    .electrician-mobile-app .electrician-app-inline-link {
+        width: 100%;
+        min-height: 48px;
+        padding: 12px 14px;
+    }
+
+    .electrician-work-detail-page .request-admin-card {
+        gap: 14px;
+    }
+
+    .electrician-work-detail-page .request-admin-card-head,
+    .electrician-work-page .request-admin-card-head {
+        gap: 14px;
+        padding: 16px;
+    }
+
+    .electrician-work-detail-page .request-admin-card-head h2,
+    .electrician-work-page .request-admin-card-head h2 {
+        font-size: clamp(1.3rem, 8vw, 1.8rem);
+    }
+
+    .electrician-work-detail-page .quote-state-card,
+    .electrician-work-page .quote-state-card {
+        margin: 0;
+        padding: 14px;
+    }
+
+    .electrician-work-detail-page .quote-state-card > strong:last-child,
+    .electrician-work-page .quote-state-card > strong:last-child {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: left;
+    }
+
+    .electrician-work-page .minicrm-module-tabs,
+    .electrician-work-page .minicrm-status-nav,
+    .electrician-work-page .minicrm-status-groups,
+    .electrician-work-page .minicrm-list-tools {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .electrician-work-page .minicrm-module-tabs {
+        margin: 12px 0;
+    }
+}
+
+@media (max-width: 420px) {
+    .electrician-work-detail-page .admin-requests-container,
+    .electrician-work-page .admin-requests-container,
+    .electrician-app-container {
+        width: min(100% - 12px, 1120px);
+    }
+
+    .electrician-work-detail-page .admin-header,
+    .electrician-work-detail-page .request-admin-card-head,
+    .electrician-work-page .admin-header,
+    .electrician-work-page .request-admin-card-head,
+    .electrician-app-header,
+    .electrician-app-work-card {
+        padding: 14px;
+    }
+
+    .electrician-work-page .minicrm-module-tabs,
+    .electrician-work-page .minicrm-status-nav {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.electrician-module-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.electrician-module-stack > .request-admin-card-head {
+    order: -1000;
+}
+
+.electrician-module-stack > .quote-state-card {
+    order: -990;
+}
+
+.electrician-work-detail-page .request-admin-footer {
+    display: contents;
+}
+
+.ui-configurable-module {
+    min-width: 0;
+}
+
+.ui-custom-module-card .form-actions {
+    margin-top: 14px;
+}
+
+.module-admin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 18px;
+}
+
+.crm-customization-tabs a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 1px solid rgba(190, 205, 220, 0.9);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--color-text);
+    font-size: 0.86rem;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.crm-customization-tabs a.is-active,
+.crm-customization-tabs a:hover {
+    border-color: rgba(0, 140, 115, 0.42);
+    background: rgba(0, 140, 115, 0.08);
+    color: var(--color-primary-dark);
+}
+
+.module-create-panel {
+    margin-bottom: 20px;
+}
+
+.module-admin-list {
+    display: grid;
+    gap: 18px;
+}
+
+.field-admin-list,
+.crm-field-create-panel {
+    margin-top: 24px;
+}
+
+.module-admin-card {
+    display: grid;
+    overflow: hidden;
+    border: 1px solid rgba(198, 215, 224, 0.88);
+    border-top: 5px solid var(--color-primary);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow-card);
+}
+
+.module-admin-card-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 18px;
+    align-items: start;
+    padding: 20px 22px;
+    border-bottom: 1px solid rgba(223, 230, 238, 0.86);
+    background: #f7fbfa;
+}
+
+.module-admin-card-head h2 {
+    margin: 6px 0;
+    font-size: 1.35rem;
+    letter-spacing: 0;
+}
+
+.module-admin-card-head p:not(.eyebrow) {
+    margin: 0;
+    color: var(--color-muted);
+    font-weight: 800;
+}
+
+.module-admin-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.module-admin-actions form {
+    margin: 0;
+}
+
+.module-admin-actions .button {
+    min-height: 38px;
+    padding: 9px 12px;
+}
+
+.module-admin-edit-form {
+    padding: 20px 22px 22px;
+}
+
+.danger-button {
+    border-color: rgba(197, 55, 55, 0.28);
+    color: #9d2424;
+}
+
+.mvm-document-module-stack {
+    display: flex;
+    flex-direction: column;
+}
+
+.mvm-document-upload-summary-grid {
+    display: contents;
+}
+
+.mvm-service-hero {
+    position: relative;
+    overflow: hidden;
+    background: #eef7f5;
+}
+
+.mvm-service-hero-media {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.92) 42%, rgba(246, 251, 249, 0.32) 72%, rgba(246, 251, 249, 0.05) 100%),
+        url("../img/hero-meter-work.png") center right / cover no-repeat;
+}
+
+.mvm-service-hero-inner {
+    position: relative;
+    display: flex;
+    min-height: 620px;
+    align-items: center;
+    padding: 86px 0 116px;
+}
+
+.mvm-service-copy {
+    max-width: 720px;
+}
+
+.mvm-service-copy h1 {
+    margin: 0 0 22px;
+    font-size: clamp(2.8rem, 6vw, 5.35rem);
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.mvm-service-copy p:not(.eyebrow) {
+    max-width: 660px;
+    margin: 0 0 30px;
+    color: #405266;
+    font-size: 1.12rem;
+}
+
+.mvm-service-notice {
+    padding: 18px 0;
+    border-top: 1px solid rgba(0, 140, 115, 0.18);
+    border-bottom: 1px solid rgba(0, 140, 115, 0.18);
+    background: #ffffff;
+}
+
+.mvm-service-notice p {
+    max-width: 960px;
+    margin: 0;
+    color: #405266;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.mvm-service-section {
+    padding: 82px 0;
+}
+
+.mvm-service-section-alt {
+    background: #ffffff;
+}
+
+.mvm-service-split,
+.mvm-service-document-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.86fr) minmax(420px, 1.14fr);
+    gap: 42px;
+    align-items: start;
+}
+
+.mvm-service-section-copy h2,
+.mvm-service-section-head h2,
+.mvm-electrician-panel h2 {
+    margin: 0 0 18px;
+    font-size: clamp(2rem, 4vw, 3.35rem);
+    line-height: 1.06;
+    letter-spacing: 0;
+}
+
+.mvm-service-section-copy p:not(.eyebrow),
+.mvm-electrician-panel p {
+    margin: 0 0 24px;
+    color: var(--color-muted);
+    font-size: 1.05rem;
+}
+
+.mvm-service-audience-grid,
+.mvm-document-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.mvm-service-mini-card,
+.mvm-document-item,
+.mvm-process-card {
+    display: grid;
+    gap: 10px;
+    padding: 22px;
+    border: 1px solid rgba(0, 140, 115, 0.16);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow-card);
+}
+
+.mvm-service-mini-card:first-child {
+    border-top: 5px solid var(--color-lime);
+}
+
+.mvm-service-mini-card h3,
+.mvm-document-item h3,
+.mvm-process-card h3 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 1.14rem;
+    line-height: 1.24;
+}
+
+.mvm-service-mini-card p,
+.mvm-document-item p,
+.mvm-process-card p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.mvm-service-section-head {
+    max-width: 780px;
+    margin: 0 0 28px;
+}
+
+.mvm-process-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.mvm-process-card {
+    min-height: 250px;
+    align-content: start;
+    border-top: 5px solid var(--color-accent);
+}
+
+.mvm-process-card span {
+    color: var(--color-primary-dark);
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.mvm-document-item {
+    min-height: 170px;
+}
+
+.mvm-electrician-band {
+    padding-top: 0;
+}
+
+.mvm-electrician-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 28px;
+    align-items: center;
+    padding: 30px;
+    border: 1px solid rgba(0, 140, 115, 0.24);
+    border-radius: 8px;
+    background:
+        linear-gradient(115deg, rgba(255, 255, 255, 0.98) 0%, rgba(232, 248, 243, 0.96) 64%, rgba(138, 194, 25, 0.12) 100%),
+        #ffffff;
+    box-shadow: var(--shadow-soft);
+}
+
+.mvm-electrician-panel p {
+    max-width: 760px;
+    margin-bottom: 0;
+}
+
+.mvm-electrician-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+@media (max-width: 760px) {
+    .module-admin-card-head {
+        grid-template-columns: 1fr;
+    }
+
+    .module-admin-actions,
+    .module-admin-actions form,
+    .module-admin-actions .button {
+        width: 100%;
+    }
+
+    .mvm-service-hero-inner {
+        min-height: auto;
+        padding: 54px 0 82px;
+    }
+
+    .mvm-service-hero-media {
+        background:
+            linear-gradient(180deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.94) 56%, rgba(246, 251, 249, 0.8) 100%),
+            url("../img/hero-meter-work.png") center right / cover no-repeat;
+    }
+
+    .mvm-service-copy h1 {
+        font-size: 2.45rem;
+    }
+
+    .mvm-service-copy p:not(.eyebrow),
+    .mvm-service-section-copy p:not(.eyebrow),
+    .mvm-electrician-panel p {
+        font-size: 1rem;
+    }
+
+    .mvm-service-section {
+        padding: 56px 0;
+    }
+
+    .mvm-service-split,
+    .mvm-service-document-layout,
+    .mvm-process-grid,
+    .mvm-electrician-panel {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mvm-service-audience-grid,
+    .mvm-document-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mvm-electrician-actions {
+        justify-content: stretch;
+    }
+
+    .mvm-electrician-actions .button {
+        width: 100%;
+    }
+}
+
 @media print {
     .back-to-top {
         display: none;
     }
+}
+
+/* Global typography refresh: lighter CRM-style reading rhythm. */
+body :is(
+    .button,
+    .table-action-button,
+    .status-badge,
+    .metric-label,
+    .eyebrow,
+    .portal-kicker,
+    .form label,
+    .minicrm-list-tools label,
+    .minicrm-list-tools span,
+    .minicrm-module-tabs a,
+    .minicrm-status-nav a,
+    .minicrm-status-nav a strong
+) {
+    font-weight: 580;
+    letter-spacing: 0.01em;
+}
+
+body .admin-workflow-request-summary::after,
+body .minicrm-status-group-head::after {
+    font-weight: 580;
+    letter-spacing: 0.01em;
+}
+
+body :is(
+    .home-hero-copy h1,
+    .hero-content h1,
+    .auth-copy h1,
+    .admin-header h1,
+    .section-heading h1,
+    .page-message h1,
+    .mvm-service-copy h1
+) {
+    font-family: var(--font-heading);
+    font-weight: 650;
+    line-height: 1.04;
+}
+
+body :is(
+    .auth-panel h2,
+    .portal-card-header h2,
+    .document-card h2,
+    .download-panel h2,
+    .request-admin-card-head h2,
+    .admin-workflow-stage-head h2,
+    .compact-heading h2,
+    .module-admin-card-head h2,
+    .electrician-app-header h1,
+    .electrician-app-section-head h2,
+    .electrician-app-work-main h3,
+    .mvm-service-section-copy h2,
+    .mvm-service-section-head h2,
+    .mvm-electrician-panel h2
+) {
+    font-family: var(--font-heading);
+    font-weight: 620;
+    letter-spacing: 0;
+}
+
+body :is(
+    .metric-card strong,
+    .portal-card-details strong,
+    .file-preview-meta strong,
+    .admin-request-doc-meta strong,
+    .quote-mini-card strong,
+    .quote-state-card strong,
+    .admin-workflow-card strong,
+    .admin-workflow-stage-head > strong,
+    .admin-workflow-request-id,
+    .admin-workflow-request-main strong,
+    .admin-workflow-request-meta strong,
+    .admin-workflow-request-badges strong,
+    .minicrm-status-group-head strong,
+    .minicrm-status-group-head > span,
+    .minicrm-work-row-summary .admin-workflow-request-main strong,
+    .minicrm-work-row-summary .admin-workflow-request-meta strong,
+    .minicrm-work-row-summary .admin-workflow-request-badges strong,
+    .portal-work-row .admin-workflow-request-main strong,
+    .portal-work-row .admin-workflow-request-main .portal-work-type,
+    .portal-work-row .admin-workflow-request-meta strong,
+    .portal-work-row .admin-workflow-request-badges strong,
+    .minicrm-readable-row strong,
+    .minicrm-readable-row a,
+    .minicrm-timeline-event strong,
+    .minicrm-field-group summary strong,
+    .minicrm-field-edit-actions strong,
+    .customer-crm-request-facts strong,
+    .customer-upload-card-head h3,
+    .mvm-docx-auto-data strong,
+    .mvm-mail-thread-head h3,
+    .mvm-mail-thread-head strong
+) {
+    font-weight: 620;
+}
+
+body :is(
+    .request-admin-column h3,
+    .request-admin-section-title h3,
+    .admin-request-section-title h3,
+    .portal-card-files h3,
+    .minicrm-compact-docs h3,
+    .minicrm-readable-row span,
+    .minicrm-field-edit-actions span,
+    .minicrm-timeline-event time,
+    .price-item-card h3,
+    .mvm-form-section h3,
+    .handover-check-card h3
+) {
+    font-weight: 580;
+    letter-spacing: 0.01em;
+}
+
+body :is(
+    .minicrm-import-page,
+    .minicrm-work-row-summary .admin-workflow-request-main small,
+    .minicrm-work-row-summary .admin-workflow-request-meta span,
+    .minicrm-work-row-summary .admin-workflow-request-meta strong,
+    .minicrm-work-row-summary .admin-workflow-request-badges small,
+    .minicrm-work-date,
+    .portal-work-row .admin-workflow-request-main small,
+    .portal-work-row .admin-workflow-request-meta span,
+    .minicrm-readable-row small,
+    .minicrm-timeline-event span,
+    .minicrm-timeline-event p,
+    .portal-card-details span,
+    .quote-state-card p
+) {
+    font-weight: 400;
+    line-height: 1.45;
+}
+
+body :is(
+    .minicrm-work-table-head,
+    .data-table th,
+    .price-item-meta span,
+    .request-admin-fact span,
+    .customer-crm-request-facts span,
+    .mvm-wizard-progress-item span
+) {
+    font-weight: 560;
+    letter-spacing: 0.025em;
+}
+
+body :is(input, select, textarea, button) {
+    font-family: var(--font-sans);
+}
+
+body :is(
+    .minicrm-work-row-summary .admin-workflow-request-main strong,
+    .portal-work-row .admin-workflow-request-main strong,
+    .customer-crm-row .admin-workflow-request-main strong,
+    .electrician-work-row .admin-workflow-request-main strong
+) {
+    font-size: 0.92rem;
+    font-weight: 520;
+    line-height: 1.28;
+}
+
+body :is(
+    .minicrm-work-row-summary .admin-workflow-request-meta strong,
+    .portal-work-row .admin-workflow-request-meta strong,
+    .minicrm-work-row-summary .admin-workflow-request-badges strong,
+    .portal-work-row .admin-workflow-request-badges strong
+) {
+    font-weight: 520;
+}
+
+body :is(
+    .minicrm-work-row-summary .admin-workflow-request-main small,
+    .portal-work-row .admin-workflow-request-main small,
+    .minicrm-work-row-summary .admin-workflow-request-meta span,
+    .portal-work-row .admin-workflow-request-meta span,
+    .minicrm-work-row-summary .admin-workflow-request-badges small,
+    .minicrm-work-date
+) {
+    color: #607086;
+    font-size: 0.79rem;
+    font-weight: 400;
+}
+
+body :is(
+    .minicrm-status-group-head strong,
+    .minicrm-status-group-head > span,
+    .minicrm-module-tabs a,
+    .minicrm-status-nav a,
+    .minicrm-status-nav a strong,
+    .minicrm-list-tools label,
+    .minicrm-list-tools span,
+    .minicrm-work-table-head,
+    .status-badge
+) {
+    font-weight: 540;
+}
+
+body :is(
+    .minicrm-readable-row strong,
+    .minicrm-field-group summary strong,
+    .minicrm-timeline-event strong,
+    .minicrm-compact-docs h3
+) {
+    font-weight: 560;
+}
+
+/* Requested CRM fine tuning: smaller record names, lighter customer facts. */
+body :is(
+    .minicrm-work-card .request-admin-card-head h2,
+    .customer-crm-card .request-admin-card-head h2,
+    .electrician-work-page .request-admin-card-head h2,
+    .electrician-work-detail-page .request-admin-card-head h2
+) {
+    font-size: clamp(1.05rem, 1.35vw, 1.34rem);
+    font-weight: 560;
+    line-height: 1.22;
+}
+
+body :is(
+    .minicrm-work-row-summary .admin-workflow-request-main strong,
+    .portal-work-row .admin-workflow-request-main strong,
+    .customer-crm-row .admin-workflow-request-main strong,
+    .electrician-work-row .admin-workflow-request-main strong
+) {
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+body :is(
+    .minicrm-work-facts dt,
+    .request-admin-overview dt,
+    .request-admin-data dt,
+    .admin-request-data-list dt,
+    .portal-card-details span,
+    .customer-detail-list span,
+    .customer-crm-request-facts span
+) {
+    color: #657386;
+    font-size: 0.74rem;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+}
+
+body :is(
+    .minicrm-work-facts dd,
+    .request-admin-overview dd,
+    .request-admin-data dd,
+    .admin-request-data-list dd,
+    .portal-card-details strong,
+    .customer-detail-list strong,
+    .customer-crm-request-facts strong
+) {
+    color: #1f2937;
+    font-weight: 450;
+    line-height: 1.42;
+}
+
+body .minicrm-work-facts dd {
+    font-size: 0.86rem;
+}
+
+body .request-admin-card-head p,
+body .minicrm-work-card .request-admin-card-head p {
+    font-weight: 400;
+}
+
+/* Unified site typography: keep every MVM CRM screen on one lighter, modern type system. */
+html,
+body,
+body * {
+    font-family: var(--font-sans) !important;
+    letter-spacing: 0 !important;
+}
+
+body * {
+    font-weight: 400 !important;
+}
+
+body :is(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6
+) {
+    font-family: var(--font-heading) !important;
+    font-weight: var(--font-weight-heading) !important;
+    letter-spacing: 0 !important;
+    line-height: 1.2;
+}
+
+body :is(
+    strong,
+    b,
+    th,
+    dt,
+    label,
+    summary,
+    button,
+    .button,
+    .status-badge,
+    .table-action-button,
+    .nav-links a,
+    .portal-kicker,
+    .minicrm-status-group-head strong,
+    .minicrm-status-group-head > span
+) {
+    font-weight: var(--font-weight-label) !important;
+}
+
+body :is(
+    p,
+    li,
+    dd,
+    td,
+    a,
+    span,
+    small,
+    input,
+    select,
+    textarea
+) {
+    font-weight: 400 !important;
+}
+
+body :is(
+    input,
+    select,
+    textarea,
+    button
+) {
+    font-family: var(--font-sans) !important;
+}
+
+body :is(
+    .minicrm-work-card .request-admin-card-head h2,
+    .customer-crm-card .request-admin-card-head h2,
+    .electrician-work-page .request-admin-card-head h2,
+    .electrician-work-detail-page .request-admin-card-head h2
+) {
+    font-size: clamp(0.98rem, 1.18vw, 1.24rem);
+    font-weight: 560 !important;
+    line-height: 1.24;
+}
+
+body :is(
+    .minicrm-work-row-summary .admin-workflow-request-main strong,
+    .portal-work-row .admin-workflow-request-main strong,
+    .customer-crm-row .admin-workflow-request-main strong,
+    .electrician-work-row .admin-workflow-request-main strong
+) {
+    font-size: 0.88rem;
+    font-weight: 500 !important;
+    line-height: 1.28;
+}
+
+body :is(
+    .admin-header h1,
+    .page-hero h1,
+    .connection-crm-page .admin-header h1
+) {
+    font-size: clamp(1.85rem, 3.2vw, 3.25rem);
+    font-weight: 600 !important;
+}
+
+body :is(
+    .minicrm-work-facts dt,
+    .minicrm-compact-docs h3,
+    .minicrm-readable-row span,
+    .request-admin-overview dt,
+    .request-admin-data dt,
+    .admin-request-data-list dt,
+    .portal-card-details span,
+    .customer-detail-list span,
+    .customer-crm-request-facts span,
+    .request-admin-fact span,
+    .admin-request-section-title span,
+    .portal-assignment-form label,
+    .workflow-stage-panel .portal-assignment-form label.checkbox-row,
+    .minicrm-work-table-head,
+    .data-table th
+) {
+    font-size: 0.74rem;
+    font-weight: 500 !important;
+    text-transform: none !important;
+}
+
+body :is(
+    .minicrm-work-facts dd,
+    .request-admin-overview dd,
+    .request-admin-data dd,
+    .admin-request-data-list dd,
+    .portal-card-details strong,
+    .customer-detail-list strong,
+    .customer-crm-request-facts strong,
+    .minicrm-readable-row strong,
+    .minicrm-readable-row a,
+    .minicrm-readable-row small,
+    .minicrm-timeline-event strong,
+    .minicrm-timeline-event time,
+    .minicrm-timeline-event span,
+    .minicrm-timeline-event p,
+    .quote-mini-card strong,
+    .quote-engagement-list strong,
+    .admin-request-doc-meta strong,
+    .mvm-mail-thread-head h3,
+    .mvm-mail-thread-head strong,
+    .portal-work-row .admin-workflow-request-main .portal-work-type,
+    .portal-work-details-form input,
+    .portal-work-details-form select,
+    .portal-assignment-form input,
+    .portal-assignment-form select,
+    .portal-assignment-form textarea,
+    .minicrm-editable-row input,
+    .minicrm-editable-row textarea
+) {
+    font-weight: 400 !important;
+}
+
+body :is(
+    .minicrm-work-detail-layout,
+    .minicrm-work-detail-layout *,
+    .minicrm-work-main,
+    .minicrm-work-main *,
+    .minicrm-document-preview-panel,
+    .minicrm-document-preview-panel *,
+    .communication-panel,
+    .communication-panel *,
+    .portal-assignment-panel,
+    .portal-assignment-panel *,
+    .workflow-stage-panel,
+    .workflow-stage-panel *,
+    .quote-mini-card,
+    .quote-mini-card *,
+    .quote-engagement-list,
+    .quote-engagement-list *,
+    .admin-request-doc-card,
+    .admin-request-doc-card *,
+    .mvm-mail-thread,
+    .mvm-mail-thread *
+) {
+    font-family: var(--font-sans) !important;
+    letter-spacing: 0 !important;
+}
+
+body :is(
+    .portal-kicker,
+    .minicrm-readable-row span,
+    .minicrm-work-facts dt,
+    .minicrm-compact-docs h3,
+    .portal-assignment-form label,
+    .minicrm-field-group summary span,
+    .portal-work-upload-form summary,
+    .status-badge,
+    .table-action-button,
+    .button
+) {
+    text-transform: none !important;
+}
+
+body :is(
+    .button,
+    button,
+    .table-action-button,
+    .status-badge,
+    .minicrm-field-group summary strong,
+    .minicrm-field-edit-actions strong,
+    .portal-work-upload-form summary,
+    .minicrm-compact-docs a span
+) {
+    font-weight: 500 !important;
 }

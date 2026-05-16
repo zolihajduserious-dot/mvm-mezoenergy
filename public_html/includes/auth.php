@@ -124,6 +124,234 @@ function find_user_by_id(int $id): ?array
     return is_array($user) ? $user : null;
 }
 
+function user_email_verification_column_exists(): bool
+{
+    if (!users_table_exists()) {
+        return false;
+    }
+
+    $statement = db_query(
+        'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+        [DB_NAME, 'users', 'email_verified_at']
+    );
+
+    return (bool) $statement->fetchColumn();
+}
+
+function email_verification_table_exists(): bool
+{
+    $statement = db_query(
+        'SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1',
+        [DB_NAME, 'email_verification_codes']
+    );
+
+    return (bool) $statement->fetchColumn();
+}
+
+function email_verification_schema_errors(): array
+{
+    $errors = [];
+
+    if (!users_table_exists()) {
+        $errors[] = 'Hiányzik a users tábla.';
+    } elseif (!user_email_verification_column_exists()) {
+        $errors[] = 'Hiányzik a users.email_verified_at oszlop.';
+    }
+
+    if (!email_verification_table_exists()) {
+        $errors[] = 'Hiányzik az email_verification_codes tábla.';
+    }
+
+    return $errors;
+}
+
+function create_user_account_record(
+    string $name,
+    string $email,
+    string $password,
+    string $role,
+    ?int $customerId = null,
+    bool $isAdmin = false,
+    bool $emailVerified = false
+): int {
+    $columns = ['name', 'email', 'password_hash', 'is_admin', 'role', 'customer_id'];
+    $values = [
+        $name,
+        $email,
+        password_hash($password, PASSWORD_DEFAULT),
+        $isAdmin ? 1 : 0,
+        $role,
+        $customerId,
+    ];
+
+    if (user_email_verification_column_exists()) {
+        $columns[] = 'email_verified_at';
+        $values[] = $emailVerified ? date('Y-m-d H:i:s') : null;
+    }
+
+    $quotedColumns = array_map(static fn (string $column): string => '`' . $column . '`', $columns);
+
+    db_query(
+        'INSERT INTO `users` (' . implode(', ', $quotedColumns) . ') VALUES (' . implode(', ', array_fill(0, count($values), '?')) . ')',
+        $values
+    );
+
+    return (int) db()->lastInsertId();
+}
+
+function user_email_is_verified(array $user): bool
+{
+    if (!user_email_verification_column_exists()) {
+        return true;
+    }
+
+    return trim((string) ($user['email_verified_at'] ?? '')) !== '';
+}
+
+function email_verification_code_hash(string $code): string
+{
+    $secret = (defined('DB_PASS') ? (string) DB_PASS : '') . '|' . APP_NAME . '|email-verification';
+
+    return hash_hmac('sha256', $code, $secret);
+}
+
+function create_email_verification_code(int $userId): string
+{
+    if (!email_verification_table_exists()) {
+        throw new RuntimeException('Az email_verification_codes tábla hiányzik.');
+    }
+
+    $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    $expiresAt = (new DateTimeImmutable('+30 minutes'))->format('Y-m-d H:i:s');
+    $ipAddress = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+
+    db_query(
+        'UPDATE `email_verification_codes`
+         SET `used_at` = COALESCE(`used_at`, NOW())
+         WHERE `user_id` = ? AND `used_at` IS NULL',
+        [$userId]
+    );
+
+    db_query(
+        'INSERT INTO `email_verification_codes` (`user_id`, `code_hash`, `expires_at`, `ip_address`)
+         VALUES (?, ?, ?, ?)',
+        [$userId, email_verification_code_hash($code), $expiresAt, $ipAddress !== '' ? $ipAddress : null]
+    );
+
+    return $code;
+}
+
+function find_pending_email_verification_code(int $userId): ?array
+{
+    if (!email_verification_table_exists()) {
+        return null;
+    }
+
+    $statement = db_query(
+        'SELECT *
+         FROM `email_verification_codes`
+         WHERE `user_id` = ?
+           AND `used_at` IS NULL
+           AND `expires_at` > NOW()
+         ORDER BY `id` DESC
+         LIMIT 1',
+        [$userId]
+    );
+    $code = $statement->fetch();
+
+    return is_array($code) ? $code : null;
+}
+
+function mark_user_email_verified(int $userId): void
+{
+    if (!user_email_verification_column_exists()) {
+        return;
+    }
+
+    db_query(
+        'UPDATE `users`
+         SET `email_verified_at` = COALESCE(`email_verified_at`, NOW())
+         WHERE `id` = ?',
+        [$userId]
+    );
+}
+
+function verify_user_email_with_code(int $userId, string $code): array
+{
+    $code = preg_replace('/\D+/', '', $code) ?? '';
+
+    if (strlen($code) !== 6) {
+        return ['ok' => false, 'message' => 'A megerősítő kód 6 számjegyből áll.', 'newly_verified' => false];
+    }
+
+    $user = find_user_by_id($userId);
+
+    if ($user === null) {
+        return ['ok' => false, 'message' => 'A felhasználó nem található.', 'newly_verified' => false];
+    }
+
+    if (user_email_is_verified($user)) {
+        return ['ok' => true, 'message' => 'Az email cím már meg van erősítve.', 'newly_verified' => false];
+    }
+
+    $pendingCode = find_pending_email_verification_code($userId);
+
+    if ($pendingCode === null) {
+        return ['ok' => false, 'message' => 'A megerősítő kód lejárt. Kérj új kódot.', 'newly_verified' => false];
+    }
+
+    $attempts = (int) ($pendingCode['attempts'] ?? 0);
+
+    if ($attempts >= 5) {
+        db_query('UPDATE `email_verification_codes` SET `used_at` = NOW() WHERE `id` = ?', [(int) $pendingCode['id']]);
+        return ['ok' => false, 'message' => 'Túl sok hibás próbálkozás történt. Kérj új kódot.', 'newly_verified' => false];
+    }
+
+    if (!hash_equals((string) $pendingCode['code_hash'], email_verification_code_hash($code))) {
+        $attempts++;
+        db_query('UPDATE `email_verification_codes` SET `attempts` = ? WHERE `id` = ?', [$attempts, (int) $pendingCode['id']]);
+
+        if ($attempts >= 5) {
+            db_query('UPDATE `email_verification_codes` SET `used_at` = NOW() WHERE `id` = ?', [(int) $pendingCode['id']]);
+            return ['ok' => false, 'message' => 'Túl sok hibás próbálkozás történt. Kérj új kódot.', 'newly_verified' => false];
+        }
+
+        return ['ok' => false, 'message' => 'Hibás megerősítő kód.', 'newly_verified' => false];
+    }
+
+    mark_user_email_verified($userId);
+    db_query('UPDATE `email_verification_codes` SET `used_at` = NOW() WHERE `id` = ?', [(int) $pendingCode['id']]);
+
+    return ['ok' => true, 'message' => 'Az email címet megerősítettük.', 'newly_verified' => true];
+}
+
+function set_pending_email_verification_redirect(int $userId, string $path): void
+{
+    $safePath = auth_safe_return_path($path);
+
+    if ($safePath === null) {
+        return;
+    }
+
+    if (!isset($_SESSION['_email_verification_redirects']) || !is_array($_SESSION['_email_verification_redirects'])) {
+        $_SESSION['_email_verification_redirects'] = [];
+    }
+
+    $_SESSION['_email_verification_redirects'][$userId] = $safePath;
+}
+
+function consume_pending_email_verification_redirect(int $userId): ?string
+{
+    if (empty($_SESSION['_email_verification_redirects']) || !is_array($_SESSION['_email_verification_redirects'])) {
+        return null;
+    }
+
+    $path = $_SESSION['_email_verification_redirects'][$userId] ?? null;
+    unset($_SESSION['_email_verification_redirects'][$userId]);
+
+    return is_string($path) ? auth_safe_return_path($path) : null;
+}
+
 function validate_password_change(array $user, string $currentPassword, string $password, string $passwordConfirm): array
 {
     $errors = [];
@@ -219,10 +447,17 @@ function reset_user_password_with_token(string $token, string $password): bool
         return false;
     }
 
-    db_query(
-        'UPDATE `users` SET `password_hash` = ? WHERE `id` = ?',
-        [password_hash($password, PASSWORD_DEFAULT), (int) $reset['user_id']]
-    );
+    $userUpdateSql = 'UPDATE `users` SET `password_hash` = ?';
+    $userUpdateParams = [password_hash($password, PASSWORD_DEFAULT)];
+
+    if (user_email_verification_column_exists()) {
+        $userUpdateSql .= ', `email_verified_at` = COALESCE(`email_verified_at`, NOW())';
+    }
+
+    $userUpdateSql .= ' WHERE `id` = ?';
+    $userUpdateParams[] = (int) $reset['user_id'];
+
+    db_query($userUpdateSql, $userUpdateParams);
 
     db_query(
         'UPDATE `password_reset_tokens` SET `used_at` = NOW() WHERE `id` = ?',
@@ -302,7 +537,7 @@ function auth_is_login_return_target(string $path): bool
         $route = trim(strtolower((string) ($query['route'] ?? '')), '/');
     }
 
-    return in_array($route, ['login', 'admin/login', 'electrician/login', 'logout', 'admin/logout'], true);
+    return in_array($route, ['login', 'admin/login', 'electrician/login', 'verify-email', 'forgot-password', 'reset-password', 'logout', 'admin/logout'], true);
 }
 
 function auth_current_request_return_path(): ?string
@@ -541,6 +776,10 @@ function require_role(array $roles): void
     require_login();
 
     if (in_array('admin', $roles, true) && is_admin_user()) {
+        return;
+    }
+
+    if (in_array('electrician', $roles, true) && is_admin_user()) {
         return;
     }
 

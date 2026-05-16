@@ -9,11 +9,18 @@ $errors = [];
 $form = normalize_electrician_data(['is_active' => 1]);
 $flash = get_flash();
 $schemaErrors = [];
+$emailVerificationErrors = [];
 
 try {
     $schemaErrors = electrician_schema_errors();
 } catch (Throwable $exception) {
     $schemaErrors[] = APP_DEBUG ? $exception->getMessage() : 'Az adatbázis állapotát nem sikerült ellenőrizni.';
+}
+
+try {
+    $emailVerificationErrors = email_verification_schema_errors();
+} catch (Throwable $exception) {
+    $emailVerificationErrors[] = APP_DEBUG ? $exception->getMessage() : 'Az email megerősítés adatbázis-ellenőrzése sikertelen.';
 }
 
 if (is_post()) {
@@ -26,9 +33,24 @@ if (is_post()) {
     $errors = $schemaErrors !== []
         ? array_merge(['A szerelői regisztrációhoz előbb futtasd le a database/electrician_workflow.sql fájlt phpMyAdminban.'], $schemaErrors)
         : validate_electrician_data($form, true, $password);
+    if ($emailVerificationErrors !== []) {
+        $errors = array_merge(['Az email megerősítéshez előbb futtasd le a database/email_verification.sql fájlt phpMyAdminban.'], $errors, $emailVerificationErrors);
+    }
 
     if ($schemaErrors === [] && $password !== $passwordConfirm) {
         $errors[] = 'A két jelszó nem egyezik.';
+    }
+
+    if ($schemaErrors === [] && empty($_POST['legal_aszf_accepted'])) {
+        $errors[] = 'Az ÁSZF elolvasása és elfogadása kötelező.';
+    }
+
+    if ($schemaErrors === [] && empty($_POST['legal_privacy_accepted'])) {
+        $errors[] = 'Az Adatkezelési tájékoztató elolvasásának igazolása kötelező.';
+    }
+
+    if ($schemaErrors === [] && empty($_POST['legal_processor_accepted'])) {
+        $errors[] = 'Az Adatfeldolgozói megállapodás elolvasása és elfogadása kötelező.';
     }
 
     if ($schemaErrors === [] && find_user_by_email($form['email']) !== null) {
@@ -40,34 +62,20 @@ if (is_post()) {
             $userId = create_electrician_account($form, $password);
             $user = find_user_by_id($userId);
 
-            if ($user !== null) {
-                login_user($user);
+            if ($user === null) {
+                throw new RuntimeException('A felhasználó létrejött, de nem olvasható vissza.');
             }
 
-            send_admin_activity_notification(
-                'Új szerelő regisztrált',
-                'Új szerelő hozott létre fiókot a weboldalon.',
-                [
-                    [
-                        'title' => 'Szerelő adatai',
-                        'rows' => [
-                            ['label' => 'Név', 'value' => $form['name'] ?? '-'],
-                            ['label' => 'Email', 'value' => $form['email'] ?? '-'],
-                            ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
-                            ['label' => 'Megjegyzés', 'value' => $form['notes'] ?? '-'],
-                        ],
-                    ],
-                ],
-                [
-                    ['label' => 'Szerelők megnyitása', 'url' => absolute_url('/admin/electricians')],
-                ],
-                ['email' => $form['email'], 'name' => $form['name']],
-                null,
-                'Szerelő regisztráció'
-            );
+            set_pending_email_verification_redirect($userId, '/electrician/work-requests');
+            $verificationCode = create_email_verification_code($userId);
+            $verificationResult = send_email_verification_email($user, $verificationCode);
 
-            set_flash('success', 'Sikeres szerelői regisztráció. Most már rögzíthetsz saját felmérést, illetve az admin ki tud adni neked munkát.');
-            redirect('/electrician/work-requests');
+            if (!$verificationResult['ok']) {
+                throw new RuntimeException((string) $verificationResult['message']);
+            }
+
+            set_flash('success', 'Elküldtük a 6 számjegyű megerősítő kódot emailben. A szerelői fiók a kód megadása után lesz aktív.');
+            redirect('/verify-email?email=' . rawurlencode((string) $user['email']));
         } catch (Throwable $exception) {
             $message = $exception->getMessage();
             $errors[] = (str_contains($message, 'electrician') || str_contains($message, 'electricians'))
@@ -100,6 +108,14 @@ if (is_post()) {
                 </div>
             <?php endif; ?>
 
+            <?php if ($emailVerificationErrors !== []): ?>
+                <div class="alert alert-info">
+                    <p><strong>Email megerősítés beállítása szükséges.</strong></p>
+                    <p>Futtasd le phpMyAdminban a <strong>database/email_verification.sql</strong> fájlt, majd próbáld újra a regisztrációt.</p>
+                    <?php foreach ($emailVerificationErrors as $emailVerificationError): ?><p><?= h($emailVerificationError); ?></p><?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
             <?php if ($errors !== []): ?>
                 <div class="alert alert-error">
                     <?php foreach ($errors as $error): ?><p><?= h($error); ?></p><?php endforeach; ?>
@@ -114,7 +130,7 @@ if (is_post()) {
                 <input id="name" name="name" value="<?= h($form['name']); ?>" required>
 
                 <label for="phone">Telefonszám</label>
-                <input id="phone" name="phone" value="<?= h($form['phone']); ?>">
+                <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
 
                 <label for="email">Email</label>
                 <input id="email" name="email" type="email" value="<?= h($form['email']); ?>" required>
@@ -127,6 +143,22 @@ if (is_post()) {
 
                 <label for="password_confirm">Jelszó újra</label>
                 <input id="password_confirm" name="password_confirm" type="password" minlength="<?= PASSWORD_MIN_LENGTH; ?>" required>
+
+                <div class="legal-consent-group" role="group" aria-labelledby="electrician-legal-consents-title">
+                    <p id="electrician-legal-consents-title" class="legal-consent-title">A regisztráció csak akkor küldhető be, ha mindhárom jogi dokumentumot elolvastad és elfogadtad.</p>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_aszf_accepted" value="1" required <?= !empty($_POST['legal_aszf_accepted']) ? 'checked' : ''; ?>>
+                        <span>Elolvastam és elfogadom az <a href="<?= h(url_path('/aszf')); ?>" target="_blank" rel="noopener">Általános Szerződési Feltételeket (ÁSZF)</a>.</span>
+                    </label>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_privacy_accepted" value="1" required <?= !empty($_POST['legal_privacy_accepted']) ? 'checked' : ''; ?>>
+                        <span>Elolvastam és megismertem az <a href="<?= h(url_path('/adatkezelesi-tajekoztato')); ?>" target="_blank" rel="noopener">Adatkezelési tájékoztatót</a>.</span>
+                    </label>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_processor_accepted" value="1" required <?= !empty($_POST['legal_processor_accepted']) ? 'checked' : ''; ?>>
+                        <span>Üzleti felhasználóként elolvastam és elfogadom az <a href="<?= h(url_path('/adatfeldolgozoi-megallapodas')); ?>" target="_blank" rel="noopener">Adatfeldolgozói megállapodást</a>.</span>
+                    </label>
+                </div>
 
                 <button class="button" type="submit">Szerelői regisztráció</button>
             </form>

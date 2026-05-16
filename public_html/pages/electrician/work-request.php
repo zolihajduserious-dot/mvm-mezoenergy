@@ -7,7 +7,7 @@ $schemaErrors = electrician_schema_errors();
 $user = current_user();
 $electrician = current_electrician();
 
-if (!is_array($user) || ($schemaErrors === [] && $electrician === null)) {
+if (!is_array($user) || ($schemaErrors === [] && $electrician === null && !is_admin_user())) {
     set_flash('error', 'A szerelői adatok nem találhatók.');
     redirect('/login');
 }
@@ -759,7 +759,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
     <?php
 };
 ?>
-<section class="admin-section">
+<section class="admin-section electrician-work-detail-page">
     <div class="container admin-requests-container">
         <div class="admin-header">
             <div>
@@ -912,7 +912,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                 </div>
             </form>
         <?php elseif ($schemaErrors === [] && $request !== null): ?>
-            <article class="request-admin-card">
+            <article class="request-admin-card electrician-module-stack">
                 <div class="request-admin-card-head">
                     <div>
                         <span class="portal-kicker">#<?= (int) $request['id']; ?> · <?= h($workflowDefinition !== null ? (string) $workflowDefinition['title'] : electrician_work_status_label((string) ($request['electrician_status'] ?? 'assigned'))); ?></span>
@@ -941,11 +941,15 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                     <strong><?= h((string) $quoteState['amount']); ?></strong>
                 </div>
 
+                <?php
+                $initialDataTitle = ui_module_text('electrician_work_detail', 'initial_data', 'title', 'Adatlap alapadatok javítása');
+                $initialDataSubtitle = ui_module_text('electrician_work_detail', 'initial_data', 'subtitle', 'Folyamatban előtt');
+                ?>
                 <?php if ($initialDataEditable): ?>
-                    <section class="admin-request-panel admin-request-panel-wide">
+                    <section <?= ui_module_attrs('electrician_work_detail', 'initial_data', 'admin-request-panel admin-request-panel-wide'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Adatlap alapadatok javítása</h3>
-                            <span>Folyamatban előtt</span>
+                            <h3><?= h($initialDataTitle); ?></h3>
+                            <span><?= h($initialDataSubtitle); ?></span>
                         </div>
                         <form class="form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>">
                             <?= csrf_field(); ?>
@@ -992,14 +996,18 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         </form>
                     </section>
                 <?php else: ?>
-                    <div class="alert alert-info"><p>Az adatlap már Folyamatban vagy későbbi státuszban van, ezért az MVM-beadás alapadatai itt nem módosíthatók.</p></div>
+                    <div <?= ui_module_attrs('electrician_work_detail', 'initial_data', 'alert alert-info'); ?>><p>Az adatlap már Folyamatban vagy későbbi státuszban van, ezért az MVM-beadás alapadatai itt nem módosíthatók.</p></div>
                 <?php endif; ?>
 
                 <?php if ((float) ($electricianDueBreakdown['total'] ?? 0) > 0): ?>
-                    <section class="admin-request-panel workflow-stage-panel">
+                    <?php
+                    $paymentSummaryTitle = ui_module_text('electrician_work_detail', 'payment_summary', 'title', 'Kivitelezéskor beszedendő összeg');
+                    $paymentSummarySubtitle = ui_module_text('electrician_work_detail', 'payment_summary', 'subtitle', format_money((float) $electricianDueBreakdown['total']));
+                    ?>
+                    <section <?= ui_module_attrs('electrician_work_detail', 'payment_summary', 'admin-request-panel workflow-stage-panel'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Kivitelezéskor beszedendő összeg</h3>
-                            <span><?= h(format_money((float) $electricianDueBreakdown['total'])); ?></span>
+                            <h3><?= h($paymentSummaryTitle); ?></h3>
+                            <span><?= h($paymentSummarySubtitle); ?></span>
                         </div>
                         <dl class="admin-request-data-list admin-request-data-list-compact">
                             <div><dt>Regisztrált villanyszerelői tételek</dt><dd><?= h(format_money((float) $electricianDueBreakdown['registered'])); ?></dd></div>
@@ -1010,12 +1018,17 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                 <?php endif; ?>
 
                 <?php if ($workflowDefinition !== null): ?>
-                    <section class="admin-request-panel workflow-stage-panel electrician-workflow-panel">
+                    <?php
+                    $workflowModuleTitle = ui_module_text('electrician_work_detail', 'workflow', 'title', 'Munkafolyamat');
+                    $workflowModuleSubtitle = ui_module_text('electrician_work_detail', 'workflow', 'subtitle', (int) $workflowDefinition['number'] . '. ' . (string) $workflowDefinition['title']);
+                    $workflowModuleBody = ui_module_text('electrician_work_detail', 'workflow', 'body', (string) $workflowDefinition['description']);
+                    ?>
+                    <section <?= ui_module_attrs('electrician_work_detail', 'workflow', 'admin-request-panel workflow-stage-panel electrician-workflow-panel'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Munkafolyamat</h3>
-                            <span><?= (int) $workflowDefinition['number']; ?>. <?= h((string) $workflowDefinition['title']); ?></span>
+                            <h3><?= h($workflowModuleTitle); ?></h3>
+                            <span><?= h($workflowModuleSubtitle); ?></span>
                         </div>
-                        <p class="muted-text"><?= h((string) $workflowDefinition['description']); ?></p>
+                        <p class="muted-text"><?= h($workflowModuleBody); ?></p>
                         <form class="portal-assignment-form" method="post" action="<?= h(url_path('/electrician/work-request') . '?id=' . (int) $request['id']); ?>" onsubmit="return confirm('Biztosan lezárod ezt a munkafolyamat-lépést?') && confirm('Második megerősítés: tényleg tovább lépteted a munka státuszát?');">
                             <?= csrf_field(); ?>
                             <input type="hidden" name="action" value="close_workflow_stage">
@@ -1030,12 +1043,17 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                 <?php endif; ?>
 
                 <?php if ($scheduleSchemaErrors === []): ?>
-                    <section class="admin-request-panel admin-request-documents">
+                    <?php
+                    $scheduleModuleTitle = ui_module_text('electrician_work_detail', 'schedule_calendar', 'title', 'Kivitelezési naptár');
+                    $scheduleModuleSubtitle = ui_module_text('electrician_work_detail', 'schedule_calendar', 'subtitle', 'Csak hétköznap');
+                    $scheduleModuleBody = ui_module_text('electrician_work_detail', 'schedule_calendar', 'body', 'Nyisd meg azokat a napokat, amikor vállalható a munka. A kiválasztott nap egyetlen munkanapként foglalódik.');
+                    ?>
+                    <section <?= ui_module_attrs('electrician_work_detail', 'schedule_calendar', 'admin-request-panel admin-request-documents'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Kivitelezési naptár</h3>
-                            <span>Csak hétköznap</span>
+                            <h3><?= h($scheduleModuleTitle); ?></h3>
+                            <span><?= h($scheduleModuleSubtitle); ?></span>
                         </div>
-                        <p class="muted-text">Nyisd meg azokat a napokat, amikor vállalható a munka. A kiválasztott nap egyetlen munkanapként foglalódik.</p>
+                        <p class="muted-text"><?= h($scheduleModuleBody); ?></p>
                         <div class="quote-mini-list">
                             <?php foreach ($scheduleWeekdays as $workDate): ?>
                                 <?php
@@ -1065,10 +1083,10 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         </div>
                     </section>
                 <?php else: ?>
-                    <div class="alert alert-error"><?php foreach ($scheduleSchemaErrors as $scheduleError): ?><p><?= h($scheduleError); ?></p><?php endforeach; ?></div>
+                    <div <?= ui_module_attrs('electrician_work_detail', 'schedule_calendar', 'alert alert-error'); ?>><?php foreach ($scheduleSchemaErrors as $scheduleError): ?><p><?= h($scheduleError); ?></p><?php endforeach; ?></div>
                 <?php endif; ?>
 
-                <div class="admin-request-panel-grid">
+                <div <?= ui_module_attrs('electrician_work_detail', 'request_data', 'admin-request-panel-grid'); ?>>
                     <section class="admin-request-panel">
                         <h3>Ügyfél</h3>
                         <dl class="admin-request-data-list">
@@ -1121,10 +1139,14 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                 </div>
 
                 <div class="request-admin-footer">
-                    <section class="admin-request-panel admin-request-documents">
+                    <?php
+                    $filesModuleTitle = ui_module_text('electrician_work_detail', 'files', 'title', 'Ügyfél által feltöltött fájlok');
+                    $filesModuleSubtitle = ui_module_text('electrician_work_detail', 'files', 'subtitle', count($customerFiles) . ' db');
+                    ?>
+                    <section <?= ui_module_attrs('electrician_work_detail', 'files', 'admin-request-panel admin-request-documents'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Ügyfél által feltöltött fájlok</h3>
-                            <span><?= count($customerFiles); ?> db</span>
+                            <h3><?= h($filesModuleTitle); ?></h3>
+                            <span><?= h($filesModuleSubtitle); ?></span>
                         </div>
                         <?php if ($customerFiles === []): ?>
                             <p class="request-admin-empty">Nincs ügyfél által feltöltött fájl ehhez a munkához.</p>
@@ -1313,12 +1335,17 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <?php endif; ?>
                     </section>
 
-                    <section id="electrician-communication" class="admin-request-panel admin-request-documents communication-panel">
+                    <?php
+                    $communicationModuleTitle = ui_module_text('electrician_work_detail', 'customer_communication', 'title', 'Ügyfélkommunikáció');
+                    $communicationModuleSubtitle = ui_module_text('electrician_work_detail', 'customer_communication', 'subtitle', $mvmEmailMessageCount . ' üzenet');
+                    $communicationModuleBody = ui_module_text('electrician_work_detail', 'customer_communication', 'body', 'Itt ugyanaz az ügyféllel folytatott levelezés látszik, amit az admin is lát. Ha az ügyfél válaszol, a válasz az azonosító alapján ehhez az adatlaphoz kerül.');
+                    ?>
+                    <section id="electrician-communication" <?= ui_module_attrs('electrician_work_detail', 'customer_communication', 'admin-request-panel admin-request-documents communication-panel'); ?>>
                         <div class="admin-request-section-title">
-                            <h3>Ügyfélkommunikáció</h3>
-                            <span><?= $mvmEmailMessageCount; ?> üzenet</span>
+                            <h3><?= h($communicationModuleTitle); ?></h3>
+                            <span><?= h($communicationModuleSubtitle); ?></span>
                         </div>
-                        <p class="muted-text">Itt ugyanaz az ügyféllel folytatott levelezés látszik, amit az admin is lát. Ha az ügyfél válaszol, a válasz az azonosító alapján ehhez az adatlaphoz kerül.</p>
+                        <p class="muted-text"><?= h($communicationModuleBody); ?></p>
                         <dl class="admin-request-data-list admin-request-data-list-compact">
                             <div><dt>Ügy állása</dt><dd><?= h($workflowDefinition !== null ? (string) $workflowDefinition['title'] : admin_workflow_stage_label($workflowStage)); ?></dd></div>
                             <div><dt>Ajánlat</dt><dd><?= h($quoteSummaryLabel . ' · ' . $quoteSummaryAmount); ?></dd></div>
@@ -1393,17 +1420,22 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                         <?php endif; ?>
                     </section>
 
-            <?php foreach (['before' => 'Kivitelezés előtti kötelező fotók', 'after' => 'Kivitelezés utáni kötelező fotók'] as $stage => $stageTitle): ?>
+            <?php foreach (['before' => 'Kivitelezés előtti kötelező fotók', 'after' => 'Kivitelezés utáni kötelező fotók'] as $stage => $stageDefaultTitle): ?>
                 <?php
                 $stageFiles = $stage === 'before' ? $beforeFiles : $afterFiles;
                 $stageLocked = $stage === 'after' && empty($request['before_photos_completed_at']);
+                $stageModuleKey = $stage === 'before' ? 'work_photos_before' : 'work_photos_after';
+                $stageTitle = ui_module_text('electrician_work_detail', $stageModuleKey, 'title', $stageDefaultTitle);
+                $stageSubtitle = ui_module_text('electrician_work_detail', $stageModuleKey, 'subtitle', count($stageFiles) . ' db');
+                $stageDescriptionDefault = $stage === 'after' ? 'Az elkészült beavatkozási lap fotója is kötelező.' : 'Ezeket a képeket a munka megkezdése előtt kell feltölteni.';
+                $stageDescription = ui_module_text('electrician_work_detail', $stageModuleKey, 'body', $stageDescriptionDefault);
                 ?>
-                <section class="admin-request-panel admin-request-documents electrician-work-stage-panel">
+                <section <?= ui_module_attrs('electrician_work_detail', $stageModuleKey, 'admin-request-panel admin-request-documents electrician-work-stage-panel'); ?>>
                     <div class="admin-request-section-title">
                         <h3><?= h($stageTitle); ?></h3>
-                        <span><?= count($stageFiles); ?> db</span>
+                        <span><?= h($stageSubtitle); ?></span>
                     </div>
-                    <p class="muted-text"><?= $stage === 'after' ? 'Az elkészült beavatkozási lap fotója is kötelező.' : 'Ezeket a képeket a munka megkezdése előtt kell feltölteni.'; ?></p>
+                    <p class="muted-text"><?= h($stageDescription); ?></p>
                     <?php if ($stageLocked): ?>
                         <div class="alert alert-info"><p>Az utána fotókat az induló fotók lezárása után lehet feltölteni.</p></div>
                     <?php endif; ?>
@@ -1446,6 +1478,25 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                     </div>
                 </section>
             <?php endforeach; ?>
+                    <?php foreach (ui_modules_for_area('electrician_work_detail') as $customModule): ?>
+                        <?php if (empty($customModule['is_custom'])) {
+                            continue;
+                        } ?>
+                        <section <?= ui_module_attrs('electrician_work_detail', (string) $customModule['module_key'], 'admin-request-panel admin-request-documents ui-custom-module-card'); ?>>
+                            <div class="admin-request-section-title">
+                                <h3><?= h((string) $customModule['title']); ?></h3>
+                                <?php if (trim((string) $customModule['subtitle']) !== ''): ?><span><?= h((string) $customModule['subtitle']); ?></span><?php endif; ?>
+                            </div>
+                            <?php if (trim((string) $customModule['body']) !== ''): ?>
+                                <p class="muted-text"><?= nl2br(h((string) $customModule['body'])); ?></p>
+                            <?php endif; ?>
+                            <?php if (trim((string) $customModule['href']) !== ''): ?>
+                                <div class="form-actions">
+                                    <a class="button button-secondary" href="<?= h(ui_module_public_url((string) $customModule['href'])); ?>">Megnyitás</a>
+                                </div>
+                            <?php endif; ?>
+                        </section>
+                    <?php endforeach; ?>
                 </div>
             </article>
         <?php endif; ?>

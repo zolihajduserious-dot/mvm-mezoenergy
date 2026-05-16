@@ -301,14 +301,14 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                 <div class="minicrm-status-groups" data-customer-crm-list>
                     <?php foreach ($customersByStatus as $statusName => $statusCustomers): ?>
                         <?php $statusClass = minicrm_status_class((string) $statusName); ?>
-                        <section class="minicrm-status-group" id="customer-status-<?= h(customer_crm_dom_id((string) $statusName)); ?>" data-customer-crm-status-group>
-                            <header class="minicrm-status-group-head">
+                        <details class="minicrm-status-group" id="customer-status-<?= h(customer_crm_dom_id((string) $statusName)); ?>" data-customer-crm-status-group>
+                            <summary class="minicrm-status-group-head">
                                 <div>
                                     <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) $statusName); ?></span>
                                     <strong><?= count($statusCustomers); ?> ügyfél</strong>
                                 </div>
                                 <span data-customer-crm-status-count><?= count($statusCustomers); ?> látható</span>
-                            </header>
+                            </summary>
 
                             <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $statusName); ?> ügyfelek">
                                 <div class="minicrm-work-table-head" role="row">
@@ -833,7 +833,7 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                     </details>
                                 <?php endforeach; ?>
                             </div>
-                        </section>
+                        </details>
                     <?php endforeach; ?>
                 </div>
             </section>

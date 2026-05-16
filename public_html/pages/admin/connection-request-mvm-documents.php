@@ -116,6 +116,12 @@ if (is_post()) {
         redirect($mvmRedirectPath . '#mvm-documents-list');
     }
 
+    if ($action === 'save_crm_custom_fields') {
+        crm_custom_field_save_post_values('connection_request', (int) $request['id'], 'mvm_documents', $_POST);
+        set_flash('success', 'Az egyedi CRM mezők mentve lettek.');
+        redirect($mvmRedirectPath . '#mvm-custom-fields');
+    }
+
     $requiresMvmSubmissionApproval = in_array($action, [
         'generate_mvm_docx',
         'generate_mvm_pdf',
@@ -559,9 +565,13 @@ $mvmFormErrors = ($isMvmFormPost && !$isHandoverFormPost && !$isSealRemovalFormP
 $technicalHandoverErrors = $isHandoverFormPost ? $errors : [];
 $sealRemovalErrors = $isSealRemovalFormPost ? $errors : [];
 $hTariffErrors = $isHTariffFormPost ? $errors : [];
+$mvmDocumentModules = ui_modules_for_area('mvm_documents');
+$mvmCustomFields = crm_layout_custom_fields_for_area('mvm_documents');
+$mvmCustomFieldValues = crm_custom_field_value_rows('connection_request', (int) $request['id']);
+$mvmFieldLabel = static fn (string $fieldKey, string $defaultLabel): string => crm_custom_field_label('mvm_documents', $fieldKey, $defaultLabel);
 ?>
 <section class="admin-section">
-    <div class="container">
+    <div class="container mvm-document-module-stack">
         <div class="admin-header">
             <div>
                 <p class="eyebrow"><?= $isMiniCrmContext ? 'MiniCRM' : 'Admin'; ?></p>
@@ -625,7 +635,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             </div>
         <?php endif; ?>
 
-        <section id="mvm-payment-gate" class="auth-panel form-block mvm-payment-gate">
+        <section id="mvm-payment-gate" <?= ui_module_attrs('mvm_documents', 'payment_gate', 'auth-panel form-block mvm-payment-gate'); ?>>
             <div class="admin-header compact">
                 <div>
                     <p class="eyebrow">Ügykezelési díj</p>
@@ -660,7 +670,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section class="auth-panel form-block mvm-docx-panel">
+        <section <?= ui_module_attrs('mvm_documents', 'document_generator', 'auth-panel form-block mvm-docx-panel'); ?>>
             <div class="admin-header compact">
                 <div>
                     <p class="eyebrow">Fővállalkozói sablon</p>
@@ -679,23 +689,23 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                     </div>
                     <div class="mvm-field-grid">
                         <div class="mvm-input-field">
-                            <label for="source_requester_name">Ügyfél neve</label>
+                            <label for="source_requester_name"><?= h($mvmFieldLabel('source_requester_name', 'Ügyfél neve')); ?></label>
                             <input id="source_requester_name" name="source_requester_name" value="<?= h($mvmSourceValues['requester_name']); ?>" required>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_birth_name">Születési név</label>
+                            <label for="source_birth_name"><?= h($mvmFieldLabel('source_birth_name', 'Születési név')); ?></label>
                             <input id="source_birth_name" name="source_birth_name" value="<?= h($mvmSourceValues['birth_name']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_mother_name">Anyja neve</label>
+                            <label for="source_mother_name"><?= h($mvmFieldLabel('source_mother_name', 'Anyja neve')); ?></label>
                             <input id="source_mother_name" name="source_mother_name" value="<?= h($mvmSourceValues['mother_name']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_birth_place">Születési hely</label>
+                            <label for="source_birth_place"><?= h($mvmFieldLabel('source_birth_place', 'Születési hely')); ?></label>
                             <input id="source_birth_place" name="source_birth_place" value="<?= h($mvmSourceValues['birth_place']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label>Születési idő</label>
+                            <label><?= h($mvmFieldLabel('source_birth_date', 'Születési idő')); ?></label>
                             <div class="mvm-date-parts" role="group" aria-label="Születési idő">
                                 <input id="source_birth_date_year" name="source_birth_date_year" value="<?= h($mvmSourceBirthDateParts['year']); ?>" inputmode="numeric" maxlength="4" placeholder="Év" aria-label="Születési év">
                                 <input id="source_birth_date_month" name="source_birth_date_month" value="<?= h($mvmSourceBirthDateParts['month']); ?>" inputmode="numeric" maxlength="2" placeholder="Hó" aria-label="Születési hónap">
@@ -703,19 +713,19 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                             </div>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_tax_number">Adószám</label>
+                            <label for="source_tax_number"><?= h($mvmFieldLabel('source_tax_number', 'Adószám')); ?></label>
                             <input id="source_tax_number" name="source_tax_number" value="<?= h($mvmSourceValues['tax_number']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_mvm_uk_number">ÜK szám</label>
+                            <label for="source_mvm_uk_number"><?= h($mvmFieldLabel('source_mvm_uk_number', 'ÜK szám')); ?></label>
                             <input id="source_mvm_uk_number" name="source_mvm_uk_number" value="<?= h($mvmSourceValues['mvm_uk_number']); ?>" placeholder="MVM ÜK szám">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_project_name">Munka megnevezése</label>
+                            <label for="source_project_name"><?= h($mvmFieldLabel('source_project_name', 'Munka megnevezése')); ?></label>
                             <input id="source_project_name" name="source_project_name" value="<?= h($mvmSourceValues['project_name']); ?>" readonly>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_request_type">Munka típusa</label>
+                            <label for="source_request_type"><?= h($mvmFieldLabel('source_request_type', 'Munka típusa')); ?></label>
                             <select id="source_request_type" name="source_request_type">
                                 <?php foreach (connection_request_type_options() as $typeKey => $typeLabel): ?>
                                     <option value="<?= h((string) $typeKey); ?>" <?= (string) $mvmSourceValues['request_type'] === (string) $typeKey ? 'selected' : ''; ?>><?= h($typeLabel); ?></option>
@@ -723,23 +733,23 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                             </select>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_site_postal_code">Felhasználási hely irányítószáma</label>
+                            <label for="source_site_postal_code"><?= h($mvmFieldLabel('source_site_postal_code', 'Felhasználási hely irányítószáma')); ?></label>
                             <input id="source_site_postal_code" name="source_site_postal_code" value="<?= h($mvmSourceValues['site_postal_code']); ?>" required>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_site_address">Felhasználási / kivitelezési cím</label>
+                            <label for="source_site_address"><?= h($mvmFieldLabel('source_site_address', 'Felhasználási / kivitelezési cím')); ?></label>
                             <input id="source_site_address" name="source_site_address" value="<?= h($mvmSourceValues['site_address']); ?>" required>
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_hrsz">HRSZ</label>
+                            <label for="source_hrsz"><?= h($mvmFieldLabel('source_hrsz', 'HRSZ')); ?></label>
                             <input id="source_hrsz" name="source_hrsz" value="<?= h($mvmSourceValues['hrsz']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_consumption_place_id">Fogyasztási hely azonosító</label>
+                            <label for="source_consumption_place_id"><?= h($mvmFieldLabel('source_consumption_place_id', 'Fogyasztási hely azonosító')); ?></label>
                             <input id="source_consumption_place_id" name="source_consumption_place_id" value="<?= h($mvmSourceValues['consumption_place_id']); ?>">
                         </div>
                         <div class="mvm-input-field">
-                            <label for="source_meter_serial">Mérő gyári szám</label>
+                            <label for="source_meter_serial"><?= h($mvmFieldLabel('source_meter_serial', 'Mérő gyári szám')); ?></label>
                             <input id="source_meter_serial" name="source_meter_serial" value="<?= h($mvmSourceValues['meter_serial']); ?>">
                         </div>
                     </div>
@@ -835,7 +845,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                                     <?php elseif (($field['type'] ?? 'text') === 'textarea'): ?>
                                         <div class="mvm-input-field">
                                             <label for="<?= h($fieldId); ?>"><?= h($field['label']); ?></label>
-                                            <textarea id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" rows="3"><?= h($mvmFormValues[$fieldKey] ?? ''); ?></textarea>
+                                            <textarea id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" rows="3" placeholder="<?= h((string) ($field['placeholder'] ?? '')); ?>"><?= h($mvmFormValues[$fieldKey] ?? ''); ?></textarea>
                                         </div>
                                     <?php elseif (($field['type'] ?? 'text') === 'select'): ?>
                                         <div class="mvm-input-field">
@@ -849,7 +859,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                                     <?php else: ?>
                                         <div class="mvm-input-field">
                                             <label for="<?= h($fieldId); ?>"><?= h($field['label']); ?></label>
-                                            <input id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" value="<?= h($mvmFormValues[$fieldKey] ?? ''); ?>" <?= !empty($field['readonly']) ? 'readonly data-mvm-calculated="1"' : ''; ?>>
+                                            <input id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" value="<?= h($mvmFormValues[$fieldKey] ?? ''); ?>" placeholder="<?= h((string) ($field['placeholder'] ?? '')); ?>" <?= !empty($field['readonly']) ? 'readonly data-mvm-calculated="1"' : ''; ?>>
                                         </div>
                                     <?php endif; ?>
                                 <?php endforeach; ?>
@@ -932,8 +942,8 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             </form>
         </section>
 
-        <div class="form-grid two">
-            <section class="auth-panel">
+        <div class="form-grid two mvm-document-upload-summary-grid">
+            <section <?= ui_module_attrs('mvm_documents', 'manual_upload', 'auth-panel'); ?>>
                 <h2>Új MVM dokumentum</h2>
                 <form class="form" method="post" enctype="multipart/form-data" action="<?= h($mvmPageUrl); ?>">
                     <?= csrf_field(); ?>
@@ -956,7 +966,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                 </form>
             </section>
 
-            <section class="auth-panel">
+            <section <?= ui_module_attrs('mvm_documents', 'work_summary', 'auth-panel'); ?>>
                 <h2>Munka adatai</h2>
                 <p><strong><?= h($request['requester_name']); ?></strong></p>
                 <p><?= h($request['email']); ?> | <?= phone_link_html($request['phone'] ?? ''); ?></p>
@@ -965,7 +975,53 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             </section>
         </div>
 
-        <section id="customer-document-request-panel" class="auth-panel form-block customer-document-request-panel">
+        <?php if ($mvmCustomFields !== []): ?>
+            <section id="mvm-custom-fields" <?= ui_module_attrs('mvm_documents', 'custom_fields', 'auth-panel form-block'); ?>>
+                <div class="admin-header compact">
+                    <div>
+                        <p class="eyebrow">Egyedi mezők</p>
+                        <h2>Egyedi CRM mezők</h2>
+                        <p>Az itt mentett értékek csak kiegészítő CRM adatok, nem módosítják az MVM dokumentumgenerálás folyamatát.</p>
+                    </div>
+                </div>
+                <form class="form" method="post" action="<?= h($mvmPageUrl . '#mvm-custom-fields'); ?>">
+                    <?= csrf_field(); ?>
+                    <input type="hidden" name="action" value="save_crm_custom_fields">
+                    <div class="form-grid two compact">
+                        <?php foreach ($mvmCustomFields as $customField): ?>
+                            <?php
+                            $customFieldKey = (string) $customField['field_key'];
+                            $customFieldInputName = 'crm_custom_field_' . $customFieldKey;
+                            $customFieldValue = (string) ($mvmCustomFieldValues[$customFieldKey] ?? '');
+                            $customFieldType = (string) ($customField['input_type'] ?? 'text');
+                            ?>
+                            <div class="<?= $customFieldType === 'textarea' ? 'admin-request-data-wide' : ''; ?>">
+                                <?php if ($customFieldType === 'section'): ?>
+                                    <h3><?= h((string) $customField['label']); ?></h3>
+                                <?php elseif ($customFieldType === 'checkbox'): ?>
+                                    <label class="checkbox-row" for="<?= h($customFieldInputName); ?>">
+                                        <input id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" type="checkbox" value="1" <?= $customFieldValue !== '' ? 'checked' : ''; ?>>
+                                        <span><?= h((string) $customField['label']); ?></span>
+                                    </label>
+                                <?php elseif ($customFieldType === 'textarea'): ?>
+                                    <label for="<?= h($customFieldInputName); ?>"><?= h((string) $customField['label']); ?></label>
+                                    <textarea id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" rows="3" placeholder="<?= h((string) ($customField['placeholder'] ?? '')); ?>"><?= h($customFieldValue); ?></textarea>
+                                <?php else: ?>
+                                    <label for="<?= h($customFieldInputName); ?>"><?= h((string) $customField['label']); ?></label>
+                                    <input id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" type="<?= in_array($customFieldType, ['date', 'number', 'email', 'tel'], true) ? h($customFieldType) : 'text'; ?>" value="<?= h($customFieldValue); ?>" placeholder="<?= h((string) ($customField['placeholder'] ?? '')); ?>">
+                                <?php endif; ?>
+                                <?php if ((string) ($customField['help_text'] ?? '') !== ''): ?><p class="muted-text"><?= h((string) $customField['help_text']); ?></p><?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="form-actions">
+                        <button class="button button-secondary" type="submit">Egyedi mezők mentése</button>
+                    </div>
+                </form>
+            </section>
+        <?php endif; ?>
+
+        <section id="customer-document-request-panel" <?= ui_module_attrs('mvm_documents', 'customer_documents', 'auth-panel form-block customer-document-request-panel'); ?>>
             <div class="admin-header compact">
                 <div>
                     <p class="eyebrow">Ügyféldokumentum</p>
@@ -1019,7 +1075,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             </form>
         </section>
 
-        <section class="auth-panel form-block">
+        <section id="mvm-approval-package" <?= ui_module_attrs('mvm_documents', 'approval_package', 'auth-panel form-block'); ?>>
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">1. csomag</p>
@@ -1090,7 +1146,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section id="execution-plan-package-section" class="auth-panel form-block">
+        <section id="execution-plan-package-section" <?= ui_module_attrs('mvm_documents', 'execution_plan_package', 'auth-panel form-block'); ?>>
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">2. csomag</p>
@@ -1201,7 +1257,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section id="technical-handover-section" class="auth-panel form-block technical-handover-panel">
+        <section id="technical-handover-section" <?= ui_module_attrs('mvm_documents', 'technical_handover', 'auth-panel form-block technical-handover-panel'); ?>>
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">Műszaki átadás</p>
@@ -1257,7 +1313,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
                             <?php $fieldId = 'mvm_handover_' . $fieldKey; ?>
                             <div class="mvm-input-field">
                                 <label for="<?= h($fieldId); ?>"><?= h((string) $field['label']); ?><?= !empty($field['required']) ? ' *' : ''; ?></label>
-                                <input id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" form="mvm-docx-form" value="<?= h($mvmFormValues[$fieldKey] ?? ''); ?>" <?= !empty($field['required']) ? 'aria-required="true"' : ''; ?>>
+                                <input id="<?= h($fieldId); ?>" name="<?= h($fieldKey); ?>" form="mvm-docx-form" value="<?= h($mvmFormValues[$fieldKey] ?? ''); ?>" placeholder="<?= h((string) ($field['placeholder'] ?? '')); ?>" <?= !empty($field['required']) ? 'aria-required="true"' : ''; ?>>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -1364,7 +1420,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section id="seal-removal-section" class="auth-panel form-block technical-handover-panel">
+        <section id="seal-removal-section" <?= ui_module_attrs('mvm_documents', 'seal_removal', 'auth-panel form-block technical-handover-panel'); ?>>
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">Plombabontás</p>
@@ -1483,7 +1539,7 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section id="mvm-mailbox" class="auth-panel form-block mvm-mail-panel">
+        <section id="mvm-mailbox" <?= ui_module_attrs('mvm_documents', 'mailbox', 'auth-panel form-block mvm-mail-panel'); ?>>
             <div class="admin-header">
                 <div>
                     <p class="eyebrow">MVM levelezés</p>
@@ -1540,7 +1596,23 @@ $hTariffErrors = $isHTariffFormPost ? $errors : [];
             <?php endif; ?>
         </section>
 
-        <section id="mvm-documents-list" class="form-block">
+        <?php foreach ($mvmDocumentModules as $mvmModule): ?>
+            <?php if (empty($mvmModule['is_custom'])) { continue; } ?>
+            <section <?= ui_module_attrs('mvm_documents', (string) $mvmModule['module_key'], 'auth-panel form-block ui-custom-module-card'); ?>>
+                <div class="admin-header compact">
+                    <div>
+                        <?php if ((string) ($mvmModule['subtitle'] ?? '') !== ''): ?><p class="eyebrow"><?= h((string) $mvmModule['subtitle']); ?></p><?php endif; ?>
+                        <h2><?= h((string) $mvmModule['title']); ?></h2>
+                        <?php if ((string) ($mvmModule['body'] ?? '') !== ''): ?><p><?= nl2br(h((string) $mvmModule['body'])); ?></p><?php endif; ?>
+                    </div>
+                    <?php if ((string) ($mvmModule['href'] ?? '') !== ''): ?>
+                        <a class="button button-secondary" href="<?= h(ui_module_public_url((string) $mvmModule['href'])); ?>">Megnyitás</a>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php endforeach; ?>
+
+        <section id="mvm-documents-list" <?= ui_module_attrs('mvm_documents', 'document_list', 'form-block'); ?>>
             <?php if ($documents === []): ?>
                 <div class="empty-state">
                     <h2>Még nincs MVM dokumentum</h2>

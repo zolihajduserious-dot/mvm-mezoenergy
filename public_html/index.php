@@ -57,6 +57,7 @@ require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/crm.php';
+require_once __DIR__ . '/includes/ui-modules.php';
 
 $routes = [
     '' => [
@@ -95,6 +96,22 @@ $routes = [
         'title' => 'Új jelszó beállítása',
         'file' => PAGE_PATH . '/reset-password.php',
     ],
+    'verify-email' => [
+        'title' => 'Email megerősítés',
+        'file' => PAGE_PATH . '/verify-email.php',
+    ],
+    'adatkezelesi-tajekoztato' => [
+        'title' => 'Adatkezelési tájékoztató',
+        'file' => PAGE_PATH . '/legal.php',
+    ],
+    'aszf' => [
+        'title' => 'Általános szerződési feltételek',
+        'file' => PAGE_PATH . '/legal.php',
+    ],
+    'adatfeldolgozoi-megallapodas' => [
+        'title' => 'Adatfeldolgozói megállapodás',
+        'file' => PAGE_PATH . '/legal.php',
+    ],
     'profile' => [
         'title' => 'Profil',
         'file' => PAGE_PATH . '/profile.php',
@@ -110,6 +127,10 @@ $routes = [
     'documents' => [
         'title' => 'Letölthető dokumentumok',
         'file' => PAGE_PATH . '/documents.php',
+    ],
+    'mvm-ugyintezes' => [
+        'title' => 'MVM ügyintézés előkészítése',
+        'file' => PAGE_PATH . '/mvm-ugyintezes.php',
     ],
     'documents/file' => [
         'title' => 'Dokumentum letöltése',
@@ -235,6 +256,14 @@ $routes = [
         'title' => 'Szuper admin riport',
         'file' => PAGE_PATH . '/admin/super-overview.php',
     ],
+    'admin/modules' => [
+        'title' => 'CRM testreszabás',
+        'file' => PAGE_PATH . '/admin/modules.php',
+    ],
+    'admin/crm-customization' => [
+        'title' => 'CRM testreszabás',
+        'file' => PAGE_PATH . '/admin/modules.php',
+    ],
     'admin/profile' => [
         'title' => 'Admin profil',
         'file' => PAGE_PATH . '/profile.php',
@@ -263,6 +292,10 @@ $routes = [
         'title' => 'Mérőhelyi igény szerkesztése',
         'file' => PAGE_PATH . '/admin/connection-request-form.php',
     ],
+    'admin/customer-work-request-preview' => [
+        'title' => 'Ügyfélűrlap előnézet',
+        'file' => PAGE_PATH . '/admin/customer-work-request-preview.php',
+    ],
     'admin/connection-requests/file' => [
         'title' => 'Mérőhelyi igény fájl',
         'file' => PAGE_PATH . '/admin/connection-request-file.php',
@@ -286,6 +319,10 @@ $routes = [
     'admin/electricians' => [
         'title' => 'Szerelők',
         'file' => PAGE_PATH . '/admin/electricians.php',
+    ],
+    'admin/contractors' => [
+        'title' => 'Generálkivitelezők',
+        'file' => PAGE_PATH . '/admin/contractors.php',
     ],
     'admin/users' => [
         'title' => 'Adminisztrátorok',
@@ -419,12 +456,19 @@ try {
             <div class="nav-links" id="primary-navigation">
                 <a href="<?= h(url_path('/')); ?>">Kezdőlap</a>
                 <a href="<?= h(url_path('/documents')); ?>">Dokumentumok</a>
+                <a href="<?= h(url_path('/mvm-ugyintezes')); ?>">MVM ügyintézés</a>
                 <?php if (is_logged_in()): ?>
                     <?php if (is_staff_user()): ?>
                         <a href="<?= h(url_path('/admin/dashboard')); ?>">Admin</a>
+                        <?php if (is_admin_user()): ?>
+                            <a href="<?= h(url_path('/electrician/app')); ?>">Szerel&#337; app</a>
+                        <?php endif; ?>
                         <a href="<?= h(url_path('/admin/calendar')); ?>">Naptár</a>
                         <?php if (can_view_super_admin_overview()): ?>
                             <a href="<?= h(url_path('/admin/super-overview')); ?>">Szuper riport</a>
+                        <?php endif; ?>
+                        <?php if (can_manage_ui_modules()): ?>
+                            <a href="<?= h(url_path('/admin/crm-customization')); ?>">CRM testreszabás</a>
                         <?php endif; ?>
                         <a href="<?= h(url_path('/feedback')); ?>">Javaslat</a>
                         <a href="<?= h(url_path('/quick-quote')); ?>">Gyors ajánlat</a>
@@ -470,6 +514,11 @@ try {
     <footer class="site-footer">
         <div class="container">
             <p>&copy; <?= date('Y'); ?> Mező Energy Kft. Minden jog fenntartva.</p>
+            <nav class="footer-legal-links" aria-label="Jogi dokumentumok">
+                <a href="<?= h(url_path('/adatkezelesi-tajekoztato')); ?>">Adatkezelési tájékoztató</a>
+                <a href="<?= h(url_path('/aszf')); ?>">ÁSZF</a>
+                <a href="<?= h(url_path('/adatfeldolgozoi-megallapodas')); ?>">Adatfeldolgozói megállapodás</a>
+            </nav>
         </div>
     </footer>
 

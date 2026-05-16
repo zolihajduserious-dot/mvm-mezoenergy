@@ -16,6 +16,13 @@ $registrationPath = $registrationQuote !== null ? quote_registration_path($regis
 $errors = [];
 $form = normalize_customer_data([]);
 $flash = get_flash();
+$emailVerificationErrors = [];
+
+try {
+    $emailVerificationErrors = email_verification_schema_errors();
+} catch (Throwable $exception) {
+    $emailVerificationErrors[] = APP_DEBUG ? $exception->getMessage() : 'Az email megerősítés adatbázis-ellenőrzése sikertelen.';
+}
 
 if ($registrationQuote !== null) {
     $form = normalize_customer_data([
@@ -39,12 +46,28 @@ if (is_post()) {
     $password = (string) ($_POST['password'] ?? '');
     $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
 
+    if ($emailVerificationErrors !== []) {
+        array_unshift($errors, 'Az email megerősítéshez előbb futtasd le a database/email_verification.sql fájlt phpMyAdminban.');
+    }
+
     if (strlen($password) < PASSWORD_MIN_LENGTH) {
         $errors[] = 'A jelszó legalább ' . PASSWORD_MIN_LENGTH . ' karakter legyen.';
     }
 
     if ($password !== $passwordConfirm) {
         $errors[] = 'A két jelszó nem egyezik.';
+    }
+
+    if (empty($_POST['legal_aszf_accepted'])) {
+        $errors[] = 'Az ÁSZF elolvasása és elfogadása kötelező.';
+    }
+
+    if (empty($_POST['legal_privacy_accepted'])) {
+        $errors[] = 'Az Adatkezelési tájékoztató elolvasásának igazolása kötelező.';
+    }
+
+    if (empty($_POST['legal_processor_accepted'])) {
+        $errors[] = 'Az Adatfeldolgozói megállapodás elolvasása és elfogadása kötelező.';
     }
 
     if (find_user_by_email($form['email']) !== null) {
@@ -67,32 +90,9 @@ if (is_post()) {
             );
             $user = find_user_by_id($userId);
 
-            if ($user !== null) {
-                login_user($user);
+            if ($user === null) {
+                throw new RuntimeException('A felhasználó létrejött, de nem olvasható vissza.');
             }
-
-            send_admin_activity_notification(
-                'Új ügyfél regisztrált',
-                'Új ügyfél hozott létre fiókot a weboldalon. A regisztrációt nem admin indította.',
-                [
-                    [
-                        'title' => 'Ügyfél adatai',
-                        'rows' => [
-                            ['label' => 'Név', 'value' => $form['requester_name'] ?? '-'],
-                            ['label' => 'Email', 'value' => $form['email'] ?? '-'],
-                            ['label' => 'Telefon', 'value' => $form['phone'] ?? '-'],
-                            ['label' => 'Cím', 'value' => trim((string) ($form['postal_code'] ?? '') . ' ' . (string) ($form['city'] ?? '') . ' ' . (string) ($form['postal_address'] ?? ''))],
-                            ['label' => 'Regisztráció típusa', 'value' => $registrationQuote !== null ? 'Elfogadott árajánlatból' : 'Önálló ügyfélregisztráció'],
-                        ],
-                    ],
-                ],
-                [
-                    ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
-                ],
-                ['email' => $form['email'], 'name' => $form['requester_name']],
-                null,
-                'Ügyfél regisztráció'
-            );
 
             $redirectPath = '/customer/work-request';
 
@@ -121,13 +121,16 @@ if (is_post()) {
                 }
             }
 
-            set_flash(
-                'success',
-                $redirectPath === '/customer/work-request'
-                    ? 'Sikeres regisztráció. Most add meg az igény adatait, és töltsd fel a fájlokat.'
-                    : 'Sikeres regisztráció. A korábban rögzített igényedet innen tudod folytatni.'
-            );
-            redirect($redirectPath);
+            set_pending_email_verification_redirect($userId, $redirectPath);
+            $verificationCode = create_email_verification_code($userId);
+            $verificationResult = send_email_verification_email($user, $verificationCode);
+
+            if (!$verificationResult['ok']) {
+                throw new RuntimeException((string) $verificationResult['message']);
+            }
+
+            set_flash('success', 'Elküldtük a 6 számjegyű megerősítő kódot emailben. A regisztráció a kód megadása után lesz aktív.');
+            redirect('/verify-email?email=' . rawurlencode((string) $user['email']));
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'A regisztráció sikertelen.';
         }
@@ -147,6 +150,14 @@ if (is_post()) {
 
             <?php if ($flash !== null): ?>
                 <div class="alert alert-<?= h((string) $flash['type']); ?>"><p><?= h((string) $flash['message']); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($emailVerificationErrors !== []): ?>
+                <div class="alert alert-info">
+                    <p><strong>Email megerősítés beállítása szükséges.</strong></p>
+                    <p>Futtasd le phpMyAdminban a <strong>database/email_verification.sql</strong> fájlt, majd próbáld újra a regisztrációt.</p>
+                    <?php foreach ($emailVerificationErrors as $emailVerificationError): ?><p><?= h($emailVerificationError); ?></p><?php endforeach; ?>
+                </div>
             <?php endif; ?>
 
             <?php if ($errors !== []): ?>
@@ -207,6 +218,22 @@ if (is_post()) {
                     <input type="checkbox" name="contact_data_accepted" value="1" <?= (int) $form['contact_data_accepted'] === 1 ? 'checked' : ''; ?>>
                     <span>A kapcsolattartási adataim megegyeznek az ajánlatkérő adataival</span>
                 </label>
+
+                <div class="legal-consent-group" role="group" aria-labelledby="customer-legal-consents-title">
+                    <p id="customer-legal-consents-title" class="legal-consent-title">A regisztráció csak akkor küldhető be, ha mindhárom jogi dokumentumot elolvastad és elfogadtad.</p>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_aszf_accepted" value="1" required <?= !empty($_POST['legal_aszf_accepted']) ? 'checked' : ''; ?>>
+                        <span>Elolvastam és elfogadom az <a href="<?= h(url_path('/aszf')); ?>" target="_blank" rel="noopener">Általános Szerződési Feltételeket (ÁSZF)</a>.</span>
+                    </label>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_privacy_accepted" value="1" required <?= !empty($_POST['legal_privacy_accepted']) ? 'checked' : ''; ?>>
+                        <span>Elolvastam és megismertem az <a href="<?= h(url_path('/adatkezelesi-tajekoztato')); ?>" target="_blank" rel="noopener">Adatkezelési tájékoztatót</a>.</span>
+                    </label>
+                    <label class="checkbox-row legal-consent-row">
+                        <input type="checkbox" name="legal_processor_accepted" value="1" required <?= !empty($_POST['legal_processor_accepted']) ? 'checked' : ''; ?>>
+                        <span>Elolvastam és elfogadom az <a href="<?= h(url_path('/adatfeldolgozoi-megallapodas')); ?>" target="_blank" rel="noopener">Adatfeldolgozói megállapodást</a>.</span>
+                    </label>
+                </div>
 
                 <button class="button" type="submit">Regisztráció</button>
             </form>

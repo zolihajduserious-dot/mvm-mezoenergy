@@ -11,13 +11,38 @@ $form = normalize_electrician_data(['is_active' => 1]);
 if (is_post() && $schemaErrors === []) {
     require_valid_csrf_token();
 
+    $action = (string) ($_POST['action'] ?? 'create_electrician');
+
+    if ($action === 'delete_electrician') {
+        if (!is_admin_user()) {
+            set_flash('error', 'Szerelői fiókot törölni csak főadmin jogosultsággal lehet.');
+            redirect('/admin/electricians');
+        }
+
+        $deleteUserId = filter_input(INPUT_POST, 'user_id', FILTER_VALIDATE_INT);
+
+        if (!$deleteUserId) {
+            set_flash('error', 'A törlendő szerelői fiók nem található.');
+            redirect('/admin/electricians');
+        }
+
+        try {
+            $summary = delete_user_account_with_related_data((int) $deleteUserId);
+            set_flash('success', 'A szerelői fiók törölve: ' . (string) ($summary['user_name'] ?? ''));
+        } catch (Throwable $exception) {
+            set_flash('error', APP_DEBUG ? $exception->getMessage() : 'A szerelői fiók törlése sikertelen.');
+        }
+
+        redirect('/admin/electricians');
+    }
+
     $form = normalize_electrician_data($_POST);
     $password = (string) ($_POST['password'] ?? '');
     $errors = validate_electrician_data($form, true, $password);
 
     if ($errors === []) {
         try {
-            create_electrician_account($form, $password);
+            create_electrician_account($form, $password, true);
             set_flash('success', 'A szerelői fiók elkészült.');
             redirect('/admin/electricians');
         } catch (Throwable $exception) {
@@ -58,11 +83,12 @@ $electricians = $schemaErrors === [] ? electrician_users(false) : [];
 
                     <form class="form" method="post" action="<?= h(url_path('/admin/electricians')); ?>">
                         <?= csrf_field(); ?>
+                        <input type="hidden" name="action" value="create_electrician">
                         <label for="name">Név</label>
                         <input id="name" name="name" value="<?= h($form['name']); ?>" required>
 
                         <label for="phone">Telefon</label>
-                        <input id="phone" name="phone" value="<?= h($form['phone']); ?>">
+                        <input id="phone" name="phone" value="<?= h($form['phone']); ?>" required>
 
                         <label for="email">Email</label>
                         <input id="email" name="email" type="email" value="<?= h($form['email']); ?>" required>
@@ -95,7 +121,16 @@ $electricians = $schemaErrors === [] ? electrician_users(false) : [];
                                         <?= h((string) $electrician['email']); ?>
                                         <?= !empty($electrician['phone']) ? ' · ' . h((string) $electrician['phone']) : ''; ?>
                                         <?= (int) $electrician['is_active'] === 1 ? '' : ' · inaktív'; ?>
+                                        <?= user_email_verification_column_exists() ? (trim((string) ($electrician['email_verified_at'] ?? '')) !== '' ? ' · email megerősítve' : ' · email nincs megerősítve') : ''; ?>
                                     </span>
+                                    <?php if (is_admin_user()): ?>
+                                        <form method="post" action="<?= h(url_path('/admin/electricians')); ?>" onsubmit="return confirm('Biztosan törlöd ezt a szerelői fiókot?');">
+                                            <?= csrf_field(); ?>
+                                            <input type="hidden" name="action" value="delete_electrician">
+                                            <input type="hidden" name="user_id" value="<?= (int) $electrician['user_id']; ?>">
+                                            <button class="table-action-button table-action-danger" type="submit">Törlés</button>
+                                        </form>
+                                    <?php endif; ?>
                                 </li>
                             <?php endforeach; ?>
                         </div>

@@ -55,16 +55,35 @@ if (is_post() && $usersTableReady) {
 
     if ($errors === []) {
         $user = find_user_by_email($email);
+        $loginMatched = $user !== null
+            && password_verify($password, (string) $user['password_hash']);
 
-        if (
-            $user !== null
-            && password_verify($password, (string) $user['password_hash'])
-        ) {
-            login_user($user);
-            redirect($requestedReturnPath ?? dashboard_path_for_user($user));
+        if ($loginMatched) {
+            if (!user_email_is_verified($user)) {
+                try {
+                    $verificationCode = create_email_verification_code((int) $user['id']);
+                    $verificationResult = send_email_verification_email($user, $verificationCode);
+
+                    if (!$verificationResult['ok']) {
+                        $errors[] = (string) $verificationResult['message'];
+                    } else {
+                        set_flash('success', 'A belépéshez előbb erősítsd meg az email címedet. Új kódot küldtünk.');
+                        redirect('/verify-email?email=' . rawurlencode((string) $user['email']));
+                    }
+                } catch (Throwable $exception) {
+                    $errors[] = APP_DEBUG ? $exception->getMessage() : 'A megerősítő kód küldése sikertelen.';
+                }
+            }
+
+            if ($errors === []) {
+                login_user($user);
+                redirect($requestedReturnPath ?? dashboard_path_for_user($user));
+            }
         }
 
-        $errors[] = 'Hibás email cím vagy jelszó.';
+        if (!$loginMatched) {
+            $errors[] = 'Hibás email cím vagy jelszó.';
+        }
     }
 }
 ?>
@@ -129,6 +148,7 @@ if (is_post() && $usersTableReady) {
                     <?php if ($currentLoginRoute !== 'electrician/login'): ?>
                         <a href="<?= h(url_path($electricianLoginPath)); ?>">Szerelői belépés</a>
                     <?php endif; ?>
+                    <a href="<?= h(url_path('/verify-email')); ?>">Megerősítő kód megadása</a>
                     <a href="<?= h(url_path('/forgot-password')); ?>">Elfelejtetted a jelszavad?</a>
                 </div>
             <?php endif; ?>

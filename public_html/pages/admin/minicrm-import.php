@@ -72,6 +72,15 @@ if (is_post() && ($_POST['action'] ?? '') === 'upload_minicrm_work_files') {
     redirect('/admin/minicrm-import?item=' . $workItemId . '#minicrm-work-' . $workItemId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'save_work_custom_fields') {
+    require_valid_csrf_token();
+
+    $workItemId = max(0, (int) ($_POST['work_item_id'] ?? 0));
+    crm_custom_field_save_post_values('work_item', $workItemId, 'work_detail', $_POST);
+    set_flash('success', 'Az egyedi CRM mezők mentve lettek.');
+    redirect('/admin/minicrm-import?item=' . $workItemId . '#work-custom-fields-' . $workItemId);
+}
+
 if (is_post() && ($_POST['action'] ?? '') === 'delete_minicrm_work_file') {
     require_valid_csrf_token();
 
@@ -1146,6 +1155,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
     </form>
     <?php
 }
+
+$crmWorkLabel = static fn (string $fieldKey, string $defaultLabel): string => crm_custom_field_label('work_detail', $fieldKey, $defaultLabel);
+$crmCustomerLabel = static fn (string $fieldKey, string $defaultLabel): string => crm_custom_field_label('customer_record', $fieldKey, $defaultLabel);
 ?>
 <section class="admin-section minicrm-import-page">
     <div class="container admin-requests-container">
@@ -1349,14 +1361,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                     <div class="minicrm-status-groups" data-minicrm-list>
                         <?php foreach ($itemsByStatus as $statusName => $statusItems): ?>
                             <?php $statusClass = minicrm_status_class((string) $statusName); ?>
-                            <section class="minicrm-status-group" id="minicrm-status-<?= h(minicrm_import_dom_id((string) $statusName)); ?>" data-minicrm-status-group>
-                                <header class="minicrm-status-group-head">
+                            <details class="minicrm-status-group" id="minicrm-status-<?= h(minicrm_import_dom_id((string) $statusName)); ?>" data-minicrm-status-group>
+                                <summary class="minicrm-status-group-head">
                                     <div>
                                         <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) $statusName); ?></span>
                                         <strong><?= count($statusItems); ?> munka</strong>
                                     </div>
                                     <span data-minicrm-status-count><?= count($statusItems); ?> látható</span>
-                                </header>
+                                </summary>
 
                                 <?php if (can_view_super_admin_overview() && minicrm_import_key((string) $statusName) === 'szabo dezso 5'): ?>
                                     <?php $szaboPowerPreview = minicrm_szabo_dezso_5_apartment_power_preview($statusItems); ?>
@@ -1450,6 +1462,8 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                 $displayWorkNote,
                                 $siteAddress,
                             ]);
+                            $workCustomFields = $isSelectedItem ? crm_layout_custom_fields_for_area('work_detail') : [];
+                            $workCustomFieldValues = ($isSelectedItem && $workCustomFields !== []) ? crm_custom_field_value_rows('work_item', $itemId) : [];
                             ?>
                             <details class="admin-workflow-request minicrm-work-row" id="minicrm-work-<?= $itemId; ?>" data-minicrm-item data-minicrm-search-text="<?= h($searchText); ?>" data-minicrm-loaded="<?= $isSelectedItem ? '1' : '0'; ?>" data-minicrm-detail-url="<?= h($detailUrl); ?>" <?= $isSelectedItem ? 'open' : ''; ?>>
                                 <summary class="admin-workflow-request-summary minicrm-work-row-summary">
@@ -1514,9 +1528,9 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                     <div class="minicrm-work-detail-layout">
                                         <aside class="minicrm-work-facts">
                                             <dl>
-                                                <div><dt>Ügyfél</dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
+                                                <div><dt><?= h($crmWorkLabel('customer_name', 'Ügyfél')); ?></dt><dd><?= h((string) ($item['customer_name'] ?: $item['card_name'] ?: '-')); ?></dd></div>
                                                 <div>
-                                                    <dt><label for="minicrm_mvm_uk_number_<?= $itemId; ?>">ÜK szám</label></dt>
+                                                    <dt><label for="minicrm_mvm_uk_number_<?= $itemId; ?>"><?= h($crmWorkLabel('mvm_uk_number', 'ÜK szám')); ?></label></dt>
                                                     <dd>
                                                         <form class="portal-customer-email-form" method="post" action="<?= h($detailUrl); ?>">
                                                             <?= csrf_field(); ?>
@@ -1528,7 +1542,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                     </dd>
                                                 </div>
                                                 <div class="admin-request-data-wide">
-                                                    <dt><label for="minicrm_work_note_<?= $itemId; ?>">Munka megjegyzés</label></dt>
+                                                    <dt><label for="minicrm_work_note_<?= $itemId; ?>"><?= h($crmWorkLabel('work_note', 'Munka megjegyzés')); ?></label></dt>
                                                     <dd>
                                                         <form class="portal-assignment-form" method="post" action="<?= h($detailUrl); ?>">
                                                             <?= csrf_field(); ?>
@@ -1540,7 +1554,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                     </dd>
                                                 </div>
                                                 <div>
-                                                    <dt>Email</dt>
+                                                    <dt><?= h($crmWorkLabel('email', 'Email')); ?></dt>
                                                     <dd>
                                                         <?php if (is_array($linkedMvmRequest)): ?>
                                                             <form class="portal-customer-email-form" method="post" action="<?= h($detailUrl); ?>">
@@ -1556,14 +1570,49 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                         <?php endif; ?>
                                                     </dd>
                                                 </div>
-                                                <div><dt>Telefon</dt><dd><?= phone_link_html($profilePhone, 'Nincs importalt telefon'); ?></dd></div>
-                                                <div><dt>Felelős</dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
-                                                <div><dt>Cím</dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
-                                                <div><dt>HRSZ</dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
-                                                <div><dt>Munka típusa</dt><dd><?= h((string) ($item['work_type'] ?: $item['work_kind'] ?: '-')); ?></dd></div>
-                                                <div><dt>Mérő</dt><dd><?= h((string) ($item['meter_serial'] ?: $item['controlled_meter_serial'] ?: '-')); ?></dd></div>
+                                                <div><dt><?= h($crmWorkLabel('phone', 'Telefon')); ?></dt><dd><?= phone_link_html($profilePhone, 'Nincs importalt telefon'); ?></dd></div>
+                                                <div><dt><?= h($crmWorkLabel('responsible', 'Felelős')); ?></dt><dd><?= h((string) ($item['responsible'] ?: '-')); ?></dd></div>
+                                                <div><dt><?= h($crmWorkLabel('site_address', 'Cím')); ?></dt><dd><?= h($siteAddress !== '' ? $siteAddress : '-'); ?></dd></div>
+                                                <div><dt><?= h($crmWorkLabel('hrsz', 'HRSZ')); ?></dt><dd><?= h((string) ($item['hrsz'] ?: '-')); ?></dd></div>
+                                                <div><dt><?= h($crmCustomerLabel('request_type', 'Munka típusa')); ?></dt><dd><?= h((string) ($item['work_type'] ?: $item['work_kind'] ?: '-')); ?></dd></div>
+                                                <div><dt><?= h($crmCustomerLabel('meter_serial', 'Mérő')); ?></dt><dd><?= h((string) ($item['meter_serial'] ?: $item['controlled_meter_serial'] ?: '-')); ?></dd></div>
                                                 <div><dt>Leadás</dt><dd><?= h((string) ($item['submitted_date'] ?: '-')); ?></dd></div>
                                             </dl>
+
+                                            <?php if ($workCustomFields !== []): ?>
+                                                <section class="minicrm-compact-docs" id="work-custom-fields-<?= $itemId; ?>">
+                                                    <h3>Egyedi CRM mezők <span><?= count($workCustomFields); ?></span></h3>
+                                                    <form class="form" method="post" action="<?= h($detailUrl . '#work-custom-fields-' . $itemId); ?>">
+                                                        <?= csrf_field(); ?>
+                                                        <input type="hidden" name="action" value="save_work_custom_fields">
+                                                        <input type="hidden" name="work_item_id" value="<?= $itemId; ?>">
+                                                        <?php foreach ($workCustomFields as $customField): ?>
+                                                            <?php
+                                                            $customFieldKey = (string) $customField['field_key'];
+                                                            $customFieldInputName = 'crm_custom_field_' . $customFieldKey;
+                                                            $customFieldValue = (string) ($workCustomFieldValues[$customFieldKey] ?? '');
+                                                            $customFieldType = (string) ($customField['input_type'] ?? 'text');
+                                                            ?>
+                                                            <?php if ($customFieldType === 'section'): ?>
+                                                                <h4><?= h((string) $customField['label']); ?></h4>
+                                                            <?php elseif ($customFieldType === 'checkbox'): ?>
+                                                                <label class="checkbox-row" for="<?= h($customFieldInputName); ?>">
+                                                                    <input id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" type="checkbox" value="1" <?= $customFieldValue !== '' ? 'checked' : ''; ?>>
+                                                                    <span><?= h((string) $customField['label']); ?></span>
+                                                                </label>
+                                                            <?php elseif ($customFieldType === 'textarea'): ?>
+                                                                <label for="<?= h($customFieldInputName); ?>"><?= h((string) $customField['label']); ?></label>
+                                                                <textarea id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" rows="3" placeholder="<?= h((string) ($customField['placeholder'] ?? '')); ?>"><?= h($customFieldValue); ?></textarea>
+                                                            <?php else: ?>
+                                                                <label for="<?= h($customFieldInputName); ?>"><?= h((string) $customField['label']); ?></label>
+                                                                <input id="<?= h($customFieldInputName); ?>" name="<?= h($customFieldInputName); ?>" type="<?= in_array($customFieldType, ['date', 'number', 'email', 'tel'], true) ? h($customFieldType) : 'text'; ?>" value="<?= h($customFieldValue); ?>" placeholder="<?= h((string) ($customField['placeholder'] ?? '')); ?>">
+                                                            <?php endif; ?>
+                                                            <?php if ((string) ($customField['help_text'] ?? '') !== ''): ?><p class="muted-text"><?= h((string) $customField['help_text']); ?></p><?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                        <button class="button button-secondary" type="submit">Egyedi mezők mentése</button>
+                                                    </form>
+                                                </section>
+                                            <?php endif; ?>
 
                                             <section class="minicrm-compact-docs">
                                                 <h3><?= $localFiles !== [] ? 'Régi MiniCRM linkek' : 'MiniCRM linkek'; ?> <span><?= count($actualDocumentLinks); ?></span></h3>
@@ -1986,7 +2035,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             </details>
                                     <?php endforeach; ?>
                                 </div>
-                            </section>
+                            </details>
                         <?php endforeach; ?>
 
                         <?php $portalGroupIndex = 0; ?>
@@ -1997,14 +2046,14 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                             $requestGroupClass = (string) ($requestGroupDefinition['variant'] ?? 'finalized');
                             $portalGroupDomId = minicrm_import_portal_group_dom_id((string) $workflowStage, $portalGroupIndex);
                             ?>
-                        <section class="minicrm-status-group" id="<?= h($portalGroupDomId); ?>" data-minicrm-status-group>
-                            <header class="minicrm-status-group-head">
+                        <details class="minicrm-status-group" id="<?= h($portalGroupDomId); ?>" data-minicrm-status-group>
+                            <summary class="minicrm-status-group-head">
                                 <div>
                                     <span class="status-badge status-badge-<?= h($requestGroupClass); ?>"><?= h($requestGroupName); ?></span>
                                     <strong><?= count($requestItems); ?> port&#225;los munka</strong>
                                 </div>
                                 <span data-minicrm-status-count><?= count($requestItems); ?> l&#225;that&#243;</span>
-                            </header>
+                            </summary>
 
                                 <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $requestGroupName); ?> port&#225;los munk&#225;k">
                                     <div class="minicrm-work-table-head" role="row">
@@ -2143,48 +2192,48 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                 <input type="hidden" name="request_id" value="<?= $requestId; ?>">
                                                                 <dl>
                                                                     <div>
-                                                                        <dt><label for="portal_project_name_<?= $requestId; ?>">Adatlap neve</label></dt>
+                                                                        <dt><label for="portal_project_name_<?= $requestId; ?>"><?= h($crmCustomerLabel('project_name', 'Adatlap neve')); ?></label></dt>
                                                                         <dd><input id="portal_project_name_<?= $requestId; ?>" name="project_name" value="<?= h($requestProjectName); ?>" placeholder="Automatikus n&#233;v"></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_requester_name_<?= $requestId; ?>">&#220;gyf&#233;l</label></dt>
+                                                                        <dt><label for="portal_requester_name_<?= $requestId; ?>"><?= h($crmCustomerLabel('requester_name', 'Ügyfél')); ?></label></dt>
                                                                         <dd><input id="portal_requester_name_<?= $requestId; ?>" name="requester_name" value="<?= h($requestCustomerName !== '-' ? $requestCustomerName : ''); ?>" required></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_customer_email_<?= $requestId; ?>">Email</label></dt>
+                                                                        <dt><label for="portal_customer_email_<?= $requestId; ?>"><?= h($crmCustomerLabel('email', 'Email')); ?></label></dt>
                                                                         <dd><input id="portal_customer_email_<?= $requestId; ?>" name="customer_email" type="email" autocomplete="email" value="<?= h($displayEmail); ?>" placeholder="ugyfel@email.hu" required></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_customer_phone_<?= $requestId; ?>">Telefon</label></dt>
+                                                                        <dt><label for="portal_customer_phone_<?= $requestId; ?>"><?= h($crmCustomerLabel('phone', 'Telefon')); ?></label></dt>
                                                                         <dd>
                                                                             <input id="portal_customer_phone_<?= $requestId; ?>" name="phone" type="tel" autocomplete="tel" value="<?= h($displayPhone); ?>">
                                                                             <?php if ($displayPhone !== ''): ?><div class="phone-field-call"><?= phone_link_html($displayPhone, ''); ?></div><?php endif; ?>
                                                                         </dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_mvm_uk_number_<?= $requestId; ?>">&#220;K sz&#225;m</label></dt>
+                                                                        <dt><label for="portal_mvm_uk_number_<?= $requestId; ?>"><?= h($crmCustomerLabel('mvm_uk_number', 'ÜK szám')); ?></label></dt>
                                                                         <dd><input id="portal_mvm_uk_number_<?= $requestId; ?>" name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM &#220;K sz&#225;m"></dd>
                                                                     </div>
                                                                     <div class="admin-request-data-wide">
-                                                                        <dt>Munka megjegyz&#233;s</dt>
+                                                                        <dt><?= h($crmWorkLabel('work_note', 'Munka megjegyzés')); ?></dt>
                                                                         <dd><?= h($requestWorkNote !== '' ? $requestWorkNote : '-'); ?></dd>
                                                                     </div>
                                                                     <div><dt>Szerel&#337;</dt><dd><?= h((string) ($request['electrician_name'] ?? '-')); ?></dd></div>
                                                                     <div><dt>R&#246;gz&#237;tette</dt><dd><?= h($requestSubmitterLabel); ?></dd></div>
                                                                     <div>
-                                                                        <dt><label for="portal_site_postal_code_<?= $requestId; ?>">Ir&#225;ny&#237;t&#243;sz&#225;m</label></dt>
+                                                                        <dt><label for="portal_site_postal_code_<?= $requestId; ?>"><?= h($crmCustomerLabel('site_postal_code', 'Irányítószám')); ?></label></dt>
                                                                         <dd><input id="portal_site_postal_code_<?= $requestId; ?>" name="site_postal_code" value="<?= h($requestSitePostalCode); ?>" inputmode="numeric"></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_site_address_<?= $requestId; ?>">C&#237;m</label></dt>
+                                                                        <dt><label for="portal_site_address_<?= $requestId; ?>"><?= h($crmCustomerLabel('site_address', 'Cím')); ?></label></dt>
                                                                         <dd><input id="portal_site_address_<?= $requestId; ?>" name="site_address" value="<?= h($requestSiteAddressOnly); ?>"></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_hrsz_<?= $requestId; ?>">HRSZ</label></dt>
+                                                                        <dt><label for="portal_hrsz_<?= $requestId; ?>"><?= h($crmCustomerLabel('hrsz', 'HRSZ')); ?></label></dt>
                                                                         <dd><input id="portal_hrsz_<?= $requestId; ?>" name="hrsz" value="<?= h($requestLotNumber); ?>"></dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_request_type_<?= $requestId; ?>">Munka t&#237;pusa</label></dt>
+                                                                        <dt><label for="portal_request_type_<?= $requestId; ?>"><?= h($crmCustomerLabel('request_type', 'Munka típusa')); ?></label></dt>
                                                                         <dd>
                                                                             <select id="portal_request_type_<?= $requestId; ?>" name="request_type">
                                                                                 <?php foreach (connection_request_type_options() as $typeKey => $typeLabel): ?>
@@ -2194,7 +2243,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                                                         </dd>
                                                                     </div>
                                                                     <div>
-                                                                        <dt><label for="portal_meter_serial_<?= $requestId; ?>">M&#233;r&#337;</label></dt>
+                                                                        <dt><label for="portal_meter_serial_<?= $requestId; ?>"><?= h($crmCustomerLabel('meter_serial', 'Mérő')); ?></label></dt>
                                                                         <dd><input id="portal_meter_serial_<?= $requestId; ?>" name="meter_serial" value="<?= h($requestMeterSerial); ?>"></dd>
                                                                     </div>
                                                                     <div><dt>R&#246;gz&#237;tve</dt><dd><?= h((string) ($request['created_at'] ?? '-')); ?></dd></div>
@@ -2634,7 +2683,7 @@ function minicrm_customer_profile_inline_import_form(int $itemId, array $schemaE
                                         </details>
                                     <?php endforeach; ?>
                                 </div>
-                        </section>
+                        </details>
                             <?php $portalGroupIndex++; ?>
                         <?php endforeach; ?>
                     </div>

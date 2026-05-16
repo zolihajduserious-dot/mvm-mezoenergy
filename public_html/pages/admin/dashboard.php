@@ -8,11 +8,13 @@ $flash = get_flash();
 $canManageMvmDocuments = can_manage_mvm_documents();
 $canManagePriceItems = can_manage_price_items();
 $canManageAdminUsers = can_manage_admin_users();
+$canManageUiModules = can_manage_ui_modules();
 $customerCount = null;
 $connectionRequestCount = null;
 $priceItemCount = null;
 $documentCount = null;
 $electricianCount = null;
+$contractorCount = null;
 $staffUserCount = null;
 $minicrmImportCount = null;
 $standaloneConnectionRequestCount = null;
@@ -233,6 +235,7 @@ try {
     $priceItemCount = db_table_exists('quote_price_items') ? (int) db_query('SELECT COUNT(*) FROM `quote_price_items`')->fetchColumn() : 0;
     $documentCount = db_table_exists('download_documents') ? (int) db_query('SELECT COUNT(*) FROM `download_documents`')->fetchColumn() : 0;
     $electricianCount = db_table_exists('electricians') ? (int) db_query('SELECT COUNT(*) FROM `electricians`')->fetchColumn() : 0;
+    $contractorCount = db_table_exists('contractors') ? (int) db_query('SELECT COUNT(*) FROM `contractors`')->fetchColumn() : 0;
     $staffUserCount = users_table_exists() ? (int) db_query('SELECT COUNT(*) FROM `users` WHERE `role` IN (?, ?) OR `is_admin` = ?', ['admin', 'specialist', 1])->fetchColumn() : 0;
     $minicrmImportCount = db_table_exists('minicrm_work_items') ? (int) db_query('SELECT COUNT(*) FROM `minicrm_work_items`')->fetchColumn() : 0;
     $standaloneConnectionRequestCount = $connectionRequestCount;
@@ -306,6 +309,13 @@ $dashboardCards = [
         'variant' => 'system',
     ],
     [
+        'label' => 'Generálkivitelezők',
+        'value' => $contractorCount ?? '-',
+        'description' => 'Generálkivitelezői fiókok áttekintése és felhasználók törlése.',
+        'href' => '/admin/contractors',
+        'variant' => 'system',
+    ],
+    [
         'label' => 'Dokumentumtár',
         'value' => $documentCount ?? '-',
         'description' => 'Letölthető meghatalmazások, nyilatkozatok és ügyintézési dokumentumok.',
@@ -341,6 +351,13 @@ $dashboardCards = [
         'value' => $electricianCount ?? '-',
         'description' => 'Szerelői fiókok kezelése és munkák kiadása.',
         'href' => '/admin/electricians',
+        'variant' => 'system',
+    ],
+    [
+        'label' => 'Generálkivitelezők',
+        'value' => $contractorCount ?? '-',
+        'description' => 'Generálkivitelezői fiókok áttekintése és felhasználók törlése.',
+        'href' => '/admin/contractors',
         'variant' => 'system',
     ],
     [
@@ -381,6 +398,16 @@ if ($canManageAdminUsers) {
         'href' => '/admin/super-overview',
         'variant' => 'primary',
     ];
+
+    if ($canManageUiModules) {
+        $dashboardCards[] = [
+            'label' => 'CRM testreszabás',
+            'value' => 'Admin',
+            'description' => 'Modulok, mezőfeliratok és egyedi CRM elemek kezelése szuperadmin jogosultsággal.',
+            'href' => '/admin/crm-customization',
+            'variant' => 'system',
+        ];
+    }
 
     $dashboardCards[] = [
         'label' => 'Adminisztrátorok',

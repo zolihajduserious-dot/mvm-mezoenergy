@@ -7,7 +7,7 @@ $schemaErrors = electrician_schema_errors();
 $user = current_user();
 $electrician = current_electrician();
 
-if (!is_array($user) || ($schemaErrors === [] && $electrician === null)) {
+if (!is_array($user) || ($schemaErrors === [] && $electrician === null && !is_admin_user())) {
     set_flash('error', 'A szereloi adatok nem talalhatok.');
     redirect('/login');
 }
@@ -167,14 +167,14 @@ function electrician_work_status_class(string $status): string
                         <div class="minicrm-status-groups" data-electrician-list>
                             <?php foreach ($requestsByStatus as $statusKey => $statusGroup): ?>
                                 <?php $statusClass = electrician_work_status_class((string) $statusKey); ?>
-                                <section class="minicrm-status-group" id="electrician-status-<?= h(electrician_work_dom_id((string) $statusKey)); ?>" data-electrician-status-group>
-                                    <header class="minicrm-status-group-head">
+                                <details class="minicrm-status-group" id="electrician-status-<?= h(electrician_work_dom_id((string) $statusKey)); ?>" data-electrician-status-group>
+                                    <summary class="minicrm-status-group-head">
                                         <div>
                                             <span class="status-badge status-badge-<?= h($statusClass); ?>"><?= h((string) $statusGroup['label']); ?></span>
                                             <strong><?= count($statusGroup['items']); ?> munka</strong>
                                         </div>
                                         <span data-electrician-status-count><?= count($statusGroup['items']); ?> l&#225;that&#243;</span>
-                                    </header>
+                                    </summary>
 
                                     <div class="minicrm-work-table" role="table" aria-label="<?= h((string) $statusGroup['label']); ?> munkak">
                                         <div class="minicrm-work-table-head" role="row">
@@ -433,7 +433,7 @@ function electrician_work_status_class(string $status): string
                                             </details>
                                         <?php endforeach; ?>
                                     </div>
-                                </section>
+                                </details>
                             <?php endforeach; ?>
                         </div>
                     </section>
