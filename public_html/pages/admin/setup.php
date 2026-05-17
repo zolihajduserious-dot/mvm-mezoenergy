@@ -78,7 +78,7 @@ if (is_post() && $usersTableReady) {
 
             <?php if (!$usersTableReady): ?>
                 <div class="alert alert-error">
-                    Előbb futtasd le a <strong>database/schema.sql</strong>, majd a <strong>database/quote_price_items_catalog.sql</strong>, <strong>database/quote_response_actions.sql</strong>, <strong>database/quote_assignment_guard.sql</strong>, <strong>database/admin_workflow_stages.sql</strong>, <strong>database/connection_request_drafts.sql</strong>, <strong>database/connection_request_types.sql</strong>, <strong>database/mvm_docx_form.sql</strong>, <strong>database/password_reset_tokens.sql</strong> és <strong>database/email_verification.sql</strong> fájlt phpMyAdminban.
+                    Előbb futtasd le a <strong>database/schema.sql</strong>, majd a <strong>database/quote_price_items_catalog.sql</strong>, <strong>database/quote_response_actions.sql</strong>, <strong>database/quote_fee_request_issuer.sql</strong>, <strong>database/quote_assignment_guard.sql</strong>, <strong>database/admin_workflow_stages.sql</strong>, <strong>database/connection_request_drafts.sql</strong>, <strong>database/connection_request_types.sql</strong>, <strong>database/mvm_docx_form.sql</strong>, <strong>database/password_reset_tokens.sql</strong> és <strong>database/email_verification.sql</strong> fájlt phpMyAdminban.
                 </div>
             <?php endif; ?>
 

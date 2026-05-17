@@ -66,6 +66,12 @@ Az ügyféloldali ajánlat-elfogadás és egyeztetés kérése funkcióhoz futta
 database/quote_response_actions.sql
 ```
 
+A választható díjbekérő-kibocsátóhoz futtasd:
+
+```text
+database/quote_fee_request_issuer.sql
+```
+
 Az ügyféloldali igénypiszkozatokhoz, utólagos dokumentumfeltöltéshez és lezáráshoz futtasd:
 
 ```text

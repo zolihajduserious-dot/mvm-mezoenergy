@@ -69,6 +69,7 @@ $feeRequestSelection = quote_fee_request_selection((int) $quote['id']);
 $feeRequestLine = is_array($feeRequestSelection['line'] ?? null) ? $feeRequestSelection['line'] : null;
 $feeRequestFileUrl = quote_fee_request_file_is_available($quote) ? url_path('/admin/quotes/fee-request-file') . '?id=' . (int) $quote['id'] : null;
 $feeRequestBlockedMessage = null;
+$feeRequestIssuerLabel = quote_fee_request_issuer_label($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer());
 $serviceFeeOptions = service_fee_request_options();
 $quoteEditUrl = url_path('/admin/quotes/edit') . '?id=' . (int) $quote['id'];
 $quoteSendActionUrl = url_path('/admin/quotes/send') . '?id=' . (int) $quote['id'];
@@ -88,8 +89,8 @@ if ((string) ($quote['status'] ?? '') !== 'accepted') {
     $feeRequestBlockedMessage = (string) $feeRequestSelection['message'];
 } elseif ($feeRequestFileUrl !== null) {
     $feeRequestBlockedMessage = 'A díjbekérő már elkészült, a PDF innen megnyitható.';
-} elseif (szamlazz_config_value('SZAMLAZZ_AGENT_KEY') === '') {
-    $feeRequestBlockedMessage = 'Nincs beállítva a Számlázz.hu Agent kulcs.';
+} elseif (szamlazz_quote_fee_request_agent_key($quote) === '') {
+    $feeRequestBlockedMessage = 'Nincs beállítva a kiválasztott díjbekérő-kibocsátó Számlázz.hu Agent kulcsa.';
 }
 ?>
 <section class="admin-section">
@@ -120,6 +121,10 @@ if ((string) ($quote['status'] ?? '') !== 'accepted') {
                 <div>
                     <span>Összeg</span>
                     <strong><?= h($quoteTotal); ?></strong>
+                </div>
+                <div>
+                    <span>Díjbekérő</span>
+                    <strong><?= h($feeRequestIssuerLabel); ?></strong>
                 </div>
             </div>
 

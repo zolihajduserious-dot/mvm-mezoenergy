@@ -264,6 +264,7 @@ $form = [
     'phone' => '',
     'subject' => APP_NAME . ' árajánlat',
     'customer_message' => '',
+    'fee_request_issuer' => quote_fee_request_default_issuer(),
 ];
 $requestForm = normalize_connection_request_data($request ?? [
     'request_type' => 'phase_upgrade',
@@ -289,6 +290,7 @@ if ($quote !== null) {
         'phone' => (string) ($quote['phone'] ?? ''),
         'subject' => (string) ($quote['subject'] ?? (APP_NAME . ' árajánlat')),
         'customer_message' => (string) ($quote['customer_message'] ?? ''),
+        'fee_request_issuer' => quote_fee_request_issuer_for_quote($quote),
     ];
     $survey = quote_survey(isset($quote['survey_id']) ? (int) $quote['survey_id'] : null);
     $surveyForm = normalize_survey_data($survey ?? ($request !== null ? connection_request_quote_survey_seed($request) : []));
@@ -299,6 +301,7 @@ if ($quote !== null) {
         'phone' => (string) ($request['phone'] ?? ''),
         'subject' => APP_NAME . ' árajánlat' . (!empty($request['project_name']) ? ' - ' . (string) $request['project_name'] : ''),
         'customer_message' => '',
+        'fee_request_issuer' => quote_fee_request_default_issuer(),
     ];
     $requestForm = normalize_connection_request_data($request);
     $surveyForm = normalize_survey_data(connection_request_quote_survey_seed($request));
@@ -309,6 +312,7 @@ if ($quote !== null) {
         'phone' => (string) ($customer['phone'] ?? ''),
         'subject' => APP_NAME . ' árajánlat',
         'customer_message' => '',
+        'fee_request_issuer' => quote_fee_request_default_issuer(),
     ];
     $requestForm['site_address'] = (string) ($customer['postal_address'] ?? '');
     $requestForm['site_postal_code'] = (string) ($customer['postal_code'] ?? '');
@@ -366,6 +370,7 @@ if (is_post()) {
             'phone' => trim((string) ($_POST['phone'] ?? '')),
             'subject' => trim((string) ($_POST['subject'] ?? (APP_NAME . ' árajánlat'))),
             'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+            'fee_request_issuer' => normalize_quote_fee_request_issuer($_POST['fee_request_issuer'] ?? quote_fee_request_default_issuer()),
         ];
         $requestForm = normalize_connection_request_data($_POST);
         $customerSeed = normalize_customer_data($customer ?? [
@@ -425,6 +430,9 @@ if (is_post()) {
             'phone' => trim((string) ($_POST['phone'] ?? '')),
             'subject' => trim((string) ($_POST['subject'] ?? '')),
             'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+            'fee_request_issuer' => is_staff_user()
+                ? normalize_quote_fee_request_issuer($_POST['fee_request_issuer'] ?? quote_fee_request_default_issuer())
+                : quote_fee_request_issuer_for_quote($quote),
         ];
         $requestForm = normalize_connection_request_data($_POST);
         $surveyForm = normalize_survey_data([
@@ -553,6 +561,9 @@ if (is_post()) {
             'phone' => trim((string) ($_POST['phone'] ?? '')),
             'subject' => trim((string) ($_POST['subject'] ?? '')),
             'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+            'fee_request_issuer' => is_staff_user()
+                ? normalize_quote_fee_request_issuer($_POST['fee_request_issuer'] ?? quote_fee_request_default_issuer())
+                : quote_fee_request_default_issuer(),
         ];
         $requestForm = normalize_connection_request_data($_POST);
         $customerSeed = normalize_customer_data($customer ?? [
@@ -657,6 +668,7 @@ if (is_post()) {
             $quoteForm = [
                 'subject' => $form['subject'],
                 'customer_message' => $form['customer_message'],
+                'fee_request_issuer' => $form['fee_request_issuer'],
             ];
 
             try {
@@ -747,6 +759,8 @@ $feeRequestFileUrl = $quote !== null && quote_fee_request_file_is_available($quo
     : null;
 $feeRequestSmsState = $quote !== null ? quote_fee_request_reminder_sms_state((int) $quote['id']) : null;
 $latestFeeRequestSmsLog = $quote !== null ? quote_latest_sms_log((int) $quote['id']) : null;
+$feeRequestIssuerLabel = $quote !== null ? quote_fee_request_issuer_label($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer()) : quote_fee_request_issuer_label($form['fee_request_issuer']);
+$feeRequestIssuerAgentKey = $quote !== null ? szamlazz_quote_fee_request_agent_key($quote) : '';
 $quickQuoteCreateAction = url_path('/quick-quote');
 
 if ($quote === null) {
@@ -798,6 +812,7 @@ if ($quote === null) {
                     <div><span>Ügyfél</span><strong><?= h((string) $quote['requester_name']); ?></strong></div>
                     <div><span>Email</span><strong><?= h((string) $quote['email']); ?></strong></div>
                     <div><span>Összeg</span><strong><?= h((string) $quoteTotal); ?></strong></div>
+                    <div><span>Díjbekérő</span><strong><?= h($feeRequestIssuerLabel); ?></strong></div>
                 </div>
 
                 <div class="admin-actions">
@@ -822,11 +837,15 @@ if ($quote === null) {
                         <?php else: ?>
                             <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
                                 <?= csrf_field(); ?>
-                                <button class="button button-secondary" name="quick_action" value="fee_request" type="submit" <?= !($feeRequestSelection['ok'] ?? false) ? 'disabled' : ''; ?>>Díjbekérő küldése</button>
+                                <button class="button button-secondary" name="quick_action" value="fee_request" type="submit" <?= (!($feeRequestSelection['ok'] ?? false) || $feeRequestIssuerAgentKey === '') ? 'disabled' : ''; ?>>Díjbekérő küldése</button>
                             </form>
                         <?php endif; ?>
                     <?php endif; ?>
                 </div>
+
+                <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestIssuerAgentKey === ''): ?>
+                    <div class="alert alert-info"><p>A kiválasztott díjbekérő-kibocsátóhoz nincs beállítva Számlázz.hu Agent kulcs.</p></div>
+                <?php endif; ?>
 
                 <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestSelection !== null && !($feeRequestSelection['ok'] ?? false)): ?>
                     <div class="alert alert-info"><p><?= h((string) ($feeRequestSelection['message'] ?? 'Ehhez az árajánlathoz nem készül díjbekérő.')); ?></p></div>
@@ -880,6 +899,18 @@ if ($quote === null) {
 
                         <label for="customer_message">Üzenet az ügyfélnek</label>
                         <textarea id="customer_message" name="customer_message" rows="4"><?= h($form['customer_message']); ?></textarea>
+
+                        <?php if (is_staff_user()): ?>
+                            <label for="fee_request_issuer">Díjbekérő kibocsátója</label>
+                            <select id="fee_request_issuer" name="fee_request_issuer">
+                                <?php foreach (quote_fee_request_issuer_options() as $issuerKey => $issuerOption): ?>
+                                    <option value="<?= h((string) $issuerKey); ?>" <?= $form['fee_request_issuer'] === $issuerKey ? 'selected' : ''; ?>><?= h((string) $issuerOption['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small>Az árajánlat elfogadásakor automatikusan ez a Számlázz.hu fiók állítja ki a díjbekérőt.</small>
+                        <?php else: ?>
+                            <input type="hidden" name="fee_request_issuer" value="<?= h($form['fee_request_issuer']); ?>">
+                        <?php endif; ?>
                     </section>
 
                     <section class="auth-panel">
@@ -1000,6 +1031,18 @@ if ($quote === null) {
 
                         <label for="customer_message">Üzenet az ügyfélnek</label>
                         <textarea id="customer_message" name="customer_message" rows="8"><?= h($form['customer_message']); ?></textarea>
+
+                        <?php if (is_staff_user()): ?>
+                            <label for="fee_request_issuer">Díjbekérő kibocsátója</label>
+                            <select id="fee_request_issuer" name="fee_request_issuer">
+                                <?php foreach (quote_fee_request_issuer_options() as $issuerKey => $issuerOption): ?>
+                                    <option value="<?= h((string) $issuerKey); ?>" <?= $form['fee_request_issuer'] === $issuerKey ? 'selected' : ''; ?>><?= h((string) $issuerOption['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small>Az árajánlat elfogadásakor automatikusan ez a Számlázz.hu fiók állítja ki a díjbekérőt.</small>
+                        <?php else: ?>
+                            <input type="hidden" name="fee_request_issuer" value="<?= h($form['fee_request_issuer']); ?>">
+                        <?php endif; ?>
                     </section>
                 </div>
 

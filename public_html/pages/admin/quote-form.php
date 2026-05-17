@@ -90,6 +90,7 @@ $photoMessages = [];
 $quoteForm = [
     'subject' => $quote['subject'] ?? APP_NAME . ' árajánlat' . ($request !== null ? ' - ' . (string) $request['project_name'] : ''),
     'customer_message' => $quote['customer_message'] ?? '',
+    'fee_request_issuer' => $quote !== null ? quote_fee_request_issuer_for_quote($quote) : quote_fee_request_default_issuer(),
 ];
 $surveySeed = $survey ?? [];
 
@@ -139,6 +140,7 @@ if (is_post()) {
     $quoteForm = [
         'subject' => trim((string) ($_POST['subject'] ?? '')),
         'customer_message' => trim((string) ($_POST['customer_message'] ?? '')),
+        'fee_request_issuer' => normalize_quote_fee_request_issuer($_POST['fee_request_issuer'] ?? quote_fee_request_default_issuer()),
     ];
     $surveyForm = normalize_survey_data($_POST);
     $lines = collect_quote_lines($_POST);
@@ -279,6 +281,13 @@ if ($customRows === []) {
                     <?php endif; ?>
                     <label>Tárgy</label><input name="subject" value="<?= h($quoteForm['subject']); ?>" required>
                     <label>Üzenet az ügyfélnek</label><textarea name="customer_message" rows="4"><?= h($quoteForm['customer_message']); ?></textarea>
+                    <label for="fee_request_issuer">Díjbekérő kibocsátója</label>
+                    <select id="fee_request_issuer" name="fee_request_issuer">
+                        <?php foreach (quote_fee_request_issuer_options() as $issuerKey => $issuerOption): ?>
+                            <option value="<?= h((string) $issuerKey); ?>" <?= $quoteForm['fee_request_issuer'] === $issuerKey ? 'selected' : ''; ?>><?= h((string) $issuerOption['label']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small>Az árajánlat elfogadásakor automatikusan ez a Számlázz.hu fiók állítja ki a díjbekérőt.</small>
                 </section>
 
                 <section class="auth-panel">

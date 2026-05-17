@@ -32,6 +32,86 @@ function db_enum_contains(string $table, string $column, string $value): bool
     return str_contains($columnType, "'" . $value . "'");
 }
 
+function quote_fee_request_default_issuer(): string
+{
+    return 'mezoenergy';
+}
+
+function quote_fee_request_issuer_options(): array
+{
+    return [
+        'mezoenergy' => [
+            'label' => APP_NAME,
+            'agent_key_config' => 'SZAMLAZZ_AGENT_KEY',
+        ],
+        'secondary' => [
+            'label' => szamlazz_config_value('SZAMLAZZ_SECONDARY_ISSUER_LABEL', 'Másik vállalkozás'),
+            'agent_key_config' => 'SZAMLAZZ_SECONDARY_AGENT_KEY',
+        ],
+    ];
+}
+
+function normalize_quote_fee_request_issuer(mixed $value): string
+{
+    $issuer = trim((string) $value);
+
+    return array_key_exists($issuer, quote_fee_request_issuer_options())
+        ? $issuer
+        : quote_fee_request_default_issuer();
+}
+
+function quote_fee_request_issuer_label(mixed $value): string
+{
+    $issuer = normalize_quote_fee_request_issuer($value);
+    $options = quote_fee_request_issuer_options();
+
+    return (string) ($options[$issuer]['label'] ?? APP_NAME);
+}
+
+function quote_fee_request_issuer_agent_key_config(mixed $value): string
+{
+    $issuer = normalize_quote_fee_request_issuer($value);
+    $options = quote_fee_request_issuer_options();
+
+    return (string) ($options[$issuer]['agent_key_config'] ?? 'SZAMLAZZ_AGENT_KEY');
+}
+
+function quote_fee_request_issuer_schema_ensure(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (!db_table_exists('quotes')) {
+        $ready = false;
+        return false;
+    }
+
+    if (!db_column_exists('quotes', 'fee_request_issuer')) {
+        try {
+            db_query("ALTER TABLE `quotes` ADD COLUMN IF NOT EXISTS `fee_request_issuer` VARCHAR(40) NOT NULL DEFAULT 'mezoenergy' AFTER `customer_message`");
+        } catch (Throwable) {
+            $ready = false;
+            return false;
+        }
+    }
+
+    $ready = db_column_exists('quotes', 'fee_request_issuer');
+    return $ready;
+}
+
+function quote_fee_request_issuer_for_quote(array $quote): string
+{
+    return normalize_quote_fee_request_issuer($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer());
+}
+
+function szamlazz_quote_fee_request_agent_key(array $quote): string
+{
+    return szamlazz_config_value(quote_fee_request_issuer_agent_key_config(quote_fee_request_issuer_for_quote($quote)));
+}
+
 function contractor_schema_errors(): array
 {
     $errors = [];
@@ -2822,6 +2902,8 @@ function save_quote(int $customerId, array $quoteData, array $surveyData, array 
     }
 
     $totals = quote_totals($lines);
+    $feeRequestIssuer = normalize_quote_fee_request_issuer($quoteData['fee_request_issuer'] ?? quote_fee_request_default_issuer());
+    $hasFeeRequestIssuerColumn = quote_fee_request_issuer_schema_ensure();
     $user = current_user();
     $specialistId = is_array($user) && (is_staff_user() || is_electrician_user()) ? (int) $user['id'] : null;
 
@@ -2833,21 +2915,35 @@ function save_quote(int $customerId, array $quoteData, array $surveyData, array 
         }
 
         $surveyId = save_survey($customerId, $surveyData, isset($quote['survey_id']) ? (int) $quote['survey_id'] : null);
+        $sets = [
+            '`connection_request_id` = COALESCE(?, `connection_request_id`)',
+            '`survey_id` = ?',
+            '`subject` = ?',
+            '`customer_message` = ?',
+            '`total_net` = ?',
+            '`total_vat` = ?',
+            '`total_gross` = ?',
+        ];
+        $params = [
+            $connectionRequestId,
+            $surveyId,
+            trim((string) $quoteData['subject']),
+            trim((string) ($quoteData['customer_message'] ?? '')) ?: null,
+            $totals['net'],
+            $totals['vat'],
+            $totals['gross'],
+        ];
+
+        if ($hasFeeRequestIssuerColumn) {
+            $sets[] = '`fee_request_issuer` = ?';
+            $params[] = $feeRequestIssuer;
+        }
+
+        $params[] = $quoteId;
 
         db_query(
-            'UPDATE `quotes`
-             SET `connection_request_id` = COALESCE(?, `connection_request_id`), `survey_id` = ?, `subject` = ?, `customer_message` = ?, `total_net` = ?, `total_vat` = ?, `total_gross` = ?
-             WHERE `id` = ?',
-            [
-                $connectionRequestId,
-                $surveyId,
-                trim((string) $quoteData['subject']),
-                trim((string) ($quoteData['customer_message'] ?? '')) ?: null,
-                $totals['net'],
-                $totals['vat'],
-                $totals['gross'],
-                $quoteId,
-            ]
+            'UPDATE `quotes` SET ' . implode(', ', $sets) . ' WHERE `id` = ?',
+            $params
         );
         db_query('DELETE FROM `quote_lines` WHERE `quote_id` = ?', [$quoteId]);
         insert_quote_lines($quoteId, $lines);
@@ -2862,24 +2958,43 @@ function save_quote(int $customerId, array $quoteData, array $surveyData, array 
     }
 
     $surveyId = save_survey($customerId, $surveyData, null);
+    $columns = [
+        '`customer_id`',
+        '`connection_request_id`',
+        '`survey_id`',
+        '`specialist_user_id`',
+        '`quote_number`',
+        '`status`',
+        '`subject`',
+        '`customer_message`',
+    ];
+    $placeholders = array_fill(0, count($columns), '?');
+    $params = [
+        $customerId,
+        $connectionRequestId,
+        $surveyId,
+        $specialistId,
+        next_quote_number(),
+        'draft',
+        trim((string) $quoteData['subject']),
+        trim((string) ($quoteData['customer_message'] ?? '')) ?: null,
+    ];
+
+    if ($hasFeeRequestIssuerColumn) {
+        $columns[] = '`fee_request_issuer`';
+        $placeholders[] = '?';
+        $params[] = $feeRequestIssuer;
+    }
+
+    $columns = array_merge($columns, ['`total_net`', '`total_vat`', '`total_gross`']);
+    $placeholders = array_merge($placeholders, ['?', '?', '?']);
+    $params[] = $totals['net'];
+    $params[] = $totals['vat'];
+    $params[] = $totals['gross'];
+
     db_query(
-        'INSERT INTO `quotes`
-            (`customer_id`, `connection_request_id`, `survey_id`, `specialist_user_id`, `quote_number`, `status`, `subject`,
-             `customer_message`, `total_net`, `total_vat`, `total_gross`)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-            $customerId,
-            $connectionRequestId,
-            $surveyId,
-            $specialistId,
-            next_quote_number(),
-            'draft',
-            trim((string) $quoteData['subject']),
-            trim((string) ($quoteData['customer_message'] ?? '')) ?: null,
-            $totals['net'],
-            $totals['vat'],
-            $totals['gross'],
-        ]
+        'INSERT INTO `quotes` (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $placeholders) . ')',
+        $params
     );
     $newQuoteId = (int) db()->lastInsertId();
     insert_quote_lines($newQuoteId, $lines);
@@ -2976,6 +3091,7 @@ function quote_engagement_schema_ensure(): bool
 function find_quote(int $id): ?array
 {
     quote_engagement_schema_ensure();
+    quote_fee_request_issuer_schema_ensure();
 
     $statement = db_query(
         'SELECT q.*, c.requester_name, c.email, c.phone, c.postal_address, c.postal_code, c.city, c.company_name
@@ -6138,7 +6254,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
 
     $settings = $document->createElement('beallitasok');
     $root->appendChild($settings);
-    szamlazz_append_text($document, $settings, 'szamlaagentkulcs', szamlazz_config_value('SZAMLAZZ_AGENT_KEY'));
+    szamlazz_append_text($document, $settings, 'szamlaagentkulcs', szamlazz_quote_fee_request_agent_key($quote));
     szamlazz_append_text($document, $settings, 'eszamla', szamlazz_config_bool('SZAMLAZZ_E_INVOICE') ? 'true' : 'false');
     szamlazz_append_text($document, $settings, 'szamlaLetoltes', 'true');
     szamlazz_append_text($document, $settings, 'valaszVerzio', '1');
@@ -6217,8 +6333,11 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
 
 function szamlazz_create_quote_fee_request(array $quote, array $line): array
 {
-    if (szamlazz_config_value('SZAMLAZZ_AGENT_KEY') === '') {
-        return ['ok' => false, 'message' => 'Nincs beállítva a Számlázz.hu Agent kulcs (SZAMLAZZ_AGENT_KEY).', 'path' => null, 'invoice_number' => null];
+    if (szamlazz_quote_fee_request_agent_key($quote) === '') {
+        $issuerLabel = quote_fee_request_issuer_label($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer());
+        $configKey = quote_fee_request_issuer_agent_key_config($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer());
+
+        return ['ok' => false, 'message' => 'Nincs beállítva a(z) ' . $issuerLabel . ' Számlázz.hu Agent kulcsa (' . $configKey . ').', 'path' => null, 'invoice_number' => null];
     }
 
     if (!function_exists('curl_init')) {
