@@ -39,13 +39,19 @@ function quote_fee_request_default_issuer(): string
 
 function quote_fee_request_issuer_options(): array
 {
+    $secondaryLabel = szamlazz_config_value('SZAMLAZZ_SECONDARY_ISSUER_LABEL', 'Hajdu Zoltán ev.');
+
+    if ($secondaryLabel === '' || $secondaryLabel === 'Másik vállalkozás') {
+        $secondaryLabel = 'Hajdu Zoltán ev.';
+    }
+
     return [
         'mezoenergy' => [
             'label' => APP_NAME,
             'agent_key_config' => 'SZAMLAZZ_AGENT_KEY',
         ],
         'secondary' => [
-            'label' => szamlazz_config_value('SZAMLAZZ_SECONDARY_ISSUER_LABEL', 'Másik vállalkozás'),
+            'label' => $secondaryLabel,
             'agent_key_config' => 'SZAMLAZZ_SECONDARY_AGENT_KEY',
         ],
     ];
@@ -110,6 +116,13 @@ function quote_fee_request_issuer_for_quote(array $quote): string
 function szamlazz_quote_fee_request_agent_key(array $quote): string
 {
     return szamlazz_config_value(quote_fee_request_issuer_agent_key_config(quote_fee_request_issuer_for_quote($quote)));
+}
+
+function quote_fee_request_email_subject(array $quote): string
+{
+    return quote_fee_request_issuer_label($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer())
+        . ' díjbekérő - '
+        . (string) ($quote['quote_number'] ?? '');
 }
 
 function contractor_schema_errors(): array
@@ -6236,7 +6249,7 @@ function szamlazz_quote_fee_request_xml(array $quote, array $line): string
     $today = date('Y-m-d');
     $dueDate = date('Y-m-d', strtotime('+8 days') ?: time());
     $customerName = trim((string) ($quote['company_name'] ?? '')) ?: trim((string) ($quote['requester_name'] ?? ''));
-    $emailSubject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
+    $emailSubject = quote_fee_request_email_subject($quote);
     $defaultFeeRequestEmailText = 'Az elfogadott árajánlat ügykezelési díjáról elkészült díjbekérőt csatolva küldjük.';
     $customerGreetingName = email_recipient_name($quote['requester_name'] ?? '');
     $emailText = (string) ($quote['fee_request_email_text'] ?? '');
@@ -6498,7 +6511,7 @@ function send_quote_fee_request_email(int $quoteId, string $note = '', bool $all
     $baseNote = 'Díjbekérő az elfogadott árajánlat ügykezelési díjáról. Ajánlatszám: ' . (string) ($quote['quote_number'] ?? '-');
     $quote['fee_request_note'] = fee_request_note_with_extra($baseNote, $note);
     $quote['fee_request_email_text'] = quote_fee_request_customer_email_text($quote, $selection['line']);
-    $subject = APP_NAME . ' díjbekérő - ' . (string) ($quote['quote_number'] ?? '');
+    $subject = quote_fee_request_email_subject($quote);
     $result = szamlazz_create_quote_fee_request($quote, $selection['line']);
 
     if ($result['ok']) {
