@@ -15,4 +15,5 @@ return [
     'MVM_IMAP_FOLDER' => 'INBOX',
     'MVM_IMAP_USER' => 'csatlakozo@mvm-mezoenergy.hu',
     'SZAMLAZZ_SECONDARY_AGENT_KEY' => 'ggxqmw3d9mndggxe6qxqymndggxak98whmndggxsnw',
+    'SZAMLAZZ_SECONDARY_ISSUER_LABEL' => 'Hajdu Zoltán ev.',
 ];
