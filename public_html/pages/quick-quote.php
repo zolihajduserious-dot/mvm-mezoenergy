@@ -171,6 +171,70 @@ function quick_quote_customer_operation_message(array $result): string
     return $message;
 }
 
+function quick_quote_verbal_acceptance_blocker(array $quote): ?string
+{
+    $quoteId = (int) ($quote['id'] ?? 0);
+
+    if ($quoteId <= 0) {
+        return 'Az ajánlat nem található.';
+    }
+
+    $selection = quote_fee_request_selection($quoteId);
+
+    if (!($selection['ok'] ?? false) && empty($selection['skipped'])) {
+        return (string) ($selection['message'] ?? 'A díjbekérő tétel nem egyértelmű.');
+    }
+
+    $line = is_array($selection['line'] ?? null) ? $selection['line'] : null;
+
+    if ($line !== null && (float) ($line['line_gross'] ?? 0) > 0 && szamlazz_quote_fee_request_agent_key($quote) === '') {
+        return 'A kiválasztott díjbekérő-kibocsátóhoz nincs beállítva Számlázz.hu Agent kulcs.';
+    }
+
+    return null;
+}
+
+function quick_quote_send_verbal_acceptance(int $quoteId): array
+{
+    $quote = find_quote($quoteId);
+
+    if ($quote === null) {
+        return ['ok' => false, 'message' => 'Az ajánlat nem található.'];
+    }
+
+    $blocker = quick_quote_verbal_acceptance_blocker($quote);
+
+    if ($blocker !== null) {
+        return ['ok' => false, 'message' => $blocker];
+    }
+
+    $mailResult = send_quote_email($quoteId);
+
+    if (!($mailResult['ok'] ?? false)) {
+        return $mailResult;
+    }
+
+    if ((string) ($quote['status'] ?? '') === 'accepted') {
+        $feeRequest = send_quote_fee_request_email($quoteId, '', true);
+        $message = 'Az elfogadott árajánlatot emailben elküldtük.';
+        $message .= ' ' . (string) ($feeRequest['message'] ?? '');
+
+        return [
+            'ok' => (bool) ($feeRequest['ok'] ?? false),
+            'message' => trim($message),
+        ];
+    }
+
+    $acceptance = record_quote_customer_response($quoteId, 'accept', 'Szóbeli elfogadás rögzítve a helyszínen.');
+    $message = 'Az árajánlatot emailben elküldtük.';
+    $message .= ' ' . (string) ($acceptance['message'] ?? '');
+
+    return [
+        'ok' => (bool) ($acceptance['ok'] ?? false),
+        'message' => trim($message),
+    ];
+}
+
 $user = current_user();
 $quoteId = filter_input(INPUT_GET, 'quote_id', FILTER_VALIDATE_INT);
 $requestIdFromQuery = filter_input(INPUT_GET, 'request_id', FILTER_VALIDATE_INT);
@@ -409,6 +473,13 @@ if (is_post()) {
         redirect('/quick-quote?quote_id=' . (int) $quote['id']);
     }
 
+    if ($quote !== null && $action === 'verbal_accept_send') {
+        $result = quick_quote_send_verbal_acceptance((int) $quote['id']);
+        $message = quick_quote_customer_operation_message($result);
+        set_flash($result['ok'] ? 'success' : 'error', $message);
+        redirect('/quick-quote?quote_id=' . (int) $quote['id']);
+    }
+
     if ($quote !== null && $action === 'fee_request') {
         $result = send_quote_fee_request_email((int) $quote['id']);
         $message = quick_quote_customer_operation_message($result);
@@ -446,7 +517,9 @@ if (is_post()) {
             'has_h_tariff' => $requestForm['request_type'] === 'h_tariff' ? 1 : 0,
         ]);
         $lines = collect_quote_lines($_POST);
-        $shouldSendQuote = (string) ($_POST['quote_submit'] ?? 'save') === 'send';
+        $quoteSubmit = (string) ($_POST['quote_submit'] ?? 'save');
+        $shouldSendQuote = $quoteSubmit === 'send';
+        $shouldAcceptAndSend = $quoteSubmit === 'accept_send';
 
         if ($form['requester_name'] === '') {
             $errors[] = 'A név megadása kötelező.';
@@ -494,7 +567,11 @@ if (is_post()) {
                 $messages = ['Az árajánlat frissült.'];
                 $flashType = 'success';
 
-                if ($shouldSendQuote) {
+                if ($shouldAcceptAndSend) {
+                    $acceptanceResult = quick_quote_send_verbal_acceptance($savedQuoteId);
+                    $flashType = ($acceptanceResult['ok'] ?? false) ? $flashType : 'error';
+                    $messages[] = quick_quote_customer_operation_message($acceptanceResult);
+                } elseif ($shouldSendQuote) {
                     $mailResult = send_quote_email($savedQuoteId);
                     $flashType = ($mailResult['ok'] ?? false) ? $flashType : 'error';
                     $messages[] = quick_quote_customer_operation_message($mailResult);
@@ -605,6 +682,8 @@ if (is_post()) {
             'has_h_tariff' => $requestForm['request_type'] === 'h_tariff' ? 1 : 0,
         ]);
         $lines = collect_quote_lines($_POST);
+        $quoteSubmit = (string) ($_POST['quote_submit'] ?? 'save');
+        $shouldSendQuote = $quoteSubmit === 'send';
 
         if ($form['requester_name'] === '') {
             $errors[] = 'A név megadása kötelező.';
@@ -699,24 +778,29 @@ if (is_post()) {
                 $uploadMessages = handle_connection_request_uploads($savedRequestId, $_FILES, false, 'Gyors árajánlat');
                 $savedQuoteId = save_quote($customerId, $quoteForm, $surveyForm, $lines, null, $savedRequestId);
                 ensure_quote_public_token($savedQuoteId);
-                $mailResult = send_quote_email($savedQuoteId);
-                $mailMessage = quick_quote_customer_operation_message($mailResult);
                 $messages = [];
+                $flashType = 'success';
 
-                if ($mailResult['ok']) {
-                    $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, az ajánlatot emailben elküldtük az ügyfélnek. Az ügyfél a levélből meg tudja nyitni és el tudja fogadni az ajánlatot.';
+                if ($shouldSendQuote) {
+                    $mailResult = send_quote_email($savedQuoteId);
+                    $mailMessage = quick_quote_customer_operation_message($mailResult);
+
+                    if ($mailResult['ok']) {
+                        $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, az ajánlatot emailben elküldtük az ügyfélnek.';
+                    } else {
+                        $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, de az email küldése nem sikerült: ' . $mailMessage . ' Az ajánlat oldalán az Email küldése gombbal újrapróbálható.';
+                        $flashType = 'error';
+                    }
                 } else {
-                    $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült, de az email küldése nem sikerült: ' . $mailMessage . ' Az ajánlat oldalán az Email küldése gombbal újrapróbálható.';
+                    $messages[] = 'A gyors árajánlat és a hozzá tartozó adatlap elkészült. Email nem ment ki, az ügyfél ezen a képernyőn vagy az Árajánlat megnyitása gombbal azonnal megnézheti.';
                 }
 
                 if ($uploadMessages !== []) {
                     $messages[] = 'Néhány fájlt nem sikerült feltölteni: ' . implode(' ', $uploadMessages);
+                    $flashType = 'error';
                 }
 
-                set_flash(
-                    $mailResult['ok'] && $uploadMessages === [] ? 'success' : 'error',
-                    implode(' ', $messages)
-                );
+                set_flash($flashType, implode(' ', $messages));
                 redirect('/quick-quote?quote_id=' . $savedQuoteId);
             } catch (Throwable $exception) {
                 $errors[] = APP_DEBUG ? $exception->getMessage() : 'A gyors árajánlat mentése sikertelen.';
@@ -761,6 +845,9 @@ $feeRequestSmsState = $quote !== null ? quote_fee_request_reminder_sms_state((in
 $latestFeeRequestSmsLog = $quote !== null ? quote_latest_sms_log((int) $quote['id']) : null;
 $feeRequestIssuerLabel = $quote !== null ? quote_fee_request_issuer_label($quote['fee_request_issuer'] ?? quote_fee_request_default_issuer()) : quote_fee_request_issuer_label($form['fee_request_issuer']);
 $feeRequestIssuerAgentKey = $quote !== null ? szamlazz_quote_fee_request_agent_key($quote) : '';
+$verbalAcceptanceBlockedMessage = $quote !== null && (string) ($quote['status'] ?? '') !== 'accepted'
+    ? quick_quote_verbal_acceptance_blocker($quote)
+    : null;
 $quickQuoteCreateAction = url_path('/quick-quote');
 
 if ($quote === null) {
@@ -827,6 +914,12 @@ if ($quote === null) {
                         <?= csrf_field(); ?>
                         <button class="button button-secondary" name="quick_action" value="send" type="submit">Email küldése</button>
                     </form>
+                    <?php if ((string) ($quote['status'] ?? '') !== 'accepted'): ?>
+                        <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
+                            <?= csrf_field(); ?>
+                            <button class="button" name="quick_action" value="verbal_accept_send" type="submit" <?= $verbalAcceptanceBlockedMessage !== null ? 'disabled' : ''; ?> onclick="return confirm('Az ügyfél szóban elfogadta az ajánlatot? Emailt küldünk, majd elindul a díjbekérő.');">Elfogadva, email + díjbekérő</button>
+                        </form>
+                    <?php endif; ?>
                     <?php if ((string) ($quote['status'] ?? '') === 'accepted'): ?>
                         <?php if ($feeRequestFileUrl !== null): ?>
                             <a class="button button-secondary" href="<?= h($feeRequestFileUrl); ?>" target="_blank">Díjbekérő PDF</a>
@@ -845,6 +938,10 @@ if ($quote === null) {
 
                 <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestIssuerAgentKey === ''): ?>
                     <div class="alert alert-info"><p>A kiválasztott díjbekérő-kibocsátóhoz nincs beállítva Számlázz.hu Agent kulcs.</p></div>
+                <?php endif; ?>
+
+                <?php if ((string) ($quote['status'] ?? '') !== 'accepted' && $verbalAcceptanceBlockedMessage !== null): ?>
+                    <div class="alert alert-info"><p><?= h($verbalAcceptanceBlockedMessage); ?></p></div>
                 <?php endif; ?>
 
                 <?php if ((string) ($quote['status'] ?? '') === 'accepted' && $feeRequestFileUrl === null && $feeRequestSelection !== null && !($feeRequestSelection['ok'] ?? false)): ?>
@@ -987,6 +1084,9 @@ if ($quote === null) {
                 <div class="form-actions">
                     <button class="button" name="quote_submit" value="save" type="submit">Árajánlat mentése</button>
                     <button class="button button-secondary" name="quote_submit" value="send" type="submit">Mentés és email küldése</button>
+                    <?php if ((string) ($quote['status'] ?? '') !== 'accepted'): ?>
+                        <button class="button button-secondary" name="quote_submit" value="accept_send" type="submit" onclick="return confirm('Az ügyfél szóban elfogadta az ajánlatot? Mentés után emailt küldünk, majd elindul a díjbekérő.');">Mentés + elfogadás</button>
+                    <?php endif; ?>
                 </div>
             </form>
 
@@ -1128,7 +1228,8 @@ if ($quote === null) {
                 </section>
 
                 <div class="form-actions">
-                    <button class="button" type="submit">Gyors árajánlat mentése és elküldése</button>
+                    <button class="button" name="quote_submit" value="save" type="submit">Gyors árajánlat mentése</button>
+                    <button class="button button-secondary" name="quote_submit" value="send" type="submit">Mentés és email küldése</button>
                 </div>
             </form>
         <?php endif; ?>

@@ -6682,7 +6682,8 @@ function send_quote_email(int $quoteId): array
         $mail->addAttachment((string) $pdfResult['path']);
         $mail->send();
 
-        db_query('UPDATE `quotes` SET `status` = ?, `sent_at` = NOW(), `pdf_path` = ? WHERE `id` = ?', ['sent', $pdfResult['path'], $quoteId]);
+        $nextStatus = (string) ($quote['status'] ?? '') === 'accepted' ? 'accepted' : 'sent';
+        db_query('UPDATE `quotes` SET `status` = ?, `sent_at` = NOW(), `pdf_path` = ? WHERE `id` = ?', [$nextStatus, $pdfResult['path'], $quoteId]);
         db_query('INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`) VALUES (?, ?, ?, ?)', [$quoteId, $quote['email'], $mail->Subject, 'sent']);
 
         return ['ok' => true, 'message' => 'Az ajánlat emailben elküldve.'];
