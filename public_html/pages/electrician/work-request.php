@@ -167,6 +167,13 @@ if (is_post() && $schemaErrors === []) {
         redirect('/electrician/work-request?id=' . (int) $request['id']);
     }
 
+    if ($request !== null && $action === 'send_customer_document_upload_request') {
+        $requestedDocumentTypes = customer_document_upload_requested_types_from_source($_POST['requested_document_types'] ?? []);
+        $result = send_connection_request_customer_document_upload_request((int) $request['id'], $requestedDocumentTypes);
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A dokumentum bekérő email küldése sikertelen.'));
+        redirect('/electrician/work-request?id=' . (int) $request['id'] . '&customer_document_notice=1#customer-document-request-panel');
+    }
+
     if ($request !== null && $action === 'send_customer_message') {
         $result = send_connection_request_manual_message(
             (int) $request['id'],
@@ -636,6 +643,28 @@ foreach ($scheduleSlots as $slot) {
     $scheduleSlotsByDate[(string) $slot['work_date']] = $slot;
 }
 
+$customerDocumentUploadDefinitions = [];
+$customerDocumentDefaultTypeMap = [];
+$customerDocumentExistingTypeMap = [];
+$customerDocumentRecipientEmail = '';
+$customerDocumentPanelUrl = $request !== null ? url_path('/electrician/work-request') . '?id=' . (int) $request['id'] : url_path('/electrician/work-request');
+
+if ($request !== null) {
+    $customerDocumentUploadDefinitions = customer_document_upload_definitions();
+    $customerDocumentDefaultTypes = customer_document_upload_default_types((int) $request['id']);
+    $customerDocumentDefaultTypeMap = array_fill_keys($customerDocumentDefaultTypes, true);
+
+    foreach (array_keys($customerDocumentUploadDefinitions) as $customerDocumentFileType) {
+        $customerDocumentExistingTypeMap[$customerDocumentFileType] = customer_document_upload_type_has_file((int) $request['id'], (string) $customerDocumentFileType);
+    }
+
+    $customerDocumentRecipientEmail = trim((string) ($request['email'] ?? ''));
+}
+
+$customerDocumentNoticeTarget = (string) ($_GET['customer_document_notice'] ?? '') === '1';
+$customerDocumentFlash = $customerDocumentNoticeTarget ? $flash : null;
+$topFlash = $customerDocumentNoticeTarget ? null : $flash;
+
 $scheduleWeekdays = connection_request_schedule_weekdays(30);
 $renderQuoteFields = static function (string $fieldPrefix, array $quoteFormData, array $surveyFormData) use ($quoteSections, $priceItemsBySection, $selectedQuantities, $quantityOptions, $customRows): void {
     ?>
@@ -809,8 +838,8 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
             </dialog>
         <?php endif; ?>
 
-        <?php if ($flash !== null): ?>
-            <div class="alert alert-<?= h((string) $flash['type']); ?>"><p><?= h((string) $flash['message']); ?></p></div>
+        <?php if ($topFlash !== null): ?>
+            <div class="alert alert-<?= h((string) $topFlash['type']); ?>"><p><?= h((string) $topFlash['message']); ?></p></div>
         <?php endif; ?>
 
         <?php if ($schemaErrors !== []): ?>
@@ -1333,6 +1362,61 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                 <a class="button" href="<?= h(url_path('/quick-quote') . '?request_id=' . (int) $request['id']); ?>">Gyors árajánlat megnyitása</a>
                             </div>
                         <?php endif; ?>
+                    </section>
+
+                    <section id="customer-document-request-panel" class="admin-request-panel admin-request-documents customer-document-request-panel">
+                        <div class="admin-header compact">
+                            <div>
+                                <p class="eyebrow">Ügyféldokumentum</p>
+                                <h3>Dokumentum bekérése ügyféltől</h3>
+                                <p>Tokenes feltöltőlinket küld az ügyfél email címére, így regisztráció nélkül tudja pótolni a hiányzó dokumentumokat és fotókat. A feltöltés közvetlenül erre az adatlapra kerül.</p>
+                            </div>
+                            <span class="status-badge <?= $customerDocumentRecipientEmail !== '' ? 'status-badge-sent' : 'status-badge-failed'; ?>">
+                                <?= $customerDocumentRecipientEmail !== '' ? h($customerDocumentRecipientEmail) : 'Nincs email cím'; ?>
+                            </span>
+                        </div>
+
+                        <?php if ($customerDocumentRecipientEmail === ''): ?>
+                            <div class="alert alert-error"><p>Az ügyfél email címe hiányzik, ezért a bekérő link nem küldhető ki.</p></div>
+                        <?php endif; ?>
+
+                        <?php if ($customerDocumentFlash !== null): ?>
+                            <div class="alert alert-<?= h((string) $customerDocumentFlash['type']); ?>"><p><?= h((string) $customerDocumentFlash['message']); ?></p></div>
+                        <?php endif; ?>
+
+                        <form class="form" method="post" action="<?= h($customerDocumentPanelUrl . '#customer-document-request-panel'); ?>">
+                            <?= csrf_field(); ?>
+                            <input type="hidden" name="action" value="send_customer_document_upload_request">
+
+                            <div class="customer-document-request-list">
+                                <?php foreach ($customerDocumentUploadDefinitions as $fileType => $definition): ?>
+                                    <?php
+                                    $fileType = (string) $fileType;
+                                    $hasCustomerDocumentFile = !empty($customerDocumentExistingTypeMap[$fileType]);
+                                    $isDefaultCustomerDocument = isset($customerDocumentDefaultTypeMap[$fileType]);
+                                    ?>
+                                    <label class="customer-document-request-option">
+                                        <input
+                                            type="checkbox"
+                                            name="requested_document_types[]"
+                                            value="<?= h($fileType); ?>"
+                                            <?= $isDefaultCustomerDocument ? 'checked' : ''; ?>
+                                        >
+                                        <span>
+                                            <strong><?= h((string) $definition['label']); ?></strong>
+                                            <small><?= h(customer_document_upload_type_help_text($fileType)); ?></small>
+                                        </span>
+                                        <span class="status-badge <?= $hasCustomerDocumentFile ? 'status-badge-sent' : 'status-badge-pending'; ?>">
+                                            <?= $hasCustomerDocumentFile ? 'Már van' : 'Hiányzik'; ?>
+                                        </span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="button" type="submit" <?= $customerDocumentRecipientEmail === '' ? 'disabled' : ''; ?>>Bekérő email küldése</button>
+                            </div>
+                        </form>
                     </section>
 
                     <?php
