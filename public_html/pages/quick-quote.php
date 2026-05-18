@@ -311,6 +311,7 @@ foreach ($priceItems as $item) {
 $errors = [];
 $flash = get_flash();
 $publicQuoteUrl = null;
+$publicQuoteFileUrl = null;
 
 if ($quote !== null) {
     $token = ensure_quote_public_token((int) $quote['id']);
@@ -320,6 +321,9 @@ if ($quote !== null) {
     }
 
     $publicQuoteUrl = quote_public_url($quote);
+    $publicQuoteFileUrl = quote_file_is_available($quote) && !empty($quote['public_token'])
+        ? url_path('/quote/file') . '?id=' . (int) $quote['id'] . '&token=' . rawurlencode((string) $quote['public_token'])
+        : null;
 }
 
 $form = [
@@ -904,6 +908,8 @@ if ($quote === null) {
 
                 <div class="admin-actions">
                     <?php if ($publicQuoteUrl !== null): ?><a class="button" href="<?= h($publicQuoteUrl); ?>" target="_blank">Árajánlat megnyitása</a><?php endif; ?>
+                    <?php if ($publicQuoteFileUrl !== null): ?><a class="button button-secondary" href="<?= h($publicQuoteFileUrl); ?>" target="_blank" download>PDF letöltése</a><?php endif; ?>
+                    <?php if ($publicQuoteUrl !== null): ?><button class="button button-secondary" type="button" data-share-quote-url="<?= h($publicQuoteUrl); ?>" data-share-quote-title="<?= h((string) ($quote['quote_number'] ?? 'Árajánlat')); ?>">Megosztás</button><?php endif; ?>
                     <?php if ($requestContextUrl !== ''): ?><a class="button button-secondary" href="<?= h($requestContextUrl); ?>">Adatlap megnyitása</a><?php endif; ?>
                     <?php if ($request !== null): ?><a class="button button-secondary" href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a><?php endif; ?>
                     <form method="post" action="<?= h(url_path('/quick-quote') . '?quote_id=' . (int) $quote['id']); ?>">
@@ -1259,5 +1265,42 @@ if ($quote === null) {
 
     select.addEventListener('change', syncHTariffFields);
     syncHTariffFields();
+})();
+
+(() => {
+    document.querySelectorAll('[data-share-quote-url]').forEach((button) => {
+        const originalText = button.textContent || 'Megosztás';
+
+        button.addEventListener('click', async () => {
+            const url = button.dataset.shareQuoteUrl || '';
+            const title = button.dataset.shareQuoteTitle || 'Árajánlat';
+
+            if (!url) {
+                return;
+            }
+
+            try {
+                if (navigator.share) {
+                    await navigator.share({
+                        title,
+                        text: title,
+                        url,
+                    });
+                    return;
+                }
+
+                await navigator.clipboard.writeText(url);
+                button.textContent = 'Link másolva';
+                window.setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2200);
+            } catch (error) {
+                button.textContent = 'Nem sikerült';
+                window.setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2200);
+            }
+        });
+    });
 })();
 </script>
