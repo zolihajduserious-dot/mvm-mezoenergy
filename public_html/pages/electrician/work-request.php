@@ -1077,14 +1077,19 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                     $scheduleModuleSubtitle = ui_module_text('electrician_work_detail', 'schedule_calendar', 'subtitle', 'Csak hétköznap');
                     $scheduleModuleBody = ui_module_text('electrician_work_detail', 'schedule_calendar', 'body', 'Nyisd meg azokat a napokat, amikor vállalható a munka. A kiválasztott nap egyetlen munkanapként foglalódik.');
                     ?>
-                    <section <?= ui_module_attrs('electrician_work_detail', 'schedule_calendar', 'admin-request-panel admin-request-documents'); ?>>
-                        <div class="admin-request-section-title">
+                    <details <?= ui_module_attrs('electrician_work_detail', 'schedule_calendar', 'admin-request-panel admin-request-documents electrician-schedule-details'); ?>>
+                        <summary class="admin-request-section-title electrician-schedule-summary">
                             <h3><?= h($scheduleModuleTitle); ?></h3>
-                            <span><?= h($scheduleModuleSubtitle); ?></span>
-                        </div>
-                        <p class="muted-text"><?= h($scheduleModuleBody); ?></p>
-                        <div class="quote-mini-list">
-                            <?php foreach ($scheduleWeekdays as $workDate): ?>
+                            <span>
+                                <span class="electrician-schedule-open-label">Megnyitás</span>
+                                <span class="electrician-schedule-close-label">Bezárás</span>
+                                · <?= h($scheduleModuleSubtitle); ?>
+                            </span>
+                        </summary>
+                        <div class="electrician-schedule-body">
+                            <p class="muted-text"><?= h($scheduleModuleBody); ?></p>
+                            <div class="quote-mini-list">
+                                <?php foreach ($scheduleWeekdays as $workDate): ?>
                                 <?php
                                 $slot = $scheduleSlotsByDate[$workDate] ?? null;
                                 $slotStatus = (string) ($slot['status'] ?? '');
@@ -1108,9 +1113,10 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                         <button class="button button-secondary" name="action" value="schedule_close_day" type="submit">Lezárás</button>
                                     </form>
                                 </article>
-                            <?php endforeach; ?>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
-                    </section>
+                    </details>
                 <?php else: ?>
                     <div <?= ui_module_attrs('electrician_work_detail', 'schedule_calendar', 'alert alert-error'); ?>><?php foreach ($scheduleSchemaErrors as $scheduleError): ?><p><?= h($scheduleError); ?></p><?php endforeach; ?></div>
                 <?php endif; ?>

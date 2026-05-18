@@ -8430,6 +8430,31 @@ a.metric-card {
     order: -990;
 }
 
+.electrician-schedule-details > summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.electrician-schedule-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.electrician-schedule-details .electrician-schedule-close-label {
+    display: none;
+}
+
+.electrician-schedule-details[open] .electrician-schedule-open-label {
+    display: none;
+}
+
+.electrician-schedule-details[open] .electrician-schedule-close-label {
+    display: inline;
+}
+
+.electrician-schedule-body {
+    margin-top: 14px;
+}
+
 .electrician-work-detail-page .request-admin-footer {
     display: contents;
 }
