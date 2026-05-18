@@ -1594,6 +1594,104 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 </section>
 <script>
 (() => {
+    const moduleTitleFallbacks = {
+        initial_data: 'Adatlap alapadatok',
+        payment_summary: 'Kivitelezéskor beszedendő összeg',
+        workflow: 'Munkafolyamat',
+        request_data: 'Adatlap adatai',
+        files: 'Fájlok és dokumentumok',
+        customer_communication: 'Ügyfélkommunikáció',
+        work_photos_before: 'Kivitelezés előtti fotók',
+        work_photos_after: 'Kivitelezés utáni fotók',
+    };
+    const moduleSelectors = [
+        '.electrician-module-stack > .ui-configurable-module:not(details)',
+        '.electrician-module-stack > .request-admin-footer > .admin-request-panel',
+    ];
+    const modules = Array.from(new Set(moduleSelectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)))));
+
+    const moduleStorageKey = (module, index) => {
+        const key = module.dataset.uiModule || module.id || `module-${index}`;
+        return `electrician-module-collapsed:${key}`;
+    };
+    const getStoredCollapseState = (key) => {
+        try {
+            return window.localStorage.getItem(key);
+        } catch (error) {
+            return null;
+        }
+    };
+    const setStoredCollapseState = (key, collapsed) => {
+        try {
+            window.localStorage.setItem(key, collapsed ? '1' : '0');
+        } catch (error) {
+            // Local storage can be blocked by browser settings; toggling still works for this page view.
+        }
+    };
+
+    const findModuleTitle = (module) => {
+        const title = module.querySelector(':scope > .admin-request-section-title h3, :scope > .admin-header.compact h3, :scope > .admin-header.compact h2');
+
+        if (title && title.textContent.trim() !== '') {
+            return title.textContent.trim();
+        }
+
+        const moduleKey = module.dataset.uiModule || '';
+
+        return moduleTitleFallbacks[moduleKey] || 'Modul';
+    };
+
+    const ensureModuleHeader = (module) => {
+        const existingHeader = module.querySelector(':scope > .admin-request-section-title, :scope > .admin-header.compact');
+
+        if (existingHeader) {
+            existingHeader.classList.add('electrician-module-title');
+            return existingHeader;
+        }
+
+        const header = document.createElement('div');
+        header.className = 'admin-request-section-title electrician-module-title electrician-generated-module-title';
+
+        const title = document.createElement('h3');
+        title.textContent = findModuleTitle(module);
+        header.append(title);
+        module.prepend(header);
+
+        return header;
+    };
+
+    const setCollapsed = (module, button, collapsed) => {
+        module.classList.toggle('is-collapsed', collapsed);
+        button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+
+    modules.forEach((module, index) => {
+        if (module.dataset.electricianCollapsibleReady === '1') {
+            return;
+        }
+
+        const header = ensureModuleHeader(module);
+        const button = document.createElement('button');
+        button.className = 'electrician-module-toggle';
+        button.type = 'button';
+        button.innerHTML = '<span class="electrician-module-toggle-open">Összecsukás</span><span class="electrician-module-toggle-closed">Megnyitás</span>';
+        header.append(button);
+
+        const storageKey = moduleStorageKey(module, index);
+        const shouldStartCollapsed = getStoredCollapseState(storageKey) === '1';
+        module.classList.add('electrician-collapsible-module');
+        module.dataset.electricianCollapsibleReady = '1';
+        setCollapsed(module, button, shouldStartCollapsed);
+
+        button.addEventListener('click', () => {
+            const collapsed = !module.classList.contains('is-collapsed');
+            setCollapsed(module, button, collapsed);
+            setStoredCollapseState(storageKey, collapsed);
+        });
+    });
+})();
+
+(() => {
     const select = document.querySelector('[data-request-type-select]');
     const tariffItems = document.querySelectorAll('[data-h-tariff-upload]');
     const tariffInputs = document.querySelectorAll('[data-h-tariff-required]');

@@ -8430,6 +8430,54 @@ a.metric-card {
     order: -990;
 }
 
+.electrician-collapsible-module > .electrician-module-title {
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.electrician-collapsible-module.is-collapsed > :not(.electrician-module-title) {
+    display: none !important;
+}
+
+.electrician-generated-module-title {
+    grid-column: 1 / -1;
+}
+
+.electrician-module-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    margin-left: auto;
+    padding: 7px 11px;
+    border: 1px solid rgba(0, 140, 115, 0.22);
+    border-radius: 8px;
+    background: #eefaf7;
+    color: var(--color-primary-dark);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.electrician-module-toggle:hover,
+.electrician-module-toggle:focus-visible {
+    border-color: rgba(0, 140, 115, 0.4);
+    background: #dff7f1;
+}
+
+.electrician-module-toggle-closed {
+    display: none;
+}
+
+.electrician-collapsible-module.is-collapsed .electrician-module-toggle-open {
+    display: none;
+}
+
+.electrician-collapsible-module.is-collapsed .electrician-module-toggle-closed {
+    display: inline;
+}
+
 .electrician-schedule-details > summary {
     cursor: pointer;
     list-style: none;
