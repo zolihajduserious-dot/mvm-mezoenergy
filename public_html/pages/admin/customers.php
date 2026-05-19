@@ -103,6 +103,50 @@ if (is_post() && ($_POST['action'] ?? '') === 'delete_customer_request_file') {
     redirect('/admin/customers?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId);
 }
 
+if (is_post() && ($_POST['action'] ?? '') === 'upload_customer_request_files') {
+    require_valid_csrf_token();
+
+    $customerId = max(0, (int) ($_POST['customer_id'] ?? 0));
+    $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
+    $request = $requestId > 0 ? find_connection_request($requestId) : null;
+
+    if ($request === null || ($customerId > 0 && (int) ($request['customer_id'] ?? 0) !== $customerId)) {
+        set_flash('error', 'A munka nem található, a fájlokat nem lehet feltölteni.');
+        redirect('/admin/customers');
+    }
+
+    $customerId = (int) $request['customer_id'];
+    $hasAnyUpload = false;
+
+    foreach (connection_request_upload_definitions() as $key => $definition) {
+        foreach (uploaded_files_for_key($_FILES, 'file_' . (string) $key) as $file) {
+            if (uploaded_file_is_present($file)) {
+                $hasAnyUpload = true;
+                break 2;
+            }
+        }
+    }
+
+    if (!$hasAnyUpload) {
+        set_flash('error', 'Válassz legalább egy feltöltendő fotót vagy dokumentumot.');
+        redirect('/admin/customers?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId);
+    }
+
+    $uploadErrors = validate_connection_request_data(normalize_connection_request_data($request), $_FILES, false, $requestId);
+
+    if ($uploadErrors !== []) {
+        set_flash('error', implode(' ', $uploadErrors));
+        redirect('/admin/customers?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId);
+    }
+
+    $uploadMessages = handle_connection_request_uploads($requestId, $_FILES, false);
+    set_flash(
+        $uploadMessages === [] ? 'success' : 'error',
+        $uploadMessages === [] ? 'A fotók és dokumentumok mentve lettek.' : 'Néhány fájl nem lett mentve: ' . implode(' ', $uploadMessages)
+    );
+    redirect('/admin/customers?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId);
+}
+
 try {
     $customers = all_customers();
 
@@ -703,6 +747,36 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                     <h4>Fotók és kitöltött dokumentumok</h4>
                                                                                     <span><?= count($files) + count($beforeWorkFiles) + count($afterWorkFiles); ?> fájl</span>
                                                                                 </div>
+                                                                                <details class="minicrm-manual-upload-form portal-work-upload-form">
+                                                                                    <summary>Új fotó vagy dokumentum feltöltése</summary>
+                                                                                    <form class="form" method="post" enctype="multipart/form-data" action="<?= h(url_path('/admin/customers') . '?customer=' . $customerId . '&request=' . $requestId . '#request-' . $requestId); ?>">
+                                                                                        <?= csrf_field(); ?>
+                                                                                        <input type="hidden" name="action" value="upload_customer_request_files">
+                                                                                        <input type="hidden" name="customer_id" value="<?= $customerId; ?>">
+                                                                                        <input type="hidden" name="request_id" value="<?= $requestId; ?>">
+                                                                                        <div class="file-upload-grid">
+                                                                                            <?php foreach (connection_request_upload_definitions() as $key => $definition): ?>
+                                                                                                <?php
+                                                                                                $isImage = ($definition['kind'] ?? '') === 'image';
+                                                                                                $isHTariffOnly = !empty($definition['h_tariff_required']);
+                                                                                                $accept = connection_request_upload_accept($definition);
+
+                                                                                                if ($isHTariffOnly && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
+                                                                                                    continue;
+                                                                                                }
+                                                                                                ?>
+                                                                                                <label class="file-upload-item">
+                                                                                                    <span><?= h((string) $definition['label']); ?></span>
+                                                                                                    <small><?= ($isHTariffOnly ? connection_request_has_package_file_type($requestId, (string) $key) : connection_request_has_file_type($requestId, (string) $key)) ? 'Már van ilyen feltöltés, de új fájlt is hozzáadhatsz.' : ($isHTariffOnly ? 'H tarifa esetén kötelező, PDF vagy kép formátumban.' : 'Opcionális, több fájl is feltölthető.'); ?></small>
+                                                                                                    <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?>>
+                                                                                                </label>
+                                                                                            <?php endforeach; ?>
+                                                                                        </div>
+                                                                                        <div class="form-actions">
+                                                                                            <button class="button button-secondary" type="submit">Fájlok mentése</button>
+                                                                                        </div>
+                                                                                    </form>
+                                                                                </details>
                                                                                 <?php $allFiles = array_merge($files, $beforeWorkFiles, $afterWorkFiles); ?>
                                                                                 <?php if ($allFiles === []): ?>
                                                                                     <p class="request-admin-empty">Még nincs feltöltött fotó vagy dokumentum.</p>
