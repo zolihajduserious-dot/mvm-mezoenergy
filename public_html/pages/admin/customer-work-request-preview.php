@@ -138,7 +138,7 @@ $downloads = download_documents(true);
                         $accept = connection_request_upload_accept($definition);
                         $isHTariffRequired = !empty($definition['h_tariff_required']);
                         ?>
-                        <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?>>
+                        <label class="file-upload-item">
                             <span><?= h((string) $definition['label']); ?><?= (!empty($definition['required']) || $isHTariffRequired) ? ' *' : ''; ?></span>
                             <small><?= !empty($definition['required']) ? 'Lezáráskor mindig kötelező. Több fájl is feltölthető.' : ($isHTariffRequired ? 'H tarifa esetén kötelező, PDF vagy kép formátumban.' : 'Opcionális. Több fájl is feltölthető.'); ?></small>
                             <input type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> disabled>

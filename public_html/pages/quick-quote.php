@@ -147,9 +147,8 @@ function quick_quote_render_connection_request_upload_panel(?int $requestId, arr
                 $hasExistingFile = $isHTariffRequired
                     ? connection_request_has_package_file_type($requestId, (string) $key)
                     : connection_request_has_file_type($requestId, (string) $key);
-                $hideHTariff = $isHTariffRequired && $requestType !== 'h_tariff';
                 ?>
-                <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?> <?= $hideHTariff ? 'hidden' : ''; ?>>
+                <label class="file-upload-item">
                     <span><?= h((string) $definition['label']); ?><?= ($definition['required'] || $isHTariffRequired) ? ' *' : ''; ?></span>
                     <small><?= $definition['required'] ? 'Lezáráskor mindig kötelező. Több fájl is feltölthető.' : ($isHTariffRequired ? 'H tarifa esetén PDF vagy kép formátumban tölthető fel.' : 'Opcionális. Több fájl is feltölthető.'); ?></small>
                     <input name="file_<?= h((string) $key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> <?= $isHTariffRequired ? 'data-h-tariff-required="1" data-has-existing="' . ($hasExistingFile ? '1' : '0') . '"' : ''; ?>>
@@ -1244,7 +1243,6 @@ if ($quote === null) {
 <script>
 (() => {
     const select = document.querySelector('[data-request-type-select]');
-    const tariffItems = document.querySelectorAll('[data-h-tariff-upload]');
     const tariffInputs = document.querySelectorAll('[data-h-tariff-required]');
 
     if (!select) {
@@ -1252,12 +1250,6 @@ if ($quote === null) {
     }
 
     const syncHTariffFields = () => {
-        const isHTariff = select.value === 'h_tariff';
-
-        tariffItems.forEach((item) => {
-            item.hidden = !isHTariff;
-        });
-
         tariffInputs.forEach((input) => {
             input.required = false;
         });

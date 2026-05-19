@@ -927,7 +927,7 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                             $isHTariffRequired = !empty($definition['h_tariff_required']);
                             $accept = connection_request_upload_accept($definition);
                             ?>
-                            <label class="file-upload-item" <?= $isHTariffRequired ? 'data-h-tariff-upload="1"' : ''; ?>>
+                            <label class="file-upload-item">
                                 <span><?= h($definition['label']); ?><?= $isHTariffRequired ? ' *' : ''; ?></span>
                                 <small><?= $isHTariffRequired ? 'H tarifa esetén kötelező, PDF vagy kép formátumban.' : 'Opcionális, több fájl is feltölthető.'; ?></small>
                                 <input name="file_<?= h($key); ?>[]" type="file" accept="<?= h($accept); ?>" multiple <?= $isImage ? 'capture="environment"' : ''; ?> <?= $isHTariffRequired ? 'data-h-tariff-required="1" data-has-existing="0"' : ''; ?>>
@@ -1298,9 +1298,6 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
                                     $isHTariffRequired = !empty($definition['h_tariff_required']);
                                     $accept = connection_request_upload_accept($definition);
 
-                                    if ($isHTariffRequired && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
-                                        continue;
-                                    }
                                     ?>
                                     <label class="file-upload-item">
                                         <span><?= h($definition['label']); ?></span>
@@ -1693,7 +1690,6 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 
 (() => {
     const select = document.querySelector('[data-request-type-select]');
-    const tariffItems = document.querySelectorAll('[data-h-tariff-upload]');
     const tariffInputs = document.querySelectorAll('[data-h-tariff-required]');
 
     if (!select) {
@@ -1702,10 +1698,6 @@ $renderElectricianWorkPhotoForm = static function (array $request, string $stage
 
     const syncHTariffFields = () => {
         const isHTariff = select.value === 'h_tariff';
-
-        tariffItems.forEach((item) => {
-            item.hidden = !isHTariff;
-        });
 
         tariffInputs.forEach((input) => {
             input.required = isHTariff && input.dataset.hasExisting !== '1';

@@ -2552,9 +2552,6 @@ $crmCustomerLabel = static fn (string $fieldKey, string $defaultLabel): string =
                                                                                 $isHTariffOnly = !empty($definition['h_tariff_required']);
                                                                                 $accept = connection_request_upload_accept($definition);
 
-                                                                                if ($isHTariffOnly && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
-                                                                                    continue;
-                                                                                }
                                                                                 ?>
                                                                                 <label class="file-upload-item">
                                                                                     <span><?= h((string) $definition['label']); ?></span>

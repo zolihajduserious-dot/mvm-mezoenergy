@@ -761,9 +761,6 @@ function customer_crm_timeline_events(array $customer, array $requests, array $r
                                                                                                 $isHTariffOnly = !empty($definition['h_tariff_required']);
                                                                                                 $accept = connection_request_upload_accept($definition);
 
-                                                                                                if ($isHTariffOnly && (string) ($request['request_type'] ?? '') !== 'h_tariff') {
-                                                                                                    continue;
-                                                                                                }
                                                                                                 ?>
                                                                                                 <label class="file-upload-item">
                                                                                                     <span><?= h((string) $definition['label']); ?></span>
