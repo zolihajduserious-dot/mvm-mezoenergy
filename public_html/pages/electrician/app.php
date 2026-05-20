@@ -39,7 +39,7 @@ foreach ($requests as $request) {
     }
 }
 
-$visibleRequests = array_slice($activeRequests, 0, 18);
+$visibleRequests = $activeRequests;
 $electricianHomeModules = ui_modules_for_area('electrician_app_home');
 
 function electrician_mobile_app_detail_url(int $requestId, ?string $workStage = null): string
@@ -161,7 +161,13 @@ function electrician_mobile_app_next_action_label(array $request): string
                         <p>Új árajánlatot vagy felmérést ettől még indíthatsz.</p>
                     </div>
                 <?php else: ?>
-                    <div class="electrician-app-card-list">
+                    <div class="minicrm-list-tools electrician-app-search-tools">
+                        <label for="electrician_app_search">Keres&#233;s az akt&#237;v adatlapok k&#246;z&#246;tt</label>
+                        <input id="electrician_app_search" type="search" placeholder="&#220;gyf&#233;l, c&#237;m, munka, telefon, email, st&#225;tusz" data-electrician-app-search>
+                        <span data-electrician-app-count><?= count($visibleRequests); ?> db</span>
+                    </div>
+
+                    <div class="electrician-app-card-list" data-electrician-app-list>
                         <?php foreach ($visibleRequests as $request): ?>
                             <?php
                             $requestId = (int) $request['id'];
@@ -174,8 +180,20 @@ function electrician_mobile_app_next_action_label(array $request): string
                             $quoteUrl = url_path('/quick-quote') . '?request_id=' . $requestId;
                             $filesUrl = electrician_mobile_app_detail_url($requestId) . '#electrician-request-files';
                             $detailUrl = electrician_mobile_app_detail_url($requestId);
+                            $searchText = implode(' ', [
+                                (string) ($request['project_name'] ?? ''),
+                                electrician_mobile_app_customer_name($request),
+                                electrician_mobile_app_address($request),
+                                (string) ($request['email'] ?? ''),
+                                (string) ($request['phone'] ?? ''),
+                                (string) ($request['mvm_uk_number'] ?? ''),
+                                (string) ($request['work_note'] ?? ''),
+                                (string) ($request['meter_serial'] ?? ''),
+                                $statusLabel,
+                                connection_request_type_label($request['request_type'] ?? null),
+                            ]);
                             ?>
-                            <article class="electrician-app-work-card electrician-app-work-card-<?= h(electrician_mobile_app_status_class($request)); ?>">
+                            <article class="electrician-app-work-card electrician-app-work-card-<?= h(electrician_mobile_app_status_class($request)); ?>" data-electrician-app-item data-electrician-app-search-text="<?= h($searchText); ?>">
                                 <div class="electrician-app-work-main">
                                     <span class="electrician-app-status"><?= h($statusLabel); ?></span>
                                     <h3><?= h(electrician_mobile_app_customer_name($request)); ?></h3>
@@ -202,6 +220,11 @@ function electrician_mobile_app_next_action_label(array $request): string
                                 </div>
                             </article>
                         <?php endforeach; ?>
+                    </div>
+
+                    <div class="electrician-app-empty" data-electrician-app-empty hidden>
+                        <strong>Nincs tal&#225;lat.</strong>
+                        <p>Pr&#243;b&#225;lj r&#233;szleges n&#233;vre, v&#225;rosra, c&#237;mre, telefonsz&#225;mra vagy st&#225;tuszra keresni.</p>
                     </div>
 
                     <?php if (count($activeRequests) > count($visibleRequests)): ?>
@@ -231,3 +254,37 @@ function electrician_mobile_app_next_action_label(array $request): string
     </div>
 </dialog>
 <script src="<?= h(asset_url('js/electrician-app-install.js')); ?>" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.querySelector('[data-electrician-app-search]');
+    const count = document.querySelector('[data-electrician-app-count]');
+    const empty = document.querySelector('[data-electrician-app-empty]');
+    const items = Array.from(document.querySelectorAll('[data-electrician-app-item]'));
+
+    if (!input || !count || items.length === 0) {
+        return;
+    }
+
+    const searchable = items.map((item) => ({
+        item,
+        text: `${item.textContent} ${item.dataset.electricianAppSearchText || ''}`.toLocaleLowerCase('hu-HU'),
+    }));
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim().toLocaleLowerCase('hu-HU');
+        let visible = 0;
+
+        searchable.forEach(({ item, text }) => {
+            const show = query === '' || text.includes(query);
+            item.hidden = !show;
+            visible += show ? 1 : 0;
+        });
+
+        count.textContent = `${visible} db`;
+
+        if (empty) {
+            empty.hidden = visible !== 0;
+        }
+    });
+});
+</script>
