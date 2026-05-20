@@ -196,6 +196,9 @@ video {
     background:
         linear-gradient(90deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.9) 34%, rgba(246, 251, 249, 0.18) 66%, rgba(246, 251, 249, 0.02) 100%),
         url("../img/hero-meter-work.png") center right / cover no-repeat;
+    background:
+        linear-gradient(90deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.9) 34%, rgba(246, 251, 249, 0.18) 66%, rgba(246, 251, 249, 0.02) 100%),
+        image-set(url("../img/hero-meter-work.webp") type("image/webp"), url("../img/hero-meter-work.png") type("image/png")) center right / cover no-repeat;
 }
 
 .home-hero-inner {
@@ -398,6 +401,10 @@ video {
 
 .feature-layout.reverse .feature-copy {
     order: 2;
+}
+
+.feature-layout picture {
+    display: block;
 }
 
 .feature-layout img {
@@ -3159,6 +3166,9 @@ a.metric-card {
         background:
             linear-gradient(180deg, rgba(246, 251, 249, 0.97) 0%, rgba(246, 251, 249, 0.95) 48%, rgba(246, 251, 249, 0.76) 100%),
             url("../img/hero-meter-work.png") center right / cover no-repeat;
+        background:
+            linear-gradient(180deg, rgba(246, 251, 249, 0.97) 0%, rgba(246, 251, 249, 0.95) 48%, rgba(246, 251, 249, 0.76) 100%),
+            image-set(url("../img/hero-meter-work.webp") type("image/webp"), url("../img/hero-meter-work.png") type("image/png")) center right / cover no-repeat;
     }
 
     .home-hero-inner {
@@ -8635,6 +8645,9 @@ a.metric-card {
     background:
         linear-gradient(90deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.92) 42%, rgba(246, 251, 249, 0.32) 72%, rgba(246, 251, 249, 0.05) 100%),
         url("../img/hero-meter-work.png") center right / cover no-repeat;
+    background:
+        linear-gradient(90deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.92) 42%, rgba(246, 251, 249, 0.32) 72%, rgba(246, 251, 249, 0.05) 100%),
+        image-set(url("../img/hero-meter-work.webp") type("image/webp"), url("../img/hero-meter-work.png") type("image/png")) center right / cover no-repeat;
 }
 
 .mvm-service-hero-inner {
@@ -8826,6 +8839,9 @@ a.metric-card {
         background:
             linear-gradient(180deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.94) 56%, rgba(246, 251, 249, 0.8) 100%),
             url("../img/hero-meter-work.png") center right / cover no-repeat;
+        background:
+            linear-gradient(180deg, rgba(246, 251, 249, 0.98) 0%, rgba(246, 251, 249, 0.94) 56%, rgba(246, 251, 249, 0.8) 100%),
+            image-set(url("../img/hero-meter-work.webp") type("image/webp"), url("../img/hero-meter-work.png") type("image/png")) center right / cover no-repeat;
     }
 
     .mvm-service-copy h1 {

@@ -91,7 +91,10 @@ if (is_logged_in()) {
                 <a class="button button-secondary" href="<?= h(url_path('/login')); ?>">Ügyfélportál</a>
             </div>
         </div>
-        <img src="<?= h(asset_url('img/document-workflow.png')); ?>" alt="Dokumentumfeltöltés mérőhelyi ügyintézéshez">
+        <picture>
+            <source srcset="<?= h(asset_url('img/document-workflow.webp')); ?>" type="image/webp">
+            <img src="<?= h(asset_url('img/document-workflow.png')); ?>" alt="Dokumentumfeltöltés mérőhelyi ügyintézéshez" width="1717" height="916" loading="lazy" decoding="async">
+        </picture>
     </div>
 </section>
 
@@ -109,6 +112,9 @@ if (is_logged_in()) {
                 <a class="button button-secondary" href="<?= h(url_path('/login')); ?>">Belépés</a>
             </div>
         </div>
-        <img src="<?= h(asset_url('img/contractor-workflow.png')); ?>" alt="Generálkivitelező munkaigény rögzítése">
+        <picture>
+            <source srcset="<?= h(asset_url('img/contractor-workflow.webp')); ?>" type="image/webp">
+            <img src="<?= h(asset_url('img/contractor-workflow.png')); ?>" alt="Generálkivitelező munkaigény rögzítése" width="1717" height="916" loading="lazy" decoding="async">
+        </picture>
     </div>
 </section>
