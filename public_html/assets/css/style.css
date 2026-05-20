@@ -8008,6 +8008,11 @@ a.metric-card {
     box-shadow: var(--shadow-card);
 }
 
+.electrician-app-work-card[hidden],
+.electrician-app-empty[hidden] {
+    display: none !important;
+}
+
 .electrician-app-section-head {
     display: flex;
     align-items: end;

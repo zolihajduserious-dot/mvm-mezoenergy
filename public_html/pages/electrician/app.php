@@ -277,6 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchable.forEach(({ item, text }) => {
             const show = query === '' || text.includes(query);
             item.hidden = !show;
+            item.style.display = show ? '' : 'none';
             visible += show ? 1 : 0;
         });
 
@@ -284,6 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (empty) {
             empty.hidden = visible !== 0;
+            empty.style.display = visible === 0 ? '' : 'none';
         }
     });
 });
