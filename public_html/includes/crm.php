@@ -6724,6 +6724,8 @@ function connection_request_type_options(): array
         'h_tariff' => 'H tarifa',
         'new_connection' => 'Új bekapcsolás',
         'standardization' => 'Szabványosítás',
+        'dark_address' => 'Sötét cím',
+        'urgent_dark_address' => 'Sürgős sötét cím',
     ];
 }
 
@@ -6732,6 +6734,19 @@ function connection_request_type_label(?string $type): string
     $types = connection_request_type_options();
 
     return $types[(string) $type] ?? 'Nincs megadva';
+}
+
+function connection_request_type_skips_customer_document_requirements(?string $type): bool
+{
+    return in_array((string) $type, ['dark_address', 'urgent_dark_address'], true);
+}
+
+function connection_request_skips_customer_document_requirements(int $requestId): bool
+{
+    $request = find_connection_request($requestId);
+
+    return $request !== null
+        && connection_request_type_skips_customer_document_requirements($request['request_type'] ?? null);
 }
 
 function connection_request_mvm_uk_number_schema_ensure(): bool
@@ -9619,9 +9634,11 @@ function customer_document_upload_default_types(int $requestId): array
 {
     $types = [];
 
-    foreach (['authorization', 'title_deed', 'map_copy'] as $fileType) {
-        if (!customer_document_upload_type_has_file($requestId, $fileType)) {
-            $types[] = $fileType;
+    if (!connection_request_skips_customer_document_requirements($requestId)) {
+        foreach (['authorization', 'title_deed', 'map_copy'] as $fileType) {
+            if (!customer_document_upload_type_has_file($requestId, $fileType)) {
+                $types[] = $fileType;
+            }
         }
     }
 
@@ -16992,6 +17009,7 @@ function connection_request_seal_removal_package_parts(int $requestId): array
 function connection_request_complete_package_missing_items(int $requestId): array
 {
     $missing = [];
+    $requiresCustomerDocuments = !connection_request_skips_customer_document_requirements($requestId);
 
     if (latest_connection_request_mvm_source_document($requestId) === null) {
         $missing[] = 'MVM dokumentum PDF vagy kép formátumban';
@@ -17016,15 +17034,15 @@ function connection_request_complete_package_missing_items(int $requestId): arra
         }
     }
 
-    if (!connection_request_has_package_file_type($requestId, 'authorization')) {
+    if ($requiresCustomerDocuments && !connection_request_has_package_file_type($requestId, 'authorization')) {
         $missing[] = 'Meghatalmazás PDF vagy kép formátumban';
     }
 
-    if (!connection_request_has_package_file_type($requestId, 'title_deed')) {
+    if ($requiresCustomerDocuments && !connection_request_has_package_file_type($requestId, 'title_deed')) {
         $missing[] = 'Tulajdoni lap PDF vagy kép formátumban';
     }
 
-    if (!connection_request_has_package_file_type($requestId, 'map_copy')) {
+    if ($requiresCustomerDocuments && !connection_request_has_package_file_type($requestId, 'map_copy')) {
         $missing[] = 'Térképmásolat PDF vagy kép formátumban';
     }
 
@@ -18997,6 +19015,25 @@ function minicrm_import_lower(string $value): string
 function minicrm_import_detect_request_type(string $workType, string $workKind, string $cardName): string
 {
     $text = minicrm_import_lower($workType . ' ' . $workKind . ' ' . $cardName);
+    $foldedText = strtr($text, [
+        'á' => 'a',
+        'é' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ö' => 'o',
+        'ő' => 'o',
+        'ú' => 'u',
+        'ü' => 'u',
+        'ű' => 'u',
+    ]);
+
+    if (str_contains($foldedText, 'surgos sotet cim')) {
+        return 'urgent_dark_address';
+    }
+
+    if (str_contains($foldedText, 'sotet cim')) {
+        return 'dark_address';
+    }
 
     if (str_contains($text, 'h tarifa') || str_contains($text, '"h" tarifa')) {
         return 'h_tariff';
@@ -19010,7 +19047,7 @@ function minicrm_import_detect_request_type(string $workType, string $workKind, 
         return 'power_increase';
     }
 
-    if (str_contains($text, 'új bekapcsol') || str_contains($text, 'uj bekapcsol') || str_contains($text, 'sötét cím') || str_contains($text, 'sotet cim')) {
+    if (str_contains($text, 'új bekapcsol') || str_contains($text, 'uj bekapcsol')) {
         return 'new_connection';
     }
 
