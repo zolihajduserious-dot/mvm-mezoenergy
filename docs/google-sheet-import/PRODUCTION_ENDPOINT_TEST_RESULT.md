@@ -41,6 +41,17 @@ A production backend teszt utan javitas keszult az importalt uj ugyfel email szo
 
 A normal jelszo-visszaallitasi folyamat ettol kulon marad, es tovabbra is `Jelszó-visszaállítás` emailt kuld.
 
+## Ugyfelportal adatpontositas megjegyzes
+
+A Google Sheet import eles triggerenek bekapcsolasa elott ellenorizni kell, hogy az importalt teszt ugyfel a sajat portaljan tudja menteni az adatlap alapadatait es pontositasat.
+
+Ellenorizendo tesztadat:
+
+- work_request_id `437`
+- customer_id `440`
+
+Ezek csak kontrollalt tesztadatkent hasznalhatok. A trigger addig NO-GO, amig az ugyfeloldali mentes nem mukodik reload utan es admin oldalon is visszaellenorizheto.
+
 ## Domain megjegyzes
 
 A `mezoenergy.hu` domain jelenleg 301 redirectet ad, ezert az Apps Scriptben most meg ne ezt hasznald API URL-kent.

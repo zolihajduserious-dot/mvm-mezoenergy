@@ -1066,6 +1066,21 @@ function validate_customer_data(array $data, bool $requireConsent = false): arra
     return $errors;
 }
 
+function validate_customer_portal_draft_data(array $data): array
+{
+    $errors = [];
+
+    if ($data['requester_name'] === '') {
+        $errors[] = 'A név megadása kötelező.';
+    }
+
+    if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'Érvényes email cím megadása kötelező.';
+    }
+
+    return $errors;
+}
+
 function create_customer(array $data, ?int $userId = null, ?int $createdByUserId = null): int
 {
     db_query(
@@ -3975,6 +3990,7 @@ function normalize_admin_workflow_stage(?string $stage): ?string
 {
     $stage = trim((string) $stage);
     $legacyStages = [
+        'new_lead' => 'case_starting',
         'new_request' => 'case_starting',
         'quote_needed' => 'case_starting',
         'quote_waiting_acceptance' => 'case_starting',
@@ -6911,7 +6927,15 @@ function connection_request_project_name_limit(string $value): string
 
 function connection_request_normalize_project_name(string $value): string
 {
-    return connection_request_project_name_limit(connection_request_project_name_part($value));
+    $value = trim(str_replace(["\r\n", "\r", "\n"], ' ', $value));
+    $value = preg_replace('/[ \t]+/u', ' ', $value);
+    $value = is_string($value) ? trim($value) : '';
+
+    if ($value === '') {
+        return 'Mérőhelyi igény';
+    }
+
+    return connection_request_human_project_name_truncate($value, 190);
 }
 
 function connection_request_project_name_strip_uk_number(string $value): string
@@ -6923,8 +6947,33 @@ function connection_request_project_name_strip_uk_number(string $value): string
     }
 
     $stripped = preg_replace('/_(?:ÜK|UK)_[\p{L}\p{N}_]+$/u', '', $value);
+    $stripped = is_string($stripped) ? $stripped : $value;
+    $stripped = preg_replace('/\s+[–-]\s+(?:ÜK|UK)\s+[\p{L}\p{N}\s_-]+$/u', '', $stripped);
 
-    return is_string($stripped) ? trim($stripped, '_') : $value;
+    return is_string($stripped) ? trim($stripped, "_ \t\n\r\0\x0B") : $value;
+}
+
+function connection_request_human_project_name_truncate(string $value, int $limit): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return 'Mérőhelyi igény';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($value, 'UTF-8') <= $limit) {
+            return $value;
+        }
+
+        return trim(mb_substr($value, 0, $limit, 'UTF-8')) ?: 'Mérőhelyi igény';
+    }
+
+    if (strlen($value) <= $limit) {
+        return $value;
+    }
+
+    return trim(substr($value, 0, $limit)) ?: 'Mérőhelyi igény';
 }
 
 function connection_request_project_name_truncate(string $value, int $limit): string
@@ -6954,18 +7003,17 @@ function connection_request_project_name_with_uk_number(string $projectName, str
 {
     $baseName = connection_request_normalize_project_name(connection_request_project_name_strip_uk_number($projectName));
     $ukNumber = connection_request_normalize_mvm_uk_number($ukNumber);
-    $ukPart = connection_request_project_name_part($ukNumber);
 
-    if ($ukPart === '') {
-        return connection_request_project_name_limit($baseName);
+    if ($ukNumber === '') {
+        return connection_request_human_project_name_truncate($baseName, 190);
     }
 
-    $suffix = 'ÜK_' . $ukPart;
+    $suffix = 'ÜK ' . $ukNumber;
     $suffixLength = function_exists('mb_strlen') ? mb_strlen($suffix, 'UTF-8') : strlen($suffix);
-    $baseLimit = max(1, 190 - $suffixLength - 1);
-    $baseName = connection_request_project_name_truncate($baseName, $baseLimit);
+    $baseLimit = max(1, 190 - $suffixLength - 3);
+    $baseName = connection_request_human_project_name_truncate($baseName, $baseLimit);
 
-    return connection_request_project_name_limit($baseName . '_' . $suffix);
+    return connection_request_human_project_name_truncate($baseName . ' – ' . $suffix, 190);
 }
 
 function connection_request_generated_document_base_name(array $request): string
@@ -7065,10 +7113,28 @@ function connection_request_auto_project_name(array $data, ?array $customer = nu
         connection_request_type_label($requestType),
     ];
 
-    $name = implode('_', array_filter(
-        array_map(static fn (string $part): string => connection_request_project_name_part($part), $parts),
-        static fn (string $part): bool => $part !== ''
-    ));
+    $cleanParts = [];
+    $seen = [];
+
+    foreach ($parts as $part) {
+        $rawPart = trim((string) $part);
+
+        if ($rawPart === '') {
+            continue;
+        }
+
+        $part = connection_request_normalize_project_name($rawPart);
+        $key = function_exists('mb_strtolower') ? mb_strtolower($part, 'UTF-8') : strtolower($part);
+
+        if (isset($seen[$key])) {
+            continue;
+        }
+
+        $cleanParts[] = $part;
+        $seen[$key] = true;
+    }
+
+    $name = implode(' – ', $cleanParts);
 
     return connection_request_project_name_with_uk_number($name, (string) ($data['mvm_uk_number'] ?? ''));
 }
@@ -8235,7 +8301,7 @@ function save_connection_request(int $customerId, array $data, ?int $requestId =
 
     $customer = find_customer($customerId);
     $submittedProjectName = trim((string) ($data['project_name'] ?? ''));
-    $data['project_name'] = $requestId === null || $submittedProjectName === ''
+    $data['project_name'] = $submittedProjectName === ''
         ? connection_request_auto_project_name($data, $customer)
         : connection_request_normalize_project_name($submittedProjectName);
     $data['project_name'] = connection_request_project_name_with_uk_number($data['project_name'], $data['mvm_uk_number']);
@@ -8370,6 +8436,11 @@ function create_connection_request(int $customerId, array $data, ?int $submitted
 }
 
 function connection_request_is_editable(array $request): bool
+{
+    return connection_request_initial_data_is_editable($request);
+}
+
+function customer_can_edit_connection_request_details(array $request): bool
 {
     return connection_request_initial_data_is_editable($request);
 }
@@ -8993,6 +9064,36 @@ function update_connection_request_work_note(int $requestId, string $note): arra
     );
 
     return ['ok' => true, 'message' => $note !== '' ? 'A munka megjegyzés mentve lett.' : 'A munka megjegyzés törölve lett.'];
+}
+
+function update_connection_request_customer_note(int $requestId, string $note): array
+{
+    $request = find_connection_request($requestId);
+
+    if ($request === null) {
+        return ['ok' => false, 'message' => 'Az adatlap nem található.'];
+    }
+
+    $note = connection_request_normalize_work_note($note);
+    $previousNote = connection_request_normalize_work_note((string) ($request['notes'] ?? ''));
+
+    if ($previousNote === $note) {
+        return ['ok' => true, 'message' => 'A pontosítás már ez volt.'];
+    }
+
+    db_query(
+        'UPDATE `connection_requests` SET `notes` = ? WHERE `id` = ?',
+        [$note !== '' ? $note : null, $requestId]
+    );
+
+    record_connection_request_activity(
+        $requestId,
+        'customer_note_update',
+        $note !== '' ? 'Ügyfél pontosítás frissítve' : 'Ügyfél pontosítás törölve',
+        $note !== '' ? $note : 'A pontosítás törölve lett.'
+    );
+
+    return ['ok' => true, 'message' => $note !== '' ? 'A pontosítást mentettük.' : 'A pontosítást töröltük.'];
 }
 
 function update_connection_request_customer_email(int $requestId, string $email): array

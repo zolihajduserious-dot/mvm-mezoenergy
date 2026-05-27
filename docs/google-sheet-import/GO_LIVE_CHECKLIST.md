@@ -23,6 +23,9 @@
 - Uj importalt ugyfelnel ellenorizd, hogy az email elmagyarazza a Mezo Energy kuldeteset: fuggetlen szakmai segitseg merohelyi / arambovitesi / elosztoi ugyekben.
 - Uj importalt ugyfelnel ellenorizd, hogy szerepel a fuggetlensegi tajekoztatas: a Mezo Energy Kft. nem az MVM Csoport tagja, nem hivatalos MVM ugyfelszolgalat, es nem az MVM neveben jar el.
 - A normal `Jelszo elfelejtese` funkcio kulon ellenorzendo: ott maradjon a `Jelszó-visszaállítás` tartalom.
+- Importalt uj munka adatlapneve legyen ugyfelbarat, pelda: `3 fázisra átállás – TESZT`, ne duplikalt technikai cim.
+- Ugyfelportalon ellenorizd, hogy a sajat importalt adatlap szerkesztheto: adatlapnev, igenytipus, cim, HRSZ, mero, fogyasztasi hely, MVM UK szam, teljesitmeny adatok es ugyfel pontositas mentheto.
+- Az automata Google Sheet trigger csak akkor GO, ha az ugyfeloldali adatlap mentes reload utan is megmarad, es admin oldalon is latszik.
 
 ## Google Sheet
 

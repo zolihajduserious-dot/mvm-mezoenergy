@@ -56,6 +56,37 @@ Ha a Google Sheet import uj ugyfel fiokot hoz letre, az ugyfel fiokaktivalo emai
 
 A normal `Jelszo elfelejtese` / password reset folyamat kulon marad, es tovabbra is a `Jelszó-visszaállítás` tartalmat kuldi.
 
+## Importalt ugyfel adatpontositas
+
+Az importalt uj ugyfel az ugyfelportalon a sajat adatlapjat tudja pontositani. Csak a sajat `customer_id` ala tartozo work request mentheto, mas ugyfel adatlapja nem.
+
+Ugyfel oldalon szerkesztheto alapmezok:
+
+- adatlap neve / munka neve
+- igenytipus
+- cim / ingatlan helye
+- HRSZ
+- mero gyari szama
+- fogyasztasi hely azonosito
+- MVM UK szam
+- meglevo es igenyelt mindennapszaki teljesitmeny
+- ugyfel megjegyzes / pontositas
+
+Nem szerkesztheto ugyfel oldalrol: belso admin statusz, szerelo hozzarendeles, ajanlat statusz, import audit, `source`, `external_lead_id` es `lead_imports` naplo.
+
+A technikai import osszefoglalo admin auditkent a `work_note` mezoben marad. Az ugyfel altal szerkesztheto pontositas a `notes` mezot hasznalja, igy nem irja felul az import auditot.
+
+## Adatlapnev generalas
+
+Az import most eloszor explicit adatlapnevet keres: `work_request_title`, `request_title`, `adatlap_neve`, `adatlap neve`, `munka_neve`, `munka neve`, `igeny_neve`, `igény neve`.
+
+Ha nincs explicit adatlapnev, a cim a `work_type` alapjan keszul, es csak finoman kapja meg a telepulest vagy ingatlan helyet. Pelda:
+
+- regi rossz forma: `TESZT_TESZT_3_fázisra_átállás`
+- uj forma: `3 fázisra átállás – TESZT`
+
+Az automata Google Sheet trigger csak akkor kapcsolhato be, ha az ugyfeloldali adatlap pontositas es mentes kontrollalt teszten rendben mukodik.
+
 ## Migracio Nethely / phpMyAdmin alatt
 
 Az import naplohoz futtasd a `database/lead_imports.sql` migraciot. Az endpoint indulaskor is megprobalja letrehozni a `lead_imports` tablat, de eles telepitesnel a migracio futtatasa az ajanlott.

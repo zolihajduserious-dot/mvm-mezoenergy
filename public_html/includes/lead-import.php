@@ -220,6 +220,17 @@ function lead_import_normalize_payload(array $payload): array
         'form_name' => lead_import_payload_string($payload, 'form_name', 255),
         'property_location' => lead_import_payload_string($payload, 'property_location', 500),
         'work_type' => lead_import_payload_string($payload, 'work_type', 255),
+        'work_request_title' => lead_import_payload_first_string($payload, [
+            'work_request_title',
+            'request_title',
+            'adatlap_neve',
+            'adatlap neve',
+            'munka_neve',
+            'munka neve',
+            'igeny_neve',
+            'igény_neve',
+            'igény neve',
+        ], 180),
         'has_existing_utility_request' => lead_import_payload_string($payload, 'has_existing_utility_request', 255),
         'city' => lead_import_payload_string($payload, 'city', 160),
         'email' => strtolower(lead_import_payload_string($payload, 'email', 190)),
@@ -243,6 +254,19 @@ function lead_import_payload_string(array $payload, string $key, int $limit): st
     $value = is_string($value) ? trim($value) : '';
 
     return lead_import_limit($value, $limit);
+}
+
+function lead_import_payload_first_string(array $payload, array $keys, int $limit): string
+{
+    foreach ($keys as $key) {
+        $value = lead_import_payload_string($payload, (string) $key, $limit);
+
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
 }
 
 function lead_import_payload_int_or_null(array $payload, string $key): ?int
@@ -826,9 +850,11 @@ function lead_import_create_work_request(int $customerId, array $payload, string
     $location = (string) $payload['property_location'];
     $city = (string) $payload['city'];
     $workType = (string) $payload['work_type'];
+    $customerSummary = lead_import_customer_work_summary($payload);
+    $adminImportNote = lead_import_work_request_note($payload, $externalLeadId);
     $requestData = normalize_connection_request_data([
         'request_type' => lead_import_request_type_from_work_type($workType),
-        'project_name' => lead_import_project_name($payload),
+        'project_name' => lead_import_build_work_request_title($payload),
         'site_address' => $location !== '' ? $location : ($city !== '' ? $city : 'Facebook lead - pontosítás szükséges'),
         'site_postal_code' => lead_import_extract_postal_code($location),
         'existing_general_power' => 'Ismeretlen',
@@ -837,8 +863,8 @@ function lead_import_create_work_request(int $customerId, array $payload, string
         'requested_h_tariff_power' => '',
         'existing_controlled_power' => '',
         'requested_controlled_power' => '',
-        'notes' => lead_import_work_request_note($payload, $externalLeadId),
-        'work_note' => lead_import_work_request_note($payload, $externalLeadId),
+        'notes' => $customerSummary,
+        'work_note' => $adminImportNote,
     ], is_array($customer) ? $customer : null);
 
     $requestId = save_connection_request($customerId, $requestData, null, null, true);
@@ -848,7 +874,7 @@ function lead_import_create_work_request(int $customerId, array $payload, string
             'UPDATE `connection_requests`
              SET `admin_workflow_stage` = ?
              WHERE `id` = ?',
-            ['new_lead', $requestId]
+            ['case_starting', $requestId]
         );
     }
 
@@ -899,13 +925,122 @@ function lead_import_request_type_from_work_type(string $workType): string
 
 function lead_import_project_name(array $payload): string
 {
-    $parts = array_filter([
-        'Facebook lead',
-        (string) $payload['city'],
-        (string) $payload['work_type'],
-    ], static fn (string $part): bool => trim($part) !== '');
+    return lead_import_build_work_request_title($payload);
+}
 
-    return lead_import_limit(implode(' - ', $parts), 180);
+function lead_import_build_work_request_title(array $payload): string
+{
+    $explicitTitle = lead_import_title_text((string) ($payload['work_request_title'] ?? ''));
+
+    if ($explicitTitle !== '') {
+        return lead_import_limit($explicitTitle, 180);
+    }
+
+    $city = lead_import_title_text((string) ($payload['city'] ?? ''));
+    $location = lead_import_title_text((string) ($payload['property_location'] ?? ''));
+    $workType = lead_import_title_text((string) ($payload['work_type'] ?? ''));
+    $context = $city !== '' ? $city : lead_import_short_location_title($location);
+    $base = lead_import_strip_leading_title_context($workType, array_filter([$city, $context]));
+
+    if ($base === '') {
+        $base = 'Mérőhelyi munka';
+    }
+
+    if ($context !== '' && !lead_import_title_contains($base, $context)) {
+        $base .= ' – ' . $context;
+    }
+
+    return lead_import_limit($base, 180);
+}
+
+function lead_import_title_text(string $value): string
+{
+    $value = str_replace('_', ' ', $value);
+    $value = preg_replace('/[ \t\r\n]+/u', ' ', $value);
+    $value = is_string($value) ? trim($value, " \t\n\r\0\x0B-_–") : '';
+
+    return $value;
+}
+
+function lead_import_short_location_title(string $location): string
+{
+    $location = lead_import_title_text($location);
+
+    if ($location === '') {
+        return '';
+    }
+
+    $parts = preg_split('/[,;]/u', $location);
+    $firstPart = is_array($parts) ? trim((string) ($parts[0] ?? '')) : $location;
+
+    return $firstPart !== '' ? $firstPart : $location;
+}
+
+function lead_import_title_key(string $value): string
+{
+    $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value);
+    $value = is_string($value) ? trim($value) : '';
+
+    return $value;
+}
+
+function lead_import_title_contains(string $title, string $context): bool
+{
+    $titleKey = lead_import_title_key($title);
+    $contextKey = lead_import_title_key($context);
+
+    return $contextKey !== '' && str_contains($titleKey, $contextKey);
+}
+
+function lead_import_strip_leading_title_context(string $title, array $contexts): string
+{
+    $title = lead_import_title_text($title);
+
+    if ($title === '') {
+        return '';
+    }
+
+    foreach ($contexts as $context) {
+        $context = lead_import_title_text((string) $context);
+
+        if ($context === '') {
+            continue;
+        }
+
+        do {
+            $previous = $title;
+            $pattern = '/^' . preg_quote($context, '/') . '[\s_\-–:]+/iu';
+            $title = preg_replace($pattern, '', $title);
+            $title = is_string($title) ? lead_import_title_text($title) : $previous;
+        } while ($title !== $previous);
+    }
+
+    return $title;
+}
+
+function lead_import_customer_work_summary(array $payload): string
+{
+    $rows = [
+        'Ingatlan helye' => (string) $payload['property_location'],
+        'Munka típusa' => (string) $payload['work_type'],
+        'Van már beadott igény' => (string) $payload['has_existing_utility_request'],
+        'Település' => (string) $payload['city'],
+    ];
+
+    $lines = ['Az Ön igényének összefoglalója:'];
+    foreach ($rows as $label => $value) {
+        if (trim($value) === '') {
+            continue;
+        }
+
+        $lines[] = '- ' . $label . ': ' . lead_import_note_value($value);
+    }
+
+    $lines[] = '';
+    $lines[] = 'Kérjük, ellenőrizze és szükség esetén pontosítsa az adatokat az ügyfélportálon.';
+
+    return implode("\n", $lines);
 }
 
 function lead_import_customer_note(array $payload): string

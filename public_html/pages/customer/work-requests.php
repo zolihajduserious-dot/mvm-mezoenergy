@@ -18,6 +18,8 @@ if (is_post() && ($_POST['action'] ?? '') === 'save_mvm_uk_number') {
 
     if ($request === null || (int) ($request['customer_id'] ?? 0) !== (int) $customer['id']) {
         set_flash('error', 'Az adatlap nem található.');
+    } elseif (!customer_can_edit_connection_request_details($request)) {
+        set_flash('error', 'Ez az adatlap ebben az állapotban már nem módosítható.');
     } else {
         $result = update_connection_request_mvm_uk_number($requestId, (string) ($_POST['mvm_uk_number'] ?? ''));
         set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Az ÜK szám mentése sikertelen.'));
@@ -26,7 +28,7 @@ if (is_post() && ($_POST['action'] ?? '') === 'save_mvm_uk_number') {
     redirect('/customer/work-requests');
 }
 
-if (is_post() && ($_POST['action'] ?? '') === 'save_work_note') {
+if (is_post() && ($_POST['action'] ?? '') === 'save_customer_note') {
     require_valid_csrf_token();
 
     $requestId = max(0, (int) ($_POST['request_id'] ?? 0));
@@ -34,9 +36,11 @@ if (is_post() && ($_POST['action'] ?? '') === 'save_work_note') {
 
     if ($request === null || (int) ($request['customer_id'] ?? 0) !== (int) $customer['id']) {
         set_flash('error', 'Az adatlap nem található.');
+    } elseif (!customer_can_edit_connection_request_details($request)) {
+        set_flash('error', 'Ez az adatlap ebben az állapotban már nem módosítható.');
     } else {
-        $result = update_connection_request_work_note($requestId, (string) ($_POST['work_note'] ?? ''));
-        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A munka megjegyzés mentése sikertelen.'));
+        $result = update_connection_request_customer_note($requestId, (string) ($_POST['notes'] ?? ''));
+        set_flash(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'A pontosítás mentése sikertelen.'));
     }
 
     redirect('/customer/work-requests');
@@ -100,7 +104,7 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                     $mvmEmailThreads = mvm_email_threads_with_messages((int) $request['id']);
                     $requestStatus = (string) ($request['request_status'] ?? 'finalized');
                     $emailStatus = (string) ($request['email_status'] ?? 'pending');
-                    $isEditable = connection_request_is_editable($request);
+                    $isEditable = customer_can_edit_connection_request_details($request);
                     $quoteStatusLabels = quote_status_labels();
                     ?>
 
@@ -165,19 +169,23 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                                 <?= csrf_field(); ?>
                                 <input type="hidden" name="action" value="save_mvm_uk_number">
                                 <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
-                                <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám">
-                                <button class="button button-secondary" type="submit">Mentés</button>
+                                <input name="mvm_uk_number" value="<?= h((string) ($request['mvm_uk_number'] ?? '')); ?>" placeholder="MVM ÜK szám" aria-label="MVM ÜK szám" <?= $isEditable ? '' : 'disabled'; ?>>
+                                <?php if ($isEditable): ?>
+                                    <button class="button button-secondary" type="submit">Mentés</button>
+                                <?php endif; ?>
                             </form>
                         </div>
 
                         <div class="portal-card-files">
-                            <h3>Munka megjegyzés</h3>
+                            <h3>Az Ön igényének összefoglalója</h3>
                             <form class="inline-form" method="post" action="<?= h(url_path('/customer/work-requests')); ?>">
                                 <?= csrf_field(); ?>
-                                <input type="hidden" name="action" value="save_work_note">
+                                <input type="hidden" name="action" value="save_customer_note">
                                 <input type="hidden" name="request_id" value="<?= (int) $request['id']; ?>">
-                                <textarea name="work_note" rows="3" placeholder="Megjegyzés a munkához"><?= h((string) ($request['work_note'] ?? '')); ?></textarea>
-                                <button class="button button-secondary" type="submit">Mentés</button>
+                                <textarea name="notes" rows="3" placeholder="Itt pontosíthatod röviden az ügyedet." <?= $isEditable ? '' : 'disabled'; ?>><?= h((string) ($request['notes'] ?? '')); ?></textarea>
+                                <?php if ($isEditable): ?>
+                                    <button class="button button-secondary" type="submit">Mentés</button>
+                                <?php endif; ?>
                             </form>
                         </div>
 
@@ -280,7 +288,7 @@ $mvmThreadStatusLabels = mvm_email_thread_status_labels();
                             <div class="inline-link-list">
                                 <a href="<?= h(authorization_signature_url($request)); ?>" target="_blank">Meghatalmazás online aláírása</a>
                                 <?php if ($isEditable): ?>
-                                    <a href="<?= h(url_path('/customer/work-request') . '?id=' . (int) $request['id']); ?>">Módosítás és feltöltés</a>
+                                    <a href="<?= h(url_path('/customer/work-request') . '?id=' . (int) $request['id']); ?>">Adatok pontosítása és feltöltés</a>
                                 <?php else: ?>
                                     <span class="status-badge status-badge-finalized">Lezárt igény</span>
                                 <?php endif; ?>

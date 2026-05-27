@@ -17,6 +17,16 @@ const MEZO_IMPORT_COLUMNS = [
 
 const MEZO_COLUMN_ALIASES = {
   external_lead_id: ['id'],
+  work_request_title: [
+    'work_request_title',
+    'request_title',
+    'adatlap_neve',
+    'adatlap neve',
+    'munka_neve',
+    'munka neve',
+    'igeny neve',
+    'igeny_neve',
+  ],
   property_location: [
     'hol_van_az_ingatlan?',
     'hol_van_az_ingatlan',
@@ -206,6 +216,7 @@ function mezoPayloadFromRow_(row, headerMap, rowNumber) {
     created_time: mezoCell_(row, headerMap, 'created_time'),
     campaign_name: mezoCell_(row, headerMap, 'campaign_name'),
     form_name: mezoCell_(row, headerMap, 'form_name'),
+    work_request_title: mezoCell_(row, headerMap, 'work_request_title'),
     property_location: mezoCell_(row, headerMap, 'property_location'),
     work_type: mezoCell_(row, headerMap, 'work_type'),
     has_existing_utility_request: mezoCell_(row, headerMap, 'has_existing_utility_request'),

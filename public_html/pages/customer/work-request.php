@@ -23,7 +23,7 @@ if ($requestId && ($request === null || (int) $request['customer_id'] !== (int) 
     return;
 }
 
-if ($request !== null && !connection_request_is_editable($request)) {
+if ($request !== null && !customer_can_edit_connection_request_details($request)) {
     set_flash('info', 'Ez az igény már le van zárva, ezért nem módosítható.');
     redirect('/customer/work-requests');
 }
@@ -169,6 +169,7 @@ if (is_post()) {
     $customerForm['contact_data_accepted'] = (int) ($customer['contact_data_accepted'] ?? 0);
     $customerForm['notes'] = (string) ($customer['notes'] ?? '');
     $form = normalize_connection_request_data($_POST, $customerForm);
+    unset($form['work_note']);
 
     if ($action === 'extract_document_prefill') {
         $documentPrefillResult = handle_connection_request_document_prefill($documentPrefillToken, $_FILES, $customerForm, $form);
@@ -189,8 +190,10 @@ if (is_post()) {
         }
     }
 
+    unset($form['work_note']);
+
     $errors = array_merge(
-        validate_customer_data($customerForm, false),
+        $finalize ? validate_customer_data($customerForm, false) : validate_customer_portal_draft_data($customerForm),
         validate_connection_request_data($form, $_FILES, $finalize, $requestId ?: null)
     );
 
@@ -513,8 +516,7 @@ $mvmChecked = static fn (string $fieldKey): bool => trim((string) ($mvmFormValue
                     <?php endforeach; ?>
                 </div>
 
-                <label>Megjegyzés</label><textarea name="notes" rows="4"><?= h($form['notes']); ?></textarea>
-                <label>Munka megjegyzés</label><textarea name="work_note" rows="3" placeholder="Belső megjegyzés a munkához"><?= h($form['work_note']); ?></textarea>
+                <label>Ügyfél megjegyzés / pontosítás</label><textarea name="notes" rows="5" placeholder="Ide írhatod, amit pontosítani szeretnél az ügyeddel kapcsolatban."><?= h($form['notes']); ?></textarea>
             </section>
                 </div>
 
