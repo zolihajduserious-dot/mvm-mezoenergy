@@ -1,6 +1,9 @@
 param(
     [ValidateSet('normal', 'duplicate', 'missing-contact', 'wrong-token')]
-    [string] $Mode = 'normal'
+    [string] $Mode = 'normal',
+
+    [Alias('VerboseHttp')]
+    [switch] $ShowRequestSummary
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +76,22 @@ function Invoke-MezoLeadImport {
     }
 }
 
+function Write-MezoRequestSummary {
+    param(
+        [string] $Endpoint,
+        [string] $Token,
+        [string] $Mode
+    )
+
+    Write-Host ('Request URL: {0}' -f $Endpoint)
+    Write-Host 'HTTP method: POST'
+    Write-Host 'Content-Type: application/json; charset=utf-8'
+    Write-Host ('Authorization Bearer token present: {0}' -f (-not [string]::IsNullOrWhiteSpace($Token)))
+    Write-Host 'Authorization Bearer token value: hidden'
+    Write-Host ('Payload mode: {0}' -f $Mode)
+    Write-Host 'Payload body: hidden'
+}
+
 function Write-MezoResult {
     param(
         [string] $Label,
@@ -81,6 +100,10 @@ function Write-MezoResult {
 
     Write-Host ('[{0}] HTTP status: {1}' -f $Label, $Result.StatusCode)
     Write-Host $Result.Content
+}
+
+if ($ShowRequestSummary) {
+    Write-MezoRequestSummary -Endpoint $endpoint -Token $token -Mode $Mode
 }
 
 if ($Mode -eq 'duplicate') {
