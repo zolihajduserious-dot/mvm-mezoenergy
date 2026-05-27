@@ -4688,14 +4688,41 @@ function send_admin_activity_notification(
 
 function send_password_reset_email(array $user, string $token): array
 {
+    return send_password_token_email($user, $token, [
+        'subject' => APP_NAME . ' jelszó-visszaállítás',
+        'title' => 'Jelszó-visszaállítás',
+        'lead' => 'Jelszó-visszaállítást kértek a fiókjához. A link 1 óráig érvényes.',
+        'action_label' => 'Új jelszó beállítása',
+        'success_message' => 'A jelszó-visszaállító emailt elküldtük.',
+        'failure_message' => 'A jelszó-visszaállító email küldése sikertelen.',
+    ]);
+}
+
+function send_account_activation_email(array $user, string $token): array
+{
+    return send_password_token_email($user, $token, [
+        'subject' => 'Mező Energy ügyfélportál – fiók aktiválása',
+        'title' => 'Fiók aktiválása',
+        'lead' => "Köszönjük az érdeklődését. A Mező Energy ügyfélportálon létrehoztuk az előzetes hozzáférését, hogy a mérőhelyi ügyintézéssel kapcsolatos igényét követni és kiegészíteni tudja.\n\nA fiók aktiválásához és saját jelszó beállításához kattintson az alábbi gombra. A link 1 óráig érvényes.",
+        'action_label' => 'Fiók aktiválása',
+        'success_message' => 'Az aktiváló emailt elküldtük.',
+        'failure_message' => 'Az aktiváló email küldése sikertelen.',
+    ]);
+}
+
+function send_password_token_email(array $user, string $token, array $emailConfig): array
+{
     if (!class_exists('\\PHPMailer\\PHPMailer\\PHPMailer')) {
         return ['ok' => false, 'message' => 'A PHPMailer nincs telepítve.'];
     }
 
     $resetUrl = absolute_url('/reset-password?token=' . rawurlencode($token));
-    $subject = APP_NAME . ' jelszó-visszaállítás';
-    $emailTitle = 'Jelszó-visszaállítás';
-    $emailLead = 'Jelszó-visszaállítást kértek a fiókjához. A link 1 óráig érvényes.';
+    $subject = (string) ($emailConfig['subject'] ?? APP_NAME);
+    $emailTitle = (string) ($emailConfig['title'] ?? APP_NAME);
+    $emailLead = (string) ($emailConfig['lead'] ?? '');
+    $actionLabel = (string) ($emailConfig['action_label'] ?? 'Megnyitás');
+    $successMessage = (string) ($emailConfig['success_message'] ?? 'Az emailt elküldtük.');
+    $failureMessage = (string) ($emailConfig['failure_message'] ?? 'Az email küldése sikertelen.');
     $emailSections = [
         [
             'title' => 'Fiók',
@@ -4707,7 +4734,7 @@ function send_password_reset_email(array $user, string $token): array
         ],
     ];
     $emailActions = [
-        ['label' => 'Új jelszó beállítása', 'url' => $resetUrl],
+        ['label' => $actionLabel, 'url' => $resetUrl],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
@@ -4725,14 +4752,14 @@ function send_password_reset_email(array $user, string $token): array
             [null, (string) $user['email'], $subject, 'sent']
         );
 
-        return ['ok' => true, 'message' => 'A jelszó-visszaállító emailt elküldtük.'];
+        return ['ok' => true, 'message' => $successMessage];
     } catch (Throwable $exception) {
         db_query(
             'INSERT INTO `email_logs` (`quote_id`, `recipient_email`, `subject`, `status`, `error_message`) VALUES (?, ?, ?, ?, ?)',
             [null, (string) $user['email'], $subject, 'failed', $exception->getMessage()]
         );
 
-        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : 'A jelszó-visszaállító email küldése sikertelen.'];
+        return ['ok' => false, 'message' => APP_DEBUG ? $exception->getMessage() : $failureMessage];
     }
 }
 

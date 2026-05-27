@@ -30,6 +30,15 @@ A `normal` teszt letrehozott egy eles teszt customer / work request rekordot:
 
 Token ertek nem szerepel ebben a dokumentumban.
 
+## Email megjegyzes
+
+A production backend teszt utan javitas keszult az importalt uj ugyfel email szovegere. A kovetkezo importalt uj ugyfelnek fiokaktivalo emailt kell kapnia:
+
+- subject: `Mező Energy ügyfélportál – fiók aktiválása`
+- gomb: `Fiók aktiválása`
+
+A normal jelszo-visszaallitasi folyamat ettol kulon marad, es tovabbra is `Jelszó-visszaállítás` emailt kuld.
+
 ## Domain megjegyzes
 
 A `mezoenergy.hu` domain jelenleg 301 redirectet ad, ezert az Apps Scriptben most meg ne ezt hasznald API URL-kent.

@@ -43,6 +43,16 @@ A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scri
 
 Az endpoint elfogadja az `application/json` es az `application/json; charset=utf-8` content-type fejlecet is.
 
+## Importalt ugyfel email
+
+Ha a Google Sheet import uj ugyfel fiokot hoz letre, az ugyfel fiokaktivalo emailt kap, nem normal jelszo-visszaallitasi emailt.
+
+- subject: `Mező Energy ügyfélportál – fiók aktiválása`
+- cim: `Fiók aktiválása`
+- gomb: `Fiók aktiválása`
+
+A normal `Jelszo elfelejtese` / password reset folyamat kulon marad, es tovabbra is a `Jelszó-visszaállítás` tartalmat kuldi.
+
 ## Migracio Nethely / phpMyAdmin alatt
 
 Az import naplohoz futtasd a `database/lead_imports.sql` migraciot. Az endpoint indulaskor is megprobalja letrehozni a `lead_imports` tablat, de eles telepitesnel a migracio futtatasa az ajanlott.

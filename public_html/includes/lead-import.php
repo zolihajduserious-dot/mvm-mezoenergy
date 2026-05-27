@@ -967,7 +967,7 @@ function lead_import_send_activation_email_if_needed(int $userId, bool $userCrea
 
     try {
         $token = create_password_reset_token($userId);
-        $result = send_password_reset_email($user, $token);
+        $result = send_account_activation_email($user, $token);
 
         record_connection_request_activity(
             $requestId,

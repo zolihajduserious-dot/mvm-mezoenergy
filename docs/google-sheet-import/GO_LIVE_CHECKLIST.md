@@ -19,6 +19,8 @@
 - Futtass endpoint kezi tesztet a `docs/google-sheet-import/test_import.ps1 -Mode normal` paranccsal.
 - Futtasd a `-Mode duplicate`, `-Mode missing-contact`, `-Mode wrong-token` teszteket is.
 - Ellenorizd az admin feluleten, hogy letrejott az ugyfel es a munkaigeny.
+- Uj importalt ugyfelnel ellenorizd, hogy az email subject `Mező Energy ügyfélportál – fiók aktiválása`, a gomb pedig `Fiók aktiválása`; ez nem lehet normal `Jelszó-visszaállítás` email.
+- A normal `Jelszo elfelejtese` funkcio kulon ellenorzendo: ott maradjon a `Jelszó-visszaállítás` tartalom.
 
 ## Google Sheet
 
