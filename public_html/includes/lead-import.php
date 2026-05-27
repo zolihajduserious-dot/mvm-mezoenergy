@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 const LEAD_IMPORT_SOURCE_FACEBOOK = 'facebook_instant_form';
+const LEAD_IMPORT_MIN_TOKEN_LENGTH = 32;
 
 function lead_import_handle_facebook_lead_request(): never
 {
@@ -10,6 +11,13 @@ function lead_import_handle_facebook_lead_request(): never
         lead_import_json_response(405, [
             'status' => 'HIBA',
             'error' => 'Method not allowed',
+        ]);
+    }
+
+    if (!lead_import_token_is_configured()) {
+        lead_import_json_response(503, [
+            'status' => 'HIBA',
+            'error' => 'Import API is not configured',
         ]);
     }
 
@@ -93,12 +101,60 @@ function lead_import_json_response(int $statusCode, array $payload): never
 
 function lead_import_request_is_authorized(): bool
 {
-    $expectedToken = trim((string) (getenv('LEAD_IMPORT_TOKEN') ?: ''));
+    $expectedToken = lead_import_expected_token();
     $providedToken = lead_import_bearer_token();
 
     return $expectedToken !== ''
         && $providedToken !== ''
         && hash_equals($expectedToken, $providedToken);
+}
+
+function lead_import_token_is_configured(): bool
+{
+    return strlen(lead_import_expected_token()) >= LEAD_IMPORT_MIN_TOKEN_LENGTH;
+}
+
+function lead_import_expected_token(): string
+{
+    $environmentValue = getenv('LEAD_IMPORT_TOKEN');
+
+    if ($environmentValue !== false && trim((string) $environmentValue) !== '') {
+        return trim((string) $environmentValue);
+    }
+
+    return lead_import_local_config_value('LEAD_IMPORT_TOKEN');
+}
+
+function lead_import_local_config_value(string $key): string
+{
+    static $localConfig = null;
+
+    if ($localConfig === null) {
+        $localConfig = [];
+        $storagePath = defined('STORAGE_PATH') ? (string) STORAGE_PATH : dirname(__DIR__, 2) . '/storage';
+        $localConfigPaths = [
+            $storagePath . '/config/local.php',
+            $storagePath . '/config/local.secret.php',
+        ];
+
+        foreach ($localConfigPaths as $localConfigPath) {
+            if (!is_file($localConfigPath) || !is_readable($localConfigPath)) {
+                continue;
+            }
+
+            try {
+                $loadedLocalConfig = require $localConfigPath;
+            } catch (Throwable) {
+                continue;
+            }
+
+            if (is_array($loadedLocalConfig)) {
+                $localConfig = array_replace($localConfig, $loadedLocalConfig);
+            }
+        }
+    }
+
+    return array_key_exists($key, $localConfig) ? trim((string) $localConfig[$key]) : '';
 }
 
 function lead_import_bearer_token(): string
@@ -311,17 +367,6 @@ function lead_import_process_payload(array $payload): array
     $source = (string) $payload['source'];
     $externalLeadId = lead_import_resolved_external_id($payload);
     $payloadHash = lead_import_payload_hash($payload);
-    $existingImport = lead_import_find_by_external_id($source, $externalLeadId);
-
-    if (lead_import_row_is_imported($existingImport)) {
-        return [
-            'duplicate' => true,
-            'customer_id' => (int) ($existingImport['customer_id'] ?? 0),
-            'work_request_id' => (int) ($existingImport['work_request_id'] ?? 0),
-        ];
-    }
-
-    $importId = lead_import_start_log($source, $externalLeadId, $payloadHash, $existingImport);
     $pdo = db();
     $startedTransaction = !$pdo->inTransaction();
 
@@ -330,6 +375,39 @@ function lead_import_process_payload(array $payload): array
     }
 
     try {
+        $existingImport = $startedTransaction
+            ? lead_import_find_by_external_id_for_update($source, $externalLeadId)
+            : lead_import_find_by_external_id($source, $externalLeadId);
+
+        if (lead_import_row_is_imported($existingImport)) {
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
+
+            return [
+                'duplicate' => true,
+                'customer_id' => (int) ($existingImport['customer_id'] ?? 0),
+                'work_request_id' => (int) ($existingImport['work_request_id'] ?? 0),
+            ];
+        }
+
+        $importId = lead_import_start_log($source, $externalLeadId, $payloadHash, $existingImport);
+        $currentImport = $startedTransaction
+            ? lead_import_find_by_id_for_update($importId)
+            : lead_import_find_by_id($importId);
+
+        if (lead_import_row_is_imported($currentImport)) {
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
+
+            return [
+                'duplicate' => true,
+                'customer_id' => (int) ($currentImport['customer_id'] ?? 0),
+                'work_request_id' => (int) ($currentImport['work_request_id'] ?? 0),
+            ];
+        }
+
         $customerResult = lead_import_find_or_create_customer($payload);
         $customerId = (int) $customerResult['customer_id'];
         $workRequestId = lead_import_create_work_request($customerId, $payload, $externalLeadId);
@@ -344,7 +422,7 @@ function lead_import_process_payload(array $payload): array
             $pdo->rollBack();
         }
 
-        lead_import_mark_error($importId, lead_import_public_exception_message($exception));
+        lead_import_record_error_log($source, $externalLeadId, $payloadHash, lead_import_public_exception_message($exception));
         throw $exception;
     }
 
@@ -385,9 +463,54 @@ function lead_import_find_by_external_id(string $source, string $externalLeadId)
     return is_array($row) ? $row : null;
 }
 
+function lead_import_find_by_external_id_for_update(string $source, string $externalLeadId): ?array
+{
+    $row = db_query(
+        'SELECT *
+         FROM `lead_imports`
+         WHERE `source` = ? AND `external_lead_id` = ?
+         LIMIT 1
+         FOR UPDATE',
+        [$source, $externalLeadId]
+    )->fetch();
+
+    return is_array($row) ? $row : null;
+}
+
+function lead_import_find_by_id(int $id): ?array
+{
+    $row = db_query(
+        'SELECT *
+         FROM `lead_imports`
+         WHERE `id` = ?
+         LIMIT 1',
+        [$id]
+    )->fetch();
+
+    return is_array($row) ? $row : null;
+}
+
+function lead_import_find_by_id_for_update(int $id): ?array
+{
+    $row = db_query(
+        'SELECT *
+         FROM `lead_imports`
+         WHERE `id` = ?
+         LIMIT 1
+         FOR UPDATE',
+        [$id]
+    )->fetch();
+
+    return is_array($row) ? $row : null;
+}
+
 function lead_import_start_log(string $source, string $externalLeadId, string $payloadHash, ?array $existingImport): int
 {
     if (is_array($existingImport)) {
+        if ((int) ($existingImport['customer_id'] ?? 0) > 0 && (int) ($existingImport['work_request_id'] ?? 0) > 0) {
+            return (int) $existingImport['id'];
+        }
+
         db_query(
             'UPDATE `lead_imports`
              SET `payload_hash` = ?,
@@ -445,6 +568,20 @@ function lead_import_mark_error(int $importId, string $message): void
              `updated_at` = CURRENT_TIMESTAMP
          WHERE `id` = ?',
         ['error', lead_import_limit($message, 1000), $importId]
+    );
+}
+
+function lead_import_record_error_log(string $source, string $externalLeadId, string $payloadHash, string $message): void
+{
+    db_query(
+        'INSERT INTO `lead_imports` (`source`, `external_lead_id`, `payload_hash`, `status`, `error_message`)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+             `payload_hash` = VALUES(`payload_hash`),
+             `status` = VALUES(`status`),
+             `error_message` = VALUES(`error_message`),
+             `updated_at` = CURRENT_TIMESTAMP',
+        [$source, $externalLeadId, $payloadHash, 'error', lead_import_limit($message, 1000)]
     );
 }
 
@@ -783,6 +920,7 @@ function lead_import_customer_note(array $payload): string
 function lead_import_work_request_note(array $payload, string $externalLeadId): string
 {
     $rows = [
+        'Forrás' => LEAD_IMPORT_SOURCE_FACEBOOK,
         'Kampány' => (string) $payload['campaign_name'],
         'Űrlap' => (string) $payload['form_name'],
         'Ingatlan helye' => (string) $payload['property_location'],

@@ -1,0 +1,7 @@
+<?php
+declare(strict_types=1);
+
+return [
+    'LEAD_IMPORT_TOKEN' => '',
+    'APP_URL' => 'https://mezoenergy.hu',
+];

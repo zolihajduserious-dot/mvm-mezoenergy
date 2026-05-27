@@ -29,6 +29,33 @@ const MEZO_IMPORT_COLUMNS = [
   'mezo_notes',
 ];
 
+const MEZO_COLUMN_ALIASES = {
+  external_lead_id: ['id'],
+  property_location: [
+    'hol_van_az_ingatlan?',
+    'hol_van_az_ingatlan',
+    'hol van az ingatlan?',
+  ],
+  work_type: [
+    'milyen_munkára_van_szükség?',
+    'milyen_munkára_van_szükség',
+    'milyen munkára van szükség?',
+    'milyen_munkara_van_szukseg?',
+  ],
+  has_existing_utility_request: [
+    'van_már_beadott_igény_a_szolgáltató_felé?',
+    'van_már_beadott_igény_a_szolgáltató_felé',
+    'van már beadott igény a szolgáltató felé?',
+    'van_mar_beadott_igeny_a_szolgaltato_fele?',
+  ],
+  city: [
+    'település?',
+    'település',
+    'telepules?',
+    'telepules',
+  ],
+};
+
 function runMezoFacebookLeadImport() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -40,7 +67,8 @@ function runMezoFacebookLeadImport() {
     ensureMezoImportColumns(sheet);
 
     const props = mezoProperties_();
-    const maxRows = Math.min(25, Math.max(1, Number(props.MEZO_MAX_ROWS_PER_RUN || MEZO_DEFAULT_MAX_ROWS)));
+    const configuredMaxRows = Number(props.MEZO_MAX_ROWS_PER_RUN || MEZO_DEFAULT_MAX_ROWS);
+    const maxRows = Math.min(25, Math.max(1, isNaN(configuredMaxRows) ? MEZO_DEFAULT_MAX_ROWS : configuredMaxRows));
     const retryErrors = String(props.MEZO_RETRY_ERRORS || 'false').toLowerCase() === 'true';
     const values = sheet.getDataRange().getValues();
 
@@ -144,14 +172,14 @@ function mezoImportRow_(sheet, rowNumber, row, headerMap, props) {
 function mezoPayloadFromRow_(row, headerMap, rowNumber) {
   return {
     source: MEZO_SOURCE,
-    external_lead_id: mezoCell_(row, headerMap, 'id'),
+    external_lead_id: mezoCell_(row, headerMap, 'external_lead_id'),
     created_time: mezoCell_(row, headerMap, 'created_time'),
     campaign_name: mezoCell_(row, headerMap, 'campaign_name'),
     form_name: mezoCell_(row, headerMap, 'form_name'),
-    property_location: mezoCell_(row, headerMap, 'hol_van_az_ingatlan?'),
-    work_type: mezoCell_(row, headerMap, 'milyen_munkára_van_szükség?'),
-    has_existing_utility_request: mezoCell_(row, headerMap, 'van_már_beadott_igény_a_szolgáltató_felé?'),
-    city: mezoCell_(row, headerMap, 'település?'),
+    property_location: mezoCell_(row, headerMap, 'property_location'),
+    work_type: mezoCell_(row, headerMap, 'work_type'),
+    has_existing_utility_request: mezoCell_(row, headerMap, 'has_existing_utility_request'),
+    city: mezoCell_(row, headerMap, 'city'),
     email: mezoCell_(row, headerMap, 'email'),
     full_name: mezoCell_(row, headerMap, 'full_name'),
     phone: mezoCell_(row, headerMap, 'phone'),
@@ -212,9 +240,10 @@ function mezoWriteImportResult_(sheet, rowNumber, headerMap, result, attemptedAt
   const status = result.ok
     ? String(body.status || 'SIKERES')
     : 'HIBA';
-  const importedAt = result.ok && (status === 'SIKERES' || status === 'DUPLIKÁLT') ? new Date() : '';
+  const normalizedStatus = mezoNormalizeStatus_(status);
+  const importedAt = result.ok && (normalizedStatus === 'SIKERES' || normalizedStatus === 'DUPLIKALT') ? new Date() : '';
   const error = result.ok ? '' : String(body.error || ('HTTP ' + result.httpStatus));
-  const duplicate = body.duplicate === true || status === 'DUPLIKÁLT';
+  const duplicate = body.duplicate === true || normalizedStatus === 'DUPLIKALT';
 
   const updates = {
     mezo_import_status: status,
@@ -236,9 +265,9 @@ function mezoWriteImportResult_(sheet, rowNumber, headerMap, result, attemptedAt
 }
 
 function mezoShouldProcessStatus_(status, retryErrors) {
-  const value = String(status || '').trim().toUpperCase();
+  const value = mezoNormalizeStatus_(status);
 
-  if (value === '' || value === 'ÚJ') {
+  if (value === '' || value === 'UJ') {
     return true;
   }
 
@@ -254,25 +283,49 @@ function mezoProperties_() {
 }
 
 function mezoHeaderMap_(headers) {
-  const map = {};
+  const map = { exact: {}, normalized: {} };
   headers.forEach(function(header, index) {
     const key = String(header || '').trim();
     if (key !== '') {
-      map[key] = index + 1;
+      map.exact[key] = index + 1;
+      map.normalized[mezoNormalizeHeader_(key)] = index + 1;
     }
   });
   return map;
 }
 
 function mezoColumn_(headerMap, columnName) {
-  if (!headerMap[columnName]) {
+  const index = mezoColumnOrNull_(headerMap, columnName);
+  if (!index) {
     throw new Error('Hiányzó oszlop: ' + columnName);
   }
-  return headerMap[columnName];
+  return index;
+}
+
+function mezoColumnOrNull_(headerMap, columnName) {
+  const candidates = [columnName].concat(MEZO_COLUMN_ALIASES[columnName] || []);
+
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = String(candidates[index] || '').trim();
+    if (candidate === '') {
+      continue;
+    }
+
+    if (headerMap.exact && headerMap.exact[candidate]) {
+      return headerMap.exact[candidate];
+    }
+
+    const normalized = mezoNormalizeHeader_(candidate);
+    if (headerMap.normalized && headerMap.normalized[normalized]) {
+      return headerMap.normalized[normalized];
+    }
+  }
+
+  return null;
 }
 
 function mezoCell_(row, headerMap, columnName) {
-  const index = headerMap[columnName];
+  const index = mezoColumnOrNull_(headerMap, columnName);
   if (!index) {
     return '';
   }
@@ -283,4 +336,26 @@ function mezoCell_(row, headerMap, columnName) {
   }
 
   return String(value || '').trim();
+}
+
+function mezoNormalizeStatus_(status) {
+  return mezoNormalizeText_(status).replace(/_/g, '');
+}
+
+function mezoNormalizeHeader_(header) {
+  return mezoNormalizeText_(header);
+}
+
+function mezoNormalizeText_(value) {
+  let text = String(value || '').trim().toLowerCase();
+  if (typeof text.normalize === 'function') {
+    text = text.normalize('NFD');
+  }
+
+  return text
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+    .toUpperCase();
 }
