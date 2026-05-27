@@ -5713,10 +5713,6 @@ function szamlazz_config_value(string $key, string $default = ''): string
 
     $values = szamlazz_config_values();
 
-    if ($key === 'SZAMLAZZ_AGENT_KEY' && $default === '') {
-        $default = 'fxhcc5im7yni5zrmngesyr7b2spqe49cduy6fx7d7g';
-    }
-
     return array_key_exists($key, $values) ? (string) $values[$key] : $default;
 }
 

@@ -21,9 +21,9 @@ A `LEAD_IMPORT_TOKEN` legalabb 32 karakteres, veletlenszeru titok legyen. Ha hia
 Nethely/shared hosting alatt a projekt jelenlegi konfiguracios mintaja szerint ket biztonsagos lehetoseg van:
 
 - szerver oldali kornyezeti valtozo: `LEAD_IMPORT_TOKEN`
-- vagy `storage/config/local.php` lokalis config fajlban, a `storage/config/local.php.example` alapjan
+- vagy ignore-olt `storage/config/local.secret.php` fajlban, a `storage/config/local.secret.php.example` alapjan
 
-Ne tedd a tokent `.env` fajlba, Google Sheetbe, GitHubra vagy dokumentacioba.
+Ne tedd a tokent `.env` fajlba, `storage/config/local.php` fajlba, Google Sheetbe, GitHubra vagy dokumentacioba. A `storage/config/local.php` nem titoktarolo; csak lokalis, nem secret override maradhat.
 
 Az API vegpont:
 
@@ -142,3 +142,19 @@ $env:APP_URL = 'https://mezoenergy.hu'
 ```
 
 A teszt payload a `docs/google-sheet-import/test_payload.json` fajlban van, csak mintaadatokat tartalmaz.
+
+## Biztonsagi config ellenorzes
+
+Elesites es commit elott olvasd el:
+
+```text
+docs/google-sheet-import/SECURITY_CONFIG.md
+```
+
+Futtasd a commit elotti segedellenorzest:
+
+```powershell
+.\docs\google-sheet-import\check_secrets_before_commit.ps1
+```
+
+Ez a script staged es unstaged diffeket nez, erteket nem ir ki, es csak figyelmeztet, ha token / secret / jelszo jellegu kulcsszot lat.

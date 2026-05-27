@@ -133,7 +133,6 @@ function lead_import_local_config_value(string $key): string
         $localConfig = [];
         $storagePath = defined('STORAGE_PATH') ? (string) STORAGE_PATH : dirname(__DIR__, 2) . '/storage';
         $localConfigPaths = [
-            $storagePath . '/config/local.php',
             $storagePath . '/config/local.secret.php',
         ];
 

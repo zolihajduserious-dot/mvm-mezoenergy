@@ -8,8 +8,12 @@
 - Ellenorizd az egyedi indexet: `ux_lead_imports_source_external`.
 - Allitsd be a `LEAD_IMPORT_TOKEN` erteket legalabb 32 karakteres veletlen tokenre.
 - Allitsd be: `APP_URL=https://mezoenergy.hu`.
-- Nethelyen a token vagy szerver oldali kornyezeti valtozo legyen, vagy a `storage/config/local.php` lokalis configban szerepeljen.
-- Ne commitolj `storage/config/local.php` fajlt valos tokennel.
+- Nethelyen a token vagy szerver oldali kornyezeti valtozo legyen, vagy az ignore-olt `storage/config/local.secret.php` fajlban szerepeljen.
+- Ellenorizd, hogy `storage/config/local.php` nem tracked secret fajl, es nem tartalmaz valodi titkot a repoban.
+- Ellenorizd, hogy `storage/config/local.secret.php` nincs trackelve.
+- Futtasd: `.\docs\google-sheet-import\check_secrets_before_commit.ps1`.
+- Ellenorizd, hogy nincs secret a `git diff` vagy staged diff tartalmaban.
+- `git status` legyen tiszta a deployra szant commit utan, kiveve tudatosan lokalis / ignored fajlokat.
 - Futtass endpoint kezi tesztet a `docs/google-sheet-import/test_import.ps1 -Mode normal` paranccsal.
 - Futtasd a `-Mode duplicate`, `-Mode missing-contact`, `-Mode wrong-token` teszteket is.
 - Ellenorizd az admin feluleten, hogy letrejott az ugyfel es a munkaigeny.
@@ -35,6 +39,7 @@
 ## Biztonsag
 
 - Regi, nem importalando sorok statusza legyen `NEM_IMPORTÁL`.
+- A `LEAD_IMPORT_TOKEN` legalabb 32 karakter legyen.
 - A backend token nem latszodhat a Google Sheetben.
 - A backend token nem latszodhat GitHubon.
 - A backend token nem latszodhat outbox riportban vagy dokumentacioban.
