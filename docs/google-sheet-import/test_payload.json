@@ -1,0 +1,16 @@
+{
+  "source": "facebook_instant_form",
+  "external_lead_id": "test-facebook-lead-0001",
+  "created_time": "2026-05-27T10:00:00+0000",
+  "campaign_name": "Teszt kampany",
+  "form_name": "Teszt urlap",
+  "property_location": "5600 Bekescsaba, Teszt utca 1.",
+  "work_type": "Teljesitmeny noveles",
+  "has_existing_utility_request": "Nem",
+  "city": "Bekescsaba",
+  "email": "teszt.ugyfel@example.invalid",
+  "full_name": "Teszt Ugyfel",
+  "phone": "+36000000000",
+  "lead_status": "UJ",
+  "sheet_row": 2
+}
