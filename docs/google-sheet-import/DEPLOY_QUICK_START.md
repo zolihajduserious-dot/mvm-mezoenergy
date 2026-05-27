@@ -70,8 +70,15 @@ Elvart:
 ## 7. Google Sheet egy tesztsor
 
 - Masold be a `Code.gs` tartalmat Apps Scriptbe.
+- Ha a Google Sheet `Bovitmenyek -> Apps Script` hibazik, hozz letre standalone projektet:
+  - `script.google.com` -> Uj projekt, vagy
+  - Google Drive -> Uj -> Tovabbiak -> Apps Script.
+- Standalone eseten a `Code_standalone.gs` tartalmat masold be.
 - Futtasd: `setupMezoScriptProperties()`.
+- Standalone eseten futtasd: `setupMezoStandaloneScriptProperties()`.
 - Script Properties:
+  - `MEZO_SPREADSHEET_ID=<a Google Sheet URL-ben a /d/ es /edit kozotti resz>`
+  - `MEZO_SHEET_NAME=Munkalap1`
   - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
   - `MEZO_API_TOKEN=<ugyanaz_a_backend_token>`
   - `MEZO_MAX_ROWS_PER_RUN=25`
@@ -80,6 +87,7 @@ Elvart:
 - Regi sorok: `NEM_IMPORTÁL`.
 - Egy tesztsor: `ÚJ`.
 - Futtasd: `importActiveMezoTestRow()`.
+- Standalone eseten futtasd: `importFirstNewMezoTestRow()`.
 - Ellenorizd a `mezo_import_status`, `mezo_customer_id`, `mezo_work_request_id`, `mezo_error`, `mezo_duplicate`, `mezo_api_response` mezoket.
 
 ## 8. Trigger

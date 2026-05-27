@@ -102,6 +102,27 @@ Az Apps Script normalizalt header matchinget hasznal, ezert az ekezetes es kerdo
 6. Futtasd az `ensureMezoImportColumns()` fuggvenyt az import oszlopok letrehozasahoz.
 7. Csak sikeres kezi teszt utan futtasd az `installMezoFiveMinuteTrigger()` fuggvenyt az 5 perces idoziteshez.
 
+## Standalone Apps Script, ha a bound script nem nyilik meg
+
+Ha a Google Sheet `Bovitmenyek -> Apps Script` menupontja Google Drive hibaval megall, hasznald a standalone verziot.
+
+1. Nyisd meg: `https://script.google.com/`, majd `Uj projekt`.
+2. Alternativa: Google Drive -> Uj -> Tovabbiak -> Apps Script.
+3. Masold be a `docs/google-sheet-import/Code_standalone.gs` tartalmat.
+4. Futtasd: `setupMezoStandaloneScriptProperties()`.
+5. Project Settings -> Script Properties alatt allitsd be:
+   `MEZO_SPREADSHEET_ID`: a Google Sheet URL-ben a `/d/` es `/edit` kozotti resz.
+   `MEZO_SHEET_NAME`: `Munkalap1`.
+   `MEZO_API_URL`: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
+   `MEZO_API_TOKEN`: ugyanaz az ertek, mint a backend `LEAD_IMPORT_TOKEN`.
+   `MEZO_MAX_ROWS_PER_RUN`: `25`.
+   `MEZO_RETRY_ERRORS`: `false`.
+6. Futtasd: `ensureMezoImportColumns()`.
+7. Regi sorok statusza legyen `NEM_IMPORTÁL`.
+8. Csak egy tesztsort allits `ÚJ` vagy `UJ` statuszra.
+9. Elso import: `importFirstNewMezoTestRow()`.
+10. Csak sikeres teszt utan futtasd: `installMezoFiveMinuteTrigger()`.
+
 ## Kezi teszt
 
 Egyetlen sor tesztelesehez jelolj ki egy adatsort, majd futtasd:
@@ -110,10 +131,22 @@ Egyetlen sor tesztelesehez jelolj ki egy adatsort, majd futtasd:
 importActiveMezoTestRow()
 ```
 
+Standalone scriptben nincs aktiv kijelolt sorra epulo teszt. Ott ezt futtasd:
+
+```text
+importFirstNewMezoTestRow()
+```
+
 Tomeges futtatashoz:
 
 ```text
 runMezoFacebookLeadImport()
+```
+
+Standalone idozitett / tomeges futtatas:
+
+```text
+importPendingLeads()
 ```
 
 A script csak ezeket dolgozza fel:

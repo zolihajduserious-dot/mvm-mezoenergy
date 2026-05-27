@@ -23,12 +23,21 @@
 ## Google Sheet
 
 - Masold be a `docs/google-sheet-import/Code.gs` tartalmat az Apps Scriptbe.
+- Ha a Google Sheet `Bovitmenyek -> Apps Script` hibazik, hozz letre standalone projektet a `script.google.com` alatt, es a `docs/google-sheet-import/Code_standalone.gs` tartalmat masold be.
 - Futtasd: `setupMezoScriptProperties()`.
+- Standalone script eseten futtasd: `setupMezoStandaloneScriptProperties()`.
+- Standalone Script Properties:
+  - `MEZO_SPREADSHEET_ID`: a Google Sheet URL-ben a `/d/` es `/edit` kozotti resz.
+  - `MEZO_SHEET_NAME=Munkalap1`
+  - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
+  - `MEZO_MAX_ROWS_PER_RUN=25`
+  - `MEZO_RETRY_ERRORS=false`
 - Script Properties alatt allitsd be a `MEZO_API_TOKEN` erteket.
 - Ellenorizd, hogy a token nem szerepel a tablazat cellaiban.
 - Futtasd: `ensureMezoImportColumns()`.
 - Egy tesztsort allits `ÚJ` statuszra.
 - Futtasd: `importActiveMezoTestRow()`.
+- Standalone script eseten az elso teszt: `importFirstNewMezoTestRow()`.
 - Ellenorizd:
   - `mezo_import_status`
   - `mezo_customer_id`
