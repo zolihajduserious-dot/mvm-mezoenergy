@@ -1,0 +1,45 @@
+# Production endpoint teszt eredmeny
+
+Teszt datuma: 2026-05-27
+
+APP_URL:
+
+```text
+https://mvm-mezoenergy.hu
+```
+
+Mukodo production API URL:
+
+```text
+https://mvm-mezoenergy.hu/api/import/facebook-lead
+```
+
+## Eredmenyek
+
+- `wrong-token`: HTTP 401, Unauthorized.
+- `missing-contact`: HTTP 422, email or phone is required.
+- `normal`: HTTP 201, SIKERES, customer_id `439`, work_request_id `436`.
+- `duplicate`: HTTP 200, DUPLIKÁLT, customer_id `439`, work_request_id `436`.
+
+## Fontos figyelmeztetes
+
+A `normal` teszt letrehozott egy eles teszt customer / work request rekordot:
+
+- customer_id `439`
+- work_request_id `436`
+
+Token ertek nem szerepel ebben a dokumentumban.
+
+## Domain megjegyzes
+
+A `mezoenergy.hu` domain jelenleg 301 redirectet ad, ezert az Apps Scriptben most meg ne ezt hasznald API URL-kent.
+
+A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
+
+## Kovetkezo lepes
+
+Google Sheet egyetlen tesztsoros import az atmeneti production API URL-lel:
+
+```text
+https://mvm-mezoenergy.hu/api/import/facebook-lead
+```

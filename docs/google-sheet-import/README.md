@@ -6,7 +6,7 @@ Allitsd be a backend kornyezeti valtozokat:
 
 ```env
 LEAD_IMPORT_TOKEN=
-APP_URL=https://mezoenergy.hu
+APP_URL=https://mvm-mezoenergy.hu
 ```
 
 A `LEAD_IMPORT_TOKEN` legalabb 32 karakteres, veletlenszeru titok legyen. Ha hianyzik, ures vagy tul rovid, az API 503 JSON valaszt ad:
@@ -28,10 +28,18 @@ Ne tedd a tokent `.env` fajlba, `storage/config/local.php` fajlba, Google Sheetb
 Az API vegpont:
 
 ```text
-POST https://mezoenergy.hu/api/import/facebook-lead
+POST https://mvm-mezoenergy.hu/api/import/facebook-lead
 Authorization: Bearer <LEAD_IMPORT_TOKEN>
 Content-Type: application/json
 ```
+
+Jelenlegi mukodo production API URL:
+
+```text
+https://mvm-mezoenergy.hu/api/import/facebook-lead
+```
+
+A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 
 Az endpoint elfogadja az `application/json` es az `application/json; charset=utf-8` content-type fejlecet is.
 
@@ -88,7 +96,7 @@ Az Apps Script normalizalt header matchinget hasznal, ezert az ekezetes es kerdo
 4. A Project Settings -> Script Properties alatt allitsd be:
    `MEZO_API_TOKEN`: ugyanaz az ertek, mint a backend `LEAD_IMPORT_TOKEN`.
 5. Szükség esetén módosítsd:
-   `MEZO_API_URL`: `https://mezoenergy.hu/api/import/facebook-lead`
+   `MEZO_API_URL`: `https://mvm-mezoenergy.hu/api/import/facebook-lead`
    `MEZO_MAX_ROWS_PER_RUN`: alapertelmezetten `25`, a script futasonkent legfeljebb 25 sort dolgoz fel.
    `MEZO_RETRY_ERRORS`: `false`; `true` eseten a `HIBA` statuszu sorokat is ujraprobalja.
 6. Futtasd az `ensureMezoImportColumns()` fuggvenyt az import oszlopok letrehozasahoz.
@@ -134,7 +142,7 @@ A `test_import.ps1` a `MEZO_API_TOKEN` kornyezeti valtozobol olvassa a tokent, a
 
 ```powershell
 $env:MEZO_API_TOKEN = '<token>'
-$env:APP_URL = 'https://mezoenergy.hu'
+$env:APP_URL = 'https://mvm-mezoenergy.hu'
 .\docs\google-sheet-import\test_import.ps1 -Mode normal
 .\docs\google-sheet-import\test_import.ps1 -Mode duplicate
 .\docs\google-sheet-import\test_import.ps1 -Mode missing-contact

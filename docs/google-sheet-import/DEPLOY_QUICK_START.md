@@ -43,14 +43,16 @@ Ne deployolj valodi `.env`, `storage/config/local.php`, `storage/config/local.se
 - `LEAD_IMPORT_TOKEN`: legalabb 32 karakteres veletlen ertek.
 - Elsodleges: szerver oldali env valtozo.
 - Fallback: `storage/config/local.secret.php`.
-- `APP_URL=https://mezoenergy.hu`.
+- Atmenetileg: `APP_URL=https://mvm-mezoenergy.hu`.
+- Jelenlegi mukodo production API URL: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
+- A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 - A token ne keruljon GitHubra, Google Sheet cellaba vagy dokumentacioba.
 
 ## 6. Backend PowerShell tesztek
 
 ```powershell
 $env:MEZO_API_TOKEN = '<ugyanaz_a_backend_token>'
-$env:APP_URL = 'https://mezoenergy.hu'
+$env:APP_URL = 'https://mvm-mezoenergy.hu'
 
 .\docs\google-sheet-import\test_import.ps1 -Mode wrong-token
 .\docs\google-sheet-import\test_import.ps1 -Mode missing-contact
@@ -70,7 +72,7 @@ Elvart:
 - Masold be a `Code.gs` tartalmat Apps Scriptbe.
 - Futtasd: `setupMezoScriptProperties()`.
 - Script Properties:
-  - `MEZO_API_URL=https://mezoenergy.hu/api/import/facebook-lead`
+  - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
   - `MEZO_API_TOKEN=<ugyanaz_a_backend_token>`
   - `MEZO_MAX_ROWS_PER_RUN=25`
   - `MEZO_RETRY_ERRORS=false`

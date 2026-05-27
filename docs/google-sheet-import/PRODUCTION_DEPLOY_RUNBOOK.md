@@ -100,7 +100,9 @@ Ne toltsd fel GitHubbol vagy FTP-n keresztul:
 3. Fallback: `storage/config/local.secret.php`.
 4. A `local.secret.php` a projekt `storage/config` mappajaban legyen, ne publikus webroot alatt kulon kimasolva.
 5. A token ne keruljon GitHubra, Google Sheet cellaba, dokumentacioba, outbox riportba vagy hibajegybe.
-6. Allitsd be: `APP_URL=https://mezoenergy.hu`.
+6. Allitsd be atmenetileg: `APP_URL=https://mvm-mezoenergy.hu`.
+7. Jelenlegi mukodo production API URL: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
+8. A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 
 Pelda `storage/config/local.secret.php` fajlra placeholder ertekkel:
 
@@ -110,7 +112,7 @@ declare(strict_types=1);
 
 return [
     'LEAD_IMPORT_TOKEN' => 'IDE_JON_A_32_PLUSZ_KARAKTERES_RANDOM_TOKEN',
-    'APP_URL' => 'https://mezoenergy.hu',
+    'APP_URL' => 'https://mvm-mezoenergy.hu',
 ];
 ```
 
@@ -122,7 +124,7 @@ PowerShell teszt elott allitsd be a lokalis teszt kornyezeti valtozokat:
 
 ```powershell
 $env:MEZO_API_TOKEN = '<ugyanaz_a_token>'
-$env:APP_URL = 'https://mezoenergy.hu'
+$env:APP_URL = 'https://mvm-mezoenergy.hu'
 ```
 
 Futtasd ebben a sorrendben:
@@ -149,7 +151,7 @@ Fontos: a `normal` teszt teszt ugyfelet es munkaigenyt hozhat letre. Utana admin
 2. Masold be a `docs/google-sheet-import/Code.gs` tartalmat.
 3. Futtasd: `setupMezoScriptProperties()`.
 4. Script Properties alatt allitsd be:
-   - `MEZO_API_URL=https://mezoenergy.hu/api/import/facebook-lead`
+   - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
    - `MEZO_API_TOKEN=<ugyanaz_a_backend_token>`
    - `MEZO_MAX_ROWS_PER_RUN=25`
    - `MEZO_RETRY_ERRORS=false`

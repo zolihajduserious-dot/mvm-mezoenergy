@@ -51,6 +51,7 @@ function Invoke-MezoLeadImport {
             -Method Post `
             -Headers $headers `
             -ContentType 'application/json; charset=utf-8' `
+            -UseBasicParsing `
             -Body $body
 
         [PSCustomObject]@{

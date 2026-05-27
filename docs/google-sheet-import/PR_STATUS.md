@@ -36,6 +36,14 @@ Deploy statusz: NINCS DEPLOY
 
 Eles import statusz: NEM FUTOTT
 
+Jelenlegi mukodo production API URL:
+
+```text
+https://mvm-mezoenergy.hu/api/import/facebook-lead
+```
+
+A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
+
 ## Kovetkezo kezi lepesek
 
 1. PR diff online atnezese.

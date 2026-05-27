@@ -1,5 +1,5 @@
 const MEZO_SOURCE = 'facebook_instant_form';
-const MEZO_DEFAULT_API_URL = 'https://mezoenergy.hu/api/import/facebook-lead';
+const MEZO_DEFAULT_API_URL = 'https://mvm-mezoenergy.hu/api/import/facebook-lead';
 const MEZO_DEFAULT_MAX_ROWS = 25;
 
 const MEZO_LEAD_COLUMNS = [

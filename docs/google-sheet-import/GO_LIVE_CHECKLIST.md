@@ -7,7 +7,9 @@
 - Ellenorizd, hogy letrejott a `lead_imports` tabla.
 - Ellenorizd az egyedi indexet: `ux_lead_imports_source_external`.
 - Allitsd be a `LEAD_IMPORT_TOKEN` erteket legalabb 32 karakteres veletlen tokenre.
-- Allitsd be: `APP_URL=https://mezoenergy.hu`.
+- Allitsd be atmenetileg: `APP_URL=https://mvm-mezoenergy.hu`.
+- Jelenlegi mukodo production API URL: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
+- A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 - Nethelyen a token vagy szerver oldali kornyezeti valtozo legyen, vagy az ignore-olt `storage/config/local.secret.php` fajlban szerepeljen.
 - Ellenorizd, hogy `storage/config/local.php` nem tracked secret fajl, es nem tartalmaz valodi titkot a repoban.
 - Ellenorizd, hogy `storage/config/local.secret.php` nincs trackelve.
