@@ -20,6 +20,8 @@
 - Futtasd a `-Mode duplicate`, `-Mode missing-contact`, `-Mode wrong-token` teszteket is.
 - Ellenorizd az admin feluleten, hogy letrejott az ugyfel es a munkaigeny.
 - Uj importalt ugyfelnel ellenorizd, hogy az email subject `Mező Energy ügyfélportál – fiók aktiválása`, a gomb pedig `Fiók aktiválása`; ez nem lehet normal `Jelszó-visszaállítás` email.
+- Uj importalt ugyfelnel ellenorizd, hogy az email elmagyarazza a Mezo Energy kuldeteset: fuggetlen szakmai segitseg merohelyi / arambovitesi / elosztoi ugyekben.
+- Uj importalt ugyfelnel ellenorizd, hogy szerepel a fuggetlensegi tajekoztatas: a Mezo Energy Kft. nem az MVM Csoport tagja, nem hivatalos MVM ugyfelszolgalat, es nem az MVM neveben jar el.
 - A normal `Jelszo elfelejtese` funkcio kulon ellenorzendo: ott maradjon a `Jelszó-visszaállítás` tartalom.
 
 ## Google Sheet

@@ -4703,7 +4703,14 @@ function send_account_activation_email(array $user, string $token): array
     return send_password_token_email($user, $token, [
         'subject' => 'Mező Energy ügyfélportál – fiók aktiválása',
         'title' => 'Fiók aktiválása',
-        'lead' => "Köszönjük az érdeklődését. A Mező Energy ügyfélportálon létrehoztuk az előzetes hozzáférését, hogy a mérőhelyi ügyintézéssel kapcsolatos igényét követni és kiegészíteni tudja.\n\nA fiók aktiválásához és saját jelszó beállításához kattintson az alábbi gombra. A link 1 óráig érvényes.",
+        'lead' => implode("\n\n", [
+            'Köszönjük, hogy mérőhelyi ügyintézéssel kapcsolatos igényével megkereste a Mező Energy Kft.-t.',
+            'A mezoenergy.hu azért jött létre, hogy segítséget nyújtson azoknak az ügyfeleknek, akik az MVM / elosztói ügyintézés során szakmai kérdésekbe ütköznek. Sok esetben az online igénybejelentéshez olyan műszaki adatokra, dokumentumokra vagy döntésekre van szükség, amelyekben egy ügyfél nem feltétlenül tud önállóan eligazodni.',
+            'A Mező Energy Kft. független szakmai segítséget nyújt a mérőhelyi, árambővítési és kapcsolódó ügyintézési folyamat előkészítésében, a szükséges adatok rendszerezésében, valamint a kivitelezési lépések átlátható követésében.',
+            'Fontos: a Mező Energy Kft. nem az MVM Csoport tagja, nem hivatalos MVM ügyfélszolgálat, és nem az MVM nevében jár el. Szolgáltatásunk célja, hogy az ügyfelek érthetőbb, rendezettebb és szakmailag támogatott folyamatban tudják előkészíteni mérőhelyi igényüket.',
+            'Az Ön részére előzetes ügyfélportál-hozzáférést hoztunk létre. A fiók aktiválásával saját jelszót állíthat be, és a későbbiekben ezen a felületen tudja követni, pontosítani vagy kiegészíteni az ügyével kapcsolatos adatokat.',
+            'A fiók aktiválásához kattintson az alábbi gombra. A link 1 óráig érvényes.',
+        ]),
         'action_label' => 'Fiók aktiválása',
         'success_message' => 'Az aktiváló emailt elküldtük.',
         'failure_message' => 'Az aktiváló email küldése sikertelen.',

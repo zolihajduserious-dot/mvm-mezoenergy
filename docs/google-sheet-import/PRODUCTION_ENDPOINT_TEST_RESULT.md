@@ -36,6 +36,8 @@ A production backend teszt utan javitas keszult az importalt uj ugyfel email szo
 
 - subject: `Mező Energy ügyfélportál – fiók aktiválása`
 - gomb: `Fiók aktiválása`
+- tartalom: rovid, bizalomepito magyarazat a mezoenergy.hu celjarol es a merohelyi / arambovitesi / elosztoi ugyintezesi segitsegrol
+- fuggetlensegi tajekoztatas: a Mezo Energy Kft. nem az MVM Csoport tagja, nem hivatalos MVM ugyfelszolgalat, es nem az MVM neveben jar el
 
 A normal jelszo-visszaallitasi folyamat ettol kulon marad, es tovabbra is `Jelszó-visszaállítás` emailt kuld.
 

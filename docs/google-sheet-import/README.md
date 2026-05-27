@@ -50,6 +50,9 @@ Ha a Google Sheet import uj ugyfel fiokot hoz letre, az ugyfel fiokaktivalo emai
 - subject: `Mező Energy ügyfélportál – fiók aktiválása`
 - cim: `Fiók aktiválása`
 - gomb: `Fiók aktiválása`
+- a szoveg roviden elmagyarazza, hogy a mezoenergy.hu a merohelyi, arambovitesi es elosztoi ugyintezesi folyamat szakmai elokesziteseben segit
+- a szoveg tartalmazza, hogy a Mezo Energy Kft. fuggetlen szakmai segitseget nyujt, nem az MVM Csoport tagja, nem hivatalos MVM ugyfelszolgalat, es nem az MVM neveben jar el
+- a szoveg vilagossa teszi, hogy a linkkel az ugyfel sajat jelszot allit be es aktivalja az ugyfelportal-hozzaferest
 
 A normal `Jelszo elfelejtese` / password reset folyamat kulon marad, es tovabbra is a `Jelszó-visszaállítás` tartalmat kuldi.
 
