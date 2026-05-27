@@ -68,6 +68,10 @@ $routes = [
         'title' => 'Mező Energy Kft.',
         'file' => PAGE_PATH . '/home.php',
     ],
+    'api/import/facebook-lead' => [
+        'title' => 'Facebook lead import',
+        'file' => PUBLIC_ROOT . '/api/import/facebook-lead.php',
+    ],
     'register' => [
         'title' => 'Regisztracio',
         'file' => PAGE_PATH . '/register.php',

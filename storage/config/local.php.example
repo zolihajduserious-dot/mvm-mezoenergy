@@ -1,0 +1,8 @@
+<?php
+declare(strict_types=1);
+
+// Version-controlled example for non-secret local overrides only.
+// Put secrets in storage/config/local.secret.php or server environment variables.
+return [
+    'APP_URL' => 'https://mezoenergy.hu',
+];
