@@ -1,8 +1,16 @@
 # Google Sheet import v1 PR status
 
-PR statusz: kezzel letrehozando
+PR statusz: mar letezett, nyitva
 
-PR URL: meg nincs ismert PR URL
+PR URL: `https://github.com/zolihajduserious-dot/mvm-mezoenergy/pull/2`
+
+PR szam: `#2`
+
+PR cim: `Google Sheet Facebook lead import v1`
+
+PR draft statusz: nem draft
+
+GitHub merge statusz: `CLEAN`
 
 Kezi PR link:
 
@@ -10,17 +18,17 @@ Kezi PR link:
 https://github.com/zolihajduserious-dot/mvm-mezoenergy/compare/main...feature/google-sheet-facebook-lead-import-v1
 ```
 
-Javasolt GitHub CLI parancs, ha kesobb elerheto lesz a `gh`:
+GitHub CLI ellenorzes:
 
 ```powershell
-gh pr create --base main --head feature/google-sheet-facebook-lead-import-v1 --title "Google Sheet Facebook lead import v1" --body-file docs/google-sheet-import/PR_BODY.md
+gh pr list --base main --head feature/google-sheet-facebook-lead-import-v1 --state open --json number,title,url,state
 ```
 
 Source branch: `feature/google-sheet-facebook-lead-import-v1`
 
 Target branch: `main`
 
-Aktualis commit a statusz keszitesekor: `e9b835e`
+Aktualis commit a PR ellenorzesekor: `80dbd6e`
 
 Merge statusz: NINCS MERGE
 
@@ -41,7 +49,7 @@ Eles import statusz: NEM FUTOTT
 9. Google Sheet egytesztsoros proba.
 10. Csak siker utan trigger.
 
-## Fontos tiltások
+## Fontos tiltasok
 
 - Ne merge-olj automatikusan.
 - Ne deployolj Nethely productionre a PR review elott.
