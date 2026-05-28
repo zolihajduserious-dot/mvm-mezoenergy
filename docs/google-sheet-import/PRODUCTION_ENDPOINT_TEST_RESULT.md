@@ -43,14 +43,14 @@ A normal jelszo-visszaallitasi folyamat ettol kulon marad, es tovabbra is `Jelsz
 
 ## Ugyfelportal adatpontositas megjegyzes
 
-A Google Sheet import eles triggerenek bekapcsolasa elott ellenorizni kell, hogy az importalt teszt ugyfel a sajat portaljan tudja menteni az adatlap alapadatait es pontositasat.
+A Google Sheet import idozitett triggeret jelenleg nem hasznaljuk. A kezi admin import elott ellenorizni kell, hogy az importalt teszt ugyfel a sajat portaljan tudja menteni az adatlap alapadatait es pontositasat.
 
 Ellenorizendo tesztadat:
 
 - work_request_id `437`
 - customer_id `440`
 
-Ezek csak kontrollalt tesztadatkent hasznalhatok. A trigger addig NO-GO, amig az ugyfeloldali mentes nem mukodik reload utan es admin oldalon is visszaellenorizheto.
+Ezek csak kontrollalt tesztadatkent hasznalhatok. Az admin gombos import eles hasznalata addig NO-GO, amig az ugyfeloldali mentes nem mukodik reload utan es admin oldalon is visszaellenorizheto.
 
 ## Domain megjegyzes
 
@@ -60,7 +60,7 @@ A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scri
 
 ## Kovetkezo lepes
 
-Google Sheet egyetlen tesztsoros import az atmeneti production API URL-lel:
+Manualis admin import beallitasa es egyetlen `IMPORTÁLANDÓ` tesztsoros proba az atmeneti production API URL-lel:
 
 ```text
 https://mvm-mezoenergy.hu/api/import/facebook-lead

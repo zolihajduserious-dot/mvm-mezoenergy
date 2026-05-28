@@ -1,6 +1,7 @@
 const MEZO_SOURCE = 'facebook_instant_form';
 const MEZO_DEFAULT_API_URL = 'https://mvm-mezoenergy.hu/api/import/facebook-lead';
 const MEZO_DEFAULT_MAX_ROWS = 25;
+const MEZO_APPROVED_IMPORT_STATUSES = ['IMPORTALANDO', 'JOVAHAGYVA'];
 
 const MEZO_LEAD_COLUMNS = [
   'id',
@@ -80,7 +81,6 @@ function runMezoFacebookLeadImport() {
     const props = mezoProperties_();
     const configuredMaxRows = Number(props.MEZO_MAX_ROWS_PER_RUN || MEZO_DEFAULT_MAX_ROWS);
     const maxRows = Math.min(25, Math.max(1, isNaN(configuredMaxRows) ? MEZO_DEFAULT_MAX_ROWS : configuredMaxRows));
-    const retryErrors = String(props.MEZO_RETRY_ERRORS || 'false').toLowerCase() === 'true';
     const values = sheet.getDataRange().getValues();
 
     if (values.length < 2) {
@@ -94,7 +94,7 @@ function runMezoFacebookLeadImport() {
       const row = values[index];
       const status = mezoCell_(row, headerMap, 'mezo_import_status');
 
-      if (!mezoShouldProcessStatus_(status, retryErrors)) {
+      if (!mezoShouldProcessStatus_(status)) {
         continue;
       }
 
@@ -118,6 +118,11 @@ function importActiveMezoTestRow() {
   const values = sheet.getDataRange().getValues();
   const headerMap = mezoHeaderMap_(values[0]);
   const row = values[rowNumber - 1];
+  const status = mezoCell_(row, headerMap, 'mezo_import_status');
+
+  if (!mezoShouldProcessStatus_(status)) {
+    throw new Error('A kijelolt sor csak IMPORTALANDO vagy JOVAHAGYVA statusz esetén importalhato.');
+  }
 
   mezoImportRow_(sheet, rowNumber, row, headerMap, mezoProperties_());
 }
@@ -276,18 +281,8 @@ function mezoWriteImportResult_(sheet, rowNumber, headerMap, result, attemptedAt
   });
 }
 
-function mezoShouldProcessStatus_(status, retryErrors) {
-  const value = mezoNormalizeStatus_(status);
-
-  if (value === '' || value === 'UJ') {
-    return true;
-  }
-
-  if (value === 'HIBA') {
-    return retryErrors;
-  }
-
-  return false;
+function mezoShouldProcessStatus_(status) {
+  return MEZO_APPROVED_IMPORT_STATUSES.indexOf(mezoNormalizeStatus_(status)) !== -1;
 }
 
 function mezoProperties_() {
