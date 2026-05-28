@@ -416,6 +416,14 @@ if ($canManageAdminUsers) {
         'href' => '/admin/users',
         'variant' => 'system',
     ];
+
+    $dashboardCards[] = [
+        'label' => 'Google Sheet import',
+        'value' => 'kézi',
+        'description' => 'Facebook leadek előnézete és jóváhagyott Google Sheet sorok kézi importja.',
+        'href' => '/admin/google-sheet-import',
+        'variant' => 'accent',
+    ];
 }
 ?>
 <section class="admin-section">

@@ -57,6 +57,7 @@ require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/crm.php';
+require_once __DIR__ . '/includes/google-sheet-import-admin.php';
 require_once __DIR__ . '/includes/ui-modules.php';
 
 $routes = [
@@ -371,6 +372,10 @@ $routes = [
     'admin/minicrm-import' => [
         'title' => 'MiniCRM importált munkák',
         'file' => PAGE_PATH . '/admin/minicrm-import.php',
+    ],
+    'admin/google-sheet-import' => [
+        'title' => 'Google Sheet lead import',
+        'file' => PAGE_PATH . '/admin/google-sheet-import.php',
     ],
     'admin/minicrm-import/mvm-documents' => [
         'title' => 'MiniCRM MVM dokumentumok',

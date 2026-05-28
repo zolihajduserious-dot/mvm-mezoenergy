@@ -21,7 +21,9 @@ Backend minimum:
 
 - `public_html/api/import/facebook-lead.php`
 - `public_html/includes/lead-import.php`
+- `public_html/includes/google-sheet-import-admin.php`
 - `public_html/index.php`
+- `public_html/pages/admin/google-sheet-import.php`
 - `database/lead_imports.sql`
 - `storage/config/local.secret.php.example`
 - `.env.example`
@@ -41,6 +43,8 @@ Ne deployolj valodi `.env`, `storage/config/local.php`, `storage/config/local.se
 ## 5. Token config
 
 - `LEAD_IMPORT_TOKEN`: legalabb 32 karakteres veletlen ertek.
+- `GOOGLE_SHEET_IMPORT_WEBAPP_URL`: standalone Apps Script Web app URL.
+- `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`: kulon admin futtatasi token, egyezzen a Script Properties `MEZO_ADMIN_RUN_TOKEN` ertekevel.
 - Elsodleges: szerver oldali env valtozo.
 - Fallback: `storage/config/local.secret.php`.
 - Atmenetileg: `APP_URL=https://mvm-mezoenergy.hu`.
@@ -81,16 +85,20 @@ Elvart:
   - `MEZO_SHEET_NAME=Munkalap1`
   - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
   - `MEZO_API_TOKEN=<ugyanaz_a_backend_token>`
+  - `MEZO_ADMIN_RUN_TOKEN=<kulon_admin_run_token>`
   - `MEZO_MAX_ROWS_PER_RUN=25`
   - `MEZO_RETRY_ERRORS=false`
 - Futtasd: `ensureMezoImportColumns()`.
-- Regi sorok: `NEM_IMPORTÁL`.
-- Egy tesztsor: `ÚJ`.
-- Futtasd: `importActiveMezoTestRow()`.
-- Standalone eseten futtasd: `importFirstNewMezoTestRow()`.
+- Regi sorok: `NEM_IMPORTÁL` vagy `ELUTASÍTVA`.
+- Egy tesztsor: `IMPORTÁLANDÓ`.
+- Admin oldal: `/admin/google-sheet-import`.
+- Futtasd: `Állapot lekérdezése`.
+- Kontrollalt tesztnel futtasd: `Jóváhagyott sorok importálása`.
 - Ellenorizd a `mezo_import_status`, `mezo_customer_id`, `mezo_work_request_id`, `mezo_error`, `mezo_duplicate`, `mezo_api_response` mezoket.
 
 ## 8. Trigger
 
-- Csak sikeres backend tesztek es egytesztsoros Google Sheet import utan futtasd: `installMezoFiveMinuteTrigger()`.
-- Hiba eseten trigger torlese, uj sorok `STOP` statuszra allitasa, majd rollback terv kovetese.
+- Idozitett trigger jelenleg nem hasznalando.
+- Ne futtasd: `installMezoFiveMinuteTrigger()`.
+- Ha korabban letrejott trigger, torold az admin feluleten az `Automata triggerek törlése` gombbal vagy Apps Scriptbol: `deleteMezoImportTriggers()`.
+- Hiba eseten uj sorok `ELUTASÍTVA` vagy `NEM_IMPORTÁL` statuszra allitasa, majd rollback terv kovetese.

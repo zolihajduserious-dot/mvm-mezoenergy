@@ -8,6 +8,9 @@
 - Ellenorizd az egyedi indexet: `ux_lead_imports_source_external`.
 - Allitsd be a `LEAD_IMPORT_TOKEN` erteket legalabb 32 karakteres veletlen tokenre.
 - Allitsd be atmenetileg: `APP_URL=https://mvm-mezoenergy.hu`.
+- Allitsd be a kezi admin import backend configot:
+  - `GOOGLE_SHEET_IMPORT_WEBAPP_URL`
+  - `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`
 - Jelenlegi mukodo production API URL: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
 - A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 - Nethelyen a token vagy szerver oldali kornyezeti valtozo legyen, vagy az ignore-olt `storage/config/local.secret.php` fajlban szerepeljen.
@@ -25,7 +28,7 @@
 - A normal `Jelszo elfelejtese` funkcio kulon ellenorzendo: ott maradjon a `Jelszó-visszaállítás` tartalom.
 - Importalt uj munka adatlapneve legyen ugyfelbarat, pelda: `3 fázisra átállás – TESZT`, ne duplikalt technikai cim.
 - Ugyfelportalon ellenorizd, hogy a sajat importalt adatlap szerkesztheto: adatlapnev, igenytipus, cim, HRSZ, mero, fogyasztasi hely, MVM UK szam, teljesitmeny adatok es ugyfel pontositas mentheto.
-- Az automata Google Sheet trigger csak akkor GO, ha az ugyfeloldali adatlap mentes reload utan is megmarad, es admin oldalon is latszik.
+- Az automata Google Sheet trigger jelenleg uzleti dontes szerint NO-GO. Import csak admin gombbal indulhat.
 
 ## Google Sheet
 
@@ -37,14 +40,17 @@
   - `MEZO_SPREADSHEET_ID`: a Google Sheet URL-ben a `/d/` es `/edit` kozotti resz.
   - `MEZO_SHEET_NAME=Munkalap1`
   - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
+  - `MEZO_ADMIN_RUN_TOKEN=<kulon admin futtatasi token>`
   - `MEZO_MAX_ROWS_PER_RUN=25`
   - `MEZO_RETRY_ERRORS=false`
 - Script Properties alatt allitsd be a `MEZO_API_TOKEN` erteket.
 - Ellenorizd, hogy a token nem szerepel a tablazat cellaiban.
 - Futtasd: `ensureMezoImportColumns()`.
-- Egy tesztsort allits `ÚJ` statuszra.
-- Futtasd: `importActiveMezoTestRow()`.
-- Standalone script eseten az elso teszt: `importFirstNewMezoTestRow()`.
+- Regi / nem importalando sorok statusza legyen `NEM_IMPORTÁL` vagy `ELUTASÍTVA`.
+- Egy tesztsort allits `IMPORTÁLANDÓ` statuszra.
+- Admin oldal: `/admin/google-sheet-import`.
+- Futtasd adminbol: `Állapot lekérdezése`.
+- Csak kontrollalt tesztnel futtasd adminbol: `Jóváhagyott sorok importálása`.
 - Ellenorizd:
   - `mezo_import_status`
   - `mezo_customer_id`
@@ -52,11 +58,13 @@
   - `mezo_error`
   - `mezo_duplicate`
   - `mezo_api_response`
-- Csak sikeres kezi teszt utan futtasd: `installMezoFiveMinuteTrigger()`.
+- Ne futtasd: `installMezoFiveMinuteTrigger()`. Idozitett trigger nincs hasznalatban.
 
 ## Biztonsag
 
-- Regi, nem importalando sorok statusza legyen `NEM_IMPORTÁL`.
+- Regi, nem importalando sorok statusza legyen `NEM_IMPORTÁL` vagy `ELUTASÍTVA`.
+- Csak az `IMPORTÁLANDÓ` / `JÓVÁHAGYVA` statuszu sorok importalhatok.
+- Ures, `ÚJ`, `ELLENŐRZÉSRE_VÁR`, `HIBA`, `SIKERES`, `DUPLIKÁLT`, `FOLYAMATBAN`, `NEM_IMPORTÁL` es `ELUTASÍTVA` statuszu sor nem importalodik.
 - A `LEAD_IMPORT_TOKEN` legalabb 32 karakter legyen.
 - A backend token nem latszodhat a Google Sheetben.
 - A backend token nem latszodhat GitHubon.
@@ -67,6 +75,6 @@
 
 ## Visszagorgetes
 
-- Az 5 perces Apps Script trigger torlese azonnal leallitja az automatikus importot.
+- Ha korabban veletlenul telepult 5 perces Apps Script trigger, torold az admin feluleten vagy Apps Scriptbol a `deleteMezoImportTriggers()` fuggvennyel.
 - Backend oldalon a `LEAD_IMPORT_TOKEN` eltavolitasa vagy ervenytelenitese 503 JSON hibara allitja az endpointot.
 - A mar importalt sorokat hagyd `SIKERES` vagy `DUPLIKÁLT` statuszon, ne torold a `lead_imports` rekordokat.

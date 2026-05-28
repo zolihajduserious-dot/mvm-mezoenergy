@@ -80,13 +80,14 @@ git status --ignored --short -- storage/config/local.php storage/config/local.se
 1. Generalj uj, legalabb 32 karakteres veletlen tokent.
 2. Allitsd be backend oldalon `LEAD_IMPORT_TOKEN` kornyezeti valtozokent vagy `storage/config/local.secret.php` alatt.
 3. A Google Apps Script Project Settings / Script Properties alatt csereld a `MEZO_API_TOKEN` erteket.
-4. Futtass egy `test_import.ps1 -Mode wrong-token` es egy `test_import.ps1 -Mode normal` ellenorzest.
-5. Csak sikeres teszt utan hagyd aktivan az 5 perces triggert.
+4. Ha az admin-run token is erintett, csereld a `MEZO_ADMIN_RUN_TOKEN` es backend `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN` erteket is.
+5. Futtass egy `test_import.ps1 -Mode wrong-token` ellenorzest, majd admin feluleten kontrollalt preview / run-approved tesztet.
+6. Idozitett trigger jelenleg nem hasznalando.
 
 ## Veszkori rotacio
 
 1. Azonnal torold vagy ervenytelenitsd a backend `LEAD_IMPORT_TOKEN` erteket. Igy az import endpoint 503 JSON hibara valt, ha nincs ervenyes token.
-2. Torold az Apps Script 5 perces triggeret.
+2. Torold az Apps Script 5 perces triggeret, ha korabban veletlenul telepult.
 3. Generalj uj tokent, es allitsd be backend + Apps Script oldalon.
 4. Futtasd ujra a kezi teszteket.
 5. Ellenorizd, hogy a regi token nem szerepel GitHubon, Google Sheetben, outbox riportban vagy dokumentacioban.

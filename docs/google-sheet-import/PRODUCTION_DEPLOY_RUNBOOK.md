@@ -147,19 +147,25 @@ Fontos: a `normal` teszt teszt ugyfelet es munkaigenyt hozhat letre. Utana admin
 
 ## G) Google Sheet beallitas
 
-1. A Google Sheetben nyisd meg: Extensions -> Apps Script.
-2. Masold be a `docs/google-sheet-import/Code.gs` tartalmat.
-3. Futtasd: `setupMezoScriptProperties()`.
+1. Nyisd meg a standalone Apps Script projektet, vagy hozz letre ujat a `script.google.com` alatt.
+2. Masold be a `docs/google-sheet-import/Code_standalone.gs` tartalmat.
+3. Futtasd: `setupMezoStandaloneScriptProperties()`.
 4. Script Properties alatt allitsd be:
    - `MEZO_API_URL=https://mvm-mezoenergy.hu/api/import/facebook-lead`
    - `MEZO_API_TOKEN=<ugyanaz_a_backend_token>`
+   - `MEZO_ADMIN_RUN_TOKEN=<kulon_admin_futtatasi_token>`
    - `MEZO_MAX_ROWS_PER_RUN=25`
    - `MEZO_RETRY_ERRORS=false`
 5. Futtasd: `ensureMezoImportColumns()`.
-6. A regi, nem importalando sorok `mezo_import_status` erteke legyen `NEM_IMPORTÁL`.
-7. Egyetlen kontrollalt tesztsort allits `ÚJ` statuszra.
-8. Jelold ki a tesztsort, majd futtasd: `importActiveMezoTestRow()`.
-9. Ellenorizd ezeket az oszlopokat:
+6. A regi, nem importalando sorok `mezo_import_status` erteke legyen `NEM_IMPORTÁL` vagy `ELUTASÍTVA`.
+7. Egyetlen kontrollalt tesztsort allits `IMPORTÁLANDÓ` statuszra.
+8. A backend configban allitsd be:
+   - `GOOGLE_SHEET_IMPORT_WEBAPP_URL`
+   - `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`
+9. Admin felulet: `/admin/google-sheet-import`.
+10. Futtasd: `Állapot lekérdezése`.
+11. Kontrollalt tesztnel futtasd: `Jóváhagyott sorok importálása`.
+12. Ellenorizd ezeket az oszlopokat:
    - `mezo_import_status`
    - `mezo_customer_id`
    - `mezo_work_request_id`
@@ -167,16 +173,17 @@ Fontos: a `normal` teszt teszt ugyfelet es munkaigenyt hozhat letre. Utana admin
    - `mezo_error`
    - `mezo_duplicate`
    - `mezo_api_response`
-10. Csak sikeres kezi teszt utan futtasd: `installMezoFiveMinuteTrigger()`.
+13. Ne futtasd: `installMezoFiveMinuteTrigger()`. Az idozitett trigger jelenleg nincs hasznalatban.
 
 ## H) Rollback terv
 
-1. Ha az endpoint hibazik, torold vagy kapcsold ki az 5 perces Apps Script triggert.
-2. Google Sheetben az uj sorokat ideiglenesen allitsd `STOP` statuszra, ne hagyd uresen.
-3. Allitsd vissza a backend regi verziojat Gitbol vagy backupbol.
-4. Ne torold automatikusan a `lead_imports` tablat, mert audit es duplikacio-vedelmi adatot tarol.
-5. Ha token kiszivargas gyanus, azonnal rotald a backend `LEAD_IMPORT_TOKEN` es Apps Script `MEZO_API_TOKEN` parost.
-6. Rotacio utan futtasd ujra a wrong-token es normal backend tesztet.
+1. Ha az endpoint hibazik, ne indits uj admin importot.
+2. Ha korabban veletlenul telepult idozitett trigger, torold az admin feluleten vagy Apps Scriptbol a `deleteMezoImportTriggers()` fuggvennyel.
+3. Google Sheetben az uj sorokat ideiglenesen allitsd `ELUTASÍTVA`, `NEM_IMPORTÁL` vagy kulon `STOP` statuszra, ne hagyd `IMPORTÁLANDÓ` allapotban.
+4. Allitsd vissza a backend regi verziojat Gitbol vagy backupbol.
+5. Ne torold automatikusan a `lead_imports` tablat, mert audit es duplikacio-vedelmi adatot tarol.
+6. Ha token kiszivargas gyanus, azonnal rotald a backend `LEAD_IMPORT_TOKEN`, Apps Script `MEZO_API_TOKEN` es `MEZO_ADMIN_RUN_TOKEN` ertekeket.
+7. Rotacio utan futtasd ujra a wrong-token es kontrollalt admin preview / run-approved tesztet.
 
 ## I) Go / No-Go dontesi pont
 
@@ -189,6 +196,7 @@ GO, ha:
 - Adminban latszik a teszt customer es munkaigeny.
 - A Google Sheet visszairja a statuszt es az azonosito mezoket.
 - Regi `NEM_IMPORTÁL` sorok nem importalodnak.
+- Ures, `ÚJ`, `ELLENŐRZÉSRE_VÁR`, `HIBA`, `ELUTASÍTVA`, `SIKERES` es `DUPLIKÁLT` sorok nem importalodnak.
 - Minden valasz JSON, nem HTML hibauzenet.
 
 NO-GO, ha:
@@ -196,6 +204,7 @@ NO-GO, ha:
 - HTML hiba jon JSON helyett.
 - Az endpoint token nelkul vagy ures tokennel mukodik.
 - Regi sorokat importal.
+- Ures vagy `ÚJ` statuszu sort importal.
 - Duplikalt leadbol uj customer vagy uj munkaigeny keszul.
 - Customer vagy munkaigeny nem jon letre sikeres importnal.
 - `mezo_error` ismeretlen PHP hibakkal telik meg.
