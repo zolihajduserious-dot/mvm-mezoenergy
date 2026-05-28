@@ -19,6 +19,7 @@ function google_sheet_import_admin_config_value(string $key): string
         return trim((string) $environmentValue);
     }
 
+    $localConfig = [];
     foreach (google_sheet_import_admin_local_config_paths() as $path) {
         if (!is_file($path)) {
             continue;
@@ -30,12 +31,12 @@ function google_sheet_import_admin_config_value(string $key): string
             continue;
         }
 
-        if (is_array($config) && array_key_exists($key, $config)) {
-            return trim((string) $config[$key]);
+        if (is_array($config)) {
+            $localConfig = array_replace($localConfig, $config);
         }
     }
 
-    return '';
+    return array_key_exists($key, $localConfig) ? trim((string) $localConfig[$key]) : '';
 }
 
 function google_sheet_import_admin_local_config_paths(): array
@@ -47,6 +48,7 @@ function google_sheet_import_admin_local_config_paths(): array
     return [
         STORAGE_PATH . '/config/local.php',
         STORAGE_PATH . '/config/local.secret.php',
+        STORAGE_PATH . '/config/google-sheet-import.secret.php',
     ];
 }
 

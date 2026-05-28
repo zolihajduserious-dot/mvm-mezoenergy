@@ -13,6 +13,43 @@ A repoban van GitHub Actions alapu deploy:
 
 Ez teljesebb production szinkron, ezert kezi hotfix vagy szuk fajllistas elesites eseten a helyi manifest alapu deploy hasznalhato.
 
+## Google Sheet import secret deploy
+
+A manualis admin Google Sheet import Web App URL/token parjat nem kell es nem javasolt kezzel a production `local.secret.php` fajlba irni. Ehhez kulon workflow van:
+
+```text
+.github/workflows/deploy-google-sheet-import-secret.yml
+```
+
+Kezi inditasu workflow:
+
+```powershell
+gh workflow run deploy-google-sheet-import-secret.yml
+```
+
+Szukseges GitHub Secrets:
+
+- `GOOGLE_SHEET_IMPORT_WEBAPP_URL`
+- `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`
+- `FTP_HOST`
+- `FTP_USER`
+- `FTP_PASS`
+
+A workflow GitHub runneren generalja ezt a fajlt, majd FTPS-sel csak ezt tolti fel:
+
+```text
+storage/config/google-sheet-import.secret.php
+```
+
+Nem modosul:
+
+- `storage/config/local.secret.php`
+- `LEAD_IMPORT_TOKEN`
+- adatbazis
+- Google Sheet trigger
+
+Elso admin hasznalat elott az Apps Script Web App `health` tesztnek JSON valaszt kell adnia: HTTP 200, `status: OK`, `action: health`.
+
 ## Lokalis credential helye
 
 A Nethely credential nem lehet a repoban. A setup script ezt a repón kivuli mappat hasznalja:

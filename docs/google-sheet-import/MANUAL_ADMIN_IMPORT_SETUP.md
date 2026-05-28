@@ -41,7 +41,20 @@ Fontos: a Web app URL nem token, de ne tedd publikus dokumentacioba. A tenyleges
 
 ## 4. Backend config
 
-Nethelyen szerver oldali env valtozokent vagy ignore-olt `storage/config/local.secret.php` fajlban allitsd be:
+Javasolt eles beallitas: ne a meglevo `storage/config/local.secret.php` fajlt szerkeszd kezzel, hanem kulon, ignore-olt Google Sheet import secret fajlt hasznalj:
+
+```text
+storage/config/google-sheet-import.secret.php
+```
+
+Ezt a fajlt a `deploy-google-sheet-import-secret.yml` GitHub Actions workflow tudja legeneralni es feltolteni GitHub Secretsbol. A workflow nem modositja a `LEAD_IMPORT_TOKEN` erteket es nem nyul a `local.secret.php` fajlhoz.
+
+Szukseges GitHub Secrets:
+
+- `GOOGLE_SHEET_IMPORT_WEBAPP_URL`
+- `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`
+
+Nethelyen szerver oldali env valtozokent, vagy az ignore-olt `storage/config/google-sheet-import.secret.php` fajlban allitsd be:
 
 - `GOOGLE_SHEET_IMPORT_WEBAPP_URL`: Apps Script Web app URL
 - `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`: ugyanaz az ertek, mint a `MEZO_ADMIN_RUN_TOKEN`
@@ -57,6 +70,12 @@ return [
 ```
 
 Valodi token nem kerulhet GitHubra.
+
+Kezi `run-approved` import elott kotelezo:
+
+- Apps Script Web App `health` teszt JSON valasszal terjen vissza.
+- Elvart: HTTP 200, `status: OK`, `action: health`.
+- Idozitett trigger tovabbra sincs hasznalatban.
 
 ## 5. Google Sheet statusz workflow
 
