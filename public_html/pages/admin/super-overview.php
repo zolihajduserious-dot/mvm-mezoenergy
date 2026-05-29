@@ -154,7 +154,7 @@ $metricCards = [
             </div>
             <div class="admin-actions">
                 <a class="button button-secondary" href="<?= h(url_path('/admin/dashboard')); ?>">Vezérlőpult</a>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/minicrm-import')); ?>">Munkaközpont</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup')); ?>">Ügyfélkereső</a>
             </div>
         </div>
 

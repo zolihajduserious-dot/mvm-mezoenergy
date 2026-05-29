@@ -41,7 +41,7 @@ if (is_post()) {
                     ],
                 ],
                 [
-                    ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                    ['label' => 'Ügyfélkereső megnyitása', 'url' => absolute_url('/admin/customer-lookup')],
                 ],
                 ['email' => $user['email'] ?? '', 'name' => $user['name'] ?? ''],
                 null,
@@ -82,7 +82,7 @@ if (is_post()) {
                         ],
                     ],
                     [
-                        ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+                        ['label' => 'Ügyfélkereső megnyitása', 'url' => absolute_url('/admin/customer-lookup')],
                     ],
                     ['email' => $form['email'], 'name' => $form['requester_name']],
                     null,

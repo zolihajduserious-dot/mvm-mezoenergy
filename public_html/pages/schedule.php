@@ -50,7 +50,7 @@ if (is_post() && $errors === []) {
                         ],
                     ],
                     [
-                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])],
                     ],
                     ['email' => $request['email'] ?? '', 'name' => $request['requester_name'] ?? ''],
                     null,

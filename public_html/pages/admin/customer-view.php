@@ -4,6 +4,11 @@ declare(strict_types=1);
 require_role(['admin']);
 
 $flash = get_flash();
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $customerId = isset($_GET['customer']) ? max(0, (int) $_GET['customer']) : 0;
 $customer = null;
 $account = null;
@@ -146,7 +151,6 @@ $customerName = (string) ($customer['requester_name'] ?? '');
 $customerEmail = (string) ($customer['email'] ?? '');
 $searchBack = $customerEmail !== '' ? $customerEmail : $customerName;
 $lookupUrl = url_path('/admin/customer-lookup') . ($searchBack !== '' ? '?search=' . rawurlencode($searchBack) : '');
-$legacyCrmUrl = $customerId > 0 ? url_path('/admin/customers') . '?customer=' . $customerId . '#customer-' . $customerId : url_path('/admin/customers');
 $emailVerifiedAt = $account !== null ? trim((string) ($account['email_verified_at'] ?? '')) : '';
 $emailStatus = $emailVerifiedAt !== '' ? 'Megerősítve' : 'Nincs megerősítve';
 $primaryAddress = trim((string) ($customer['postal_code'] ?? '') . ' ' . (string) ($customer['city'] ?? '') . ', ' . (string) ($customer['postal_address'] ?? ''));
@@ -162,7 +166,7 @@ $mailingAddress = trim((string) ($customer['mailing_address'] ?? ''));
             </div>
             <div class="form-actions">
                 <a class="button button-secondary" href="<?= h($lookupUrl); ?>">Vissza a keresőhöz</a>
-                <a class="button button-secondary" href="<?= h($legacyCrmUrl); ?>">Régi CRM nézet</a>
+                <span class="muted-text">A régi CRM nézet ideiglenesen letiltva a rendszer stabilitása érdekében.</span>
             </div>
         </div>
 

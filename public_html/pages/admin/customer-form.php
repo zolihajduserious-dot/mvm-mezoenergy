@@ -11,7 +11,7 @@ $form = $isEdit ? normalize_customer_data($customer) : normalize_customer_data([
 
 if ($id && !$customer) {
     set_flash('error', 'Az ügyfél nem található.');
-    redirect('/admin/customers');
+    redirect('/admin/customer-lookup');
 }
 
 if (is_post()) {
@@ -29,7 +29,7 @@ if (is_post()) {
                 create_customer($form, null, is_array($user) ? (int) $user['id'] : null);
                 set_flash('success', 'Az ügyfél létrejött.');
             }
-            redirect('/admin/customers');
+            redirect($isEdit ? '/admin/customer-view?customer=' . (int) $id : '/admin/customer-lookup');
         } catch (Throwable $exception) {
             $errors[] = APP_DEBUG ? $exception->getMessage() : 'Az ügyfél mentése sikertelen.';
         }
@@ -68,7 +68,7 @@ if (is_post()) {
                 <label class="checkbox-row"><input type="checkbox" name="contact_data_accepted" value="1" <?= (int) $form['contact_data_accepted'] === 1 ? 'checked' : ''; ?>><span>Kapcsolattartasi adatok egyeznek</span></label>
                 <div class="form-actions">
                     <button class="button" type="submit">Mentés</button>
-                    <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Megsem</a>
+                    <a class="button button-secondary" href="<?= h($isEdit ? url_path('/admin/customer-view') . '?customer=' . (int) $id : url_path('/admin/customer-lookup')); ?>">Megsem</a>
                 </div>
             </form>
         </div>

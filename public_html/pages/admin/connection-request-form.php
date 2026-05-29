@@ -21,7 +21,7 @@ $customer = $customerId ? find_customer($customerId) : null;
 
 if ($customerId && $customer === null) {
     set_flash('error', 'Az ügyfél nem található.');
-    redirect('/admin/customers');
+    redirect('/admin/customer-lookup');
 }
 
 $errors = [];
@@ -220,8 +220,8 @@ $pageSubtitle = $customer !== null
                 <p><?= h($pageSubtitle); ?></p>
             </div>
             <div class="form-actions">
-                <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Ügyfelek</a>
-                <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'] : url_path('/admin/minicrm-import') . '#portal-works'); ?>">Munkalista</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup')); ?>">Ügyfélkereső</a>
+                <a class="button button-secondary" href="<?= h($request !== null ? url_path('/admin/work-request-view') . '?request=' . (int) $request['id'] : url_path('/admin/customer-lookup')); ?>">Munka adatlap</a>
                 <?php if ($customer !== null && $initialDataEditable): ?>
                     <a class="button button-secondary" href="<?= h(url_path('/admin/customers/edit') . '?id=' . (int) $customer['id']); ?>">Ügyfél szerkesztése</a>
                 <?php endif; ?>
@@ -427,7 +427,7 @@ $pageSubtitle = $customer !== null
                 <?php else: ?>
                     <span class="status-badge status-badge-finalized">Alapadatok zárolva</span>
                 <?php endif; ?>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/customers')); ?>">Vissza az ügyfelekhez</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup')); ?>">Vissza az ügyfélkeresőhöz</a>
             </div>
         </form>
     </div>

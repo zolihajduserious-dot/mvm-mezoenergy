@@ -10,7 +10,7 @@ $quote = $id ? find_quote($id) : null;
 
 if ($quote === null) {
     set_flash('error', 'Az ajánlat nem található.');
-    redirect('/admin/customers');
+    redirect('/admin/customer-lookup');
 }
 
 if (!is_post()) {

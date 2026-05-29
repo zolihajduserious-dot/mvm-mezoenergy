@@ -32,8 +32,8 @@ $uploadUrl = '/customer/work-requests';
 $uploadPortalLabel = 'Ügyfélportál megnyitása';
 
 if (is_logged_in() && is_staff_user()) {
-    $uploadUrl = '/admin/minicrm-import#portal-works';
-    $uploadPortalLabel = 'Admin munkák megnyitása';
+    $uploadUrl = '/admin/customer-lookup';
+    $uploadPortalLabel = 'Admin ügyfélkereső megnyitása';
 } elseif (is_logged_in() && is_general_contractor_user()) {
     $uploadUrl = '/contractor/work-requests';
     $uploadPortalLabel = 'Generálkivitelezői portál megnyitása';

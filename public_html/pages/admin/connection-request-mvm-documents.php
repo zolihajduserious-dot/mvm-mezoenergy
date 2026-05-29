@@ -12,7 +12,7 @@ if ($minicrmItemId) {
 
     if ($minicrmItem === null) {
         set_flash('error', 'A MiniCRM munka nem található.');
-        redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+        redirect('/admin/customer-lookup');
     }
 
     $linkedRequestId = minicrm_work_item_connection_request_id((int) $minicrmItemId);
@@ -24,7 +24,7 @@ if ($minicrmItemId) {
 
         if (!($minicrmLinkResult['ok'] ?? false)) {
             set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka MVM dokumentumhoz kapcsolasa sikertelen.'));
-            redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+            redirect('/admin/customer-lookup');
         }
 
         $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);
@@ -49,9 +49,9 @@ $mvmRedirectPath = $isMiniCrmContext
     ? '/admin/minicrm-import/mvm-documents?minicrm_item=' . (int) $minicrmItemId
     : '/admin/connection-requests/mvm-documents?id=' . (int) $request['id'];
 $mvmBackUrl = $isMiniCrmContext
-    ? url_path('/admin/minicrm-import') . '?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId
-    : url_path('/admin/minicrm-import') . '?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'];
-$mvmBackLabel = $isMiniCrmContext ? 'Vissza a MiniCRM munkahoz' : 'Vissza a munkahoz';
+    ? url_path('/admin/customer-lookup')
+    : url_path('/admin/work-request-view') . '?request=' . (int) $request['id'];
+$mvmBackLabel = $isMiniCrmContext ? 'Vissza az ügyfélkeresőhöz' : 'Vissza a munkahoz';
 
 if ($isMiniCrmContext && $minicrmItemId) {
     try {

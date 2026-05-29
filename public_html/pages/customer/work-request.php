@@ -261,7 +261,7 @@ if (is_post()) {
                             ],
                         ],
                         [
-                            ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $savedRequestId . '#portal-work-' . $savedRequestId)],
+                            ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . $savedRequestId)],
                         ],
                         ['email' => $customer['email'] ?? '', 'name' => $customer['requester_name'] ?? ''],
                         null,

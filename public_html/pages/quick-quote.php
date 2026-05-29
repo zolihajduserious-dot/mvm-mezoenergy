@@ -80,7 +80,7 @@ function quick_quote_request_context_url(?array $request): string
     }
 
     if (is_staff_user()) {
-        return url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+        return url_path('/admin/work-request-view') . '?request=' . $requestId;
     }
 
     if (is_electrician_user()) {
@@ -253,7 +253,7 @@ if ($quote === null && $minicrmItemId) {
 
     if (!($minicrmLinkResult['ok'] ?? false)) {
         set_flash('error', (string) ($minicrmLinkResult['message'] ?? 'A MiniCRM munka árajánlathoz kapcsolása sikertelen.'));
-        redirect('/admin/minicrm-import?item=' . (int) $minicrmItemId . '#minicrm-work-' . (int) $minicrmItemId);
+        redirect('/admin/customer-lookup');
     }
 
     $requestId = (int) ($minicrmLinkResult['request_id'] ?? 0);

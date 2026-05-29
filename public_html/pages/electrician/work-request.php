@@ -129,7 +129,7 @@ if (is_post() && $schemaErrors === []) {
                     ],
                 ],
                 [
-                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])],
                 ],
                 ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
                 null,
@@ -156,7 +156,7 @@ if (is_post() && $schemaErrors === []) {
                     ],
                 ],
                 [
-                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])],
                 ],
                 ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
                 null,
@@ -344,7 +344,7 @@ if (is_post() && $schemaErrors === []) {
                         ],
                     ],
                     [
-                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $savedRequestId . '#portal-work-' . $savedRequestId)],
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . $savedRequestId)],
                     ],
                     ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
                     $savedQuoteId,
@@ -457,7 +457,7 @@ if (is_post() && $schemaErrors === []) {
                         ],
                     ],
                     [
-                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])],
                         ['label' => 'Ajánlat megnyitása', 'url' => absolute_url('/quick-quote?quote_id=' . $savedQuoteId)],
                     ],
                     ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
@@ -489,7 +489,7 @@ if (is_post() && $schemaErrors === []) {
                     ],
                 ],
                 [
-                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])],
+                    ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])],
                 ],
                 ['email' => $electrician['email'] ?? $user['email'], 'name' => $electrician['name'] ?? $user['name']],
                 null,

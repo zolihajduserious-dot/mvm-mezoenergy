@@ -4,6 +4,11 @@ declare(strict_types=1);
 require_role(['admin']);
 
 $flash = get_flash();
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $requestId = isset($_GET['request']) ? max(0, (int) $_GET['request']) : 0;
 $request = null;
 $errors = [];

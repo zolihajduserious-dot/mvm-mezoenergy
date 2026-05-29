@@ -3,6 +3,34 @@ declare(strict_types=1);
 
 require_role(['admin', 'specialist']);
 
+$legacyCustomerId = filter_input(INPUT_GET, 'customer', FILTER_VALIDATE_INT);
+
+if ($legacyCustomerId) {
+    redirect('/admin/customer-view?customer=' . (int) $legacyCustomerId);
+}
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+?>
+<section class="admin-section customer-lookup-page customer-view-page">
+    <div class="container admin-requests-container">
+        <div class="admin-header">
+            <div>
+                <p class="eyebrow">Admin CRM</p>
+                <h1>Régi ügyfél CRM karbantartás alatt</h1>
+                <p>Az ügyfél CRM régi nézete ideiglenesen karbantartás alatt van. Kérjük, használd az Ügyfélkeresőt.</p>
+            </div>
+            <div class="form-actions">
+                <a class="button" href="<?= h(url_path('/admin/customer-lookup')); ?>">Ügyfélkereső megnyitása</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/dashboard')); ?>">Vezérlőpult</a>
+            </div>
+        </div>
+    </div>
+</section>
+<?php
+return;
+
 $flash = get_flash();
 $customers = [];
 $requestsByCustomer = [];

@@ -9,4 +9,4 @@ if ($requestId) {
     redirect('/admin/work-request-view?request=' . (int) $requestId);
 }
 
-redirect('/admin/minicrm-import#portal-works');
+redirect('/admin/customer-lookup');

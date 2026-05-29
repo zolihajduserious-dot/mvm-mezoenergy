@@ -3,6 +3,34 @@ declare(strict_types=1);
 
 require_role(['admin', 'specialist']);
 
+$legacyRequestId = filter_input(INPUT_GET, 'request', FILTER_VALIDATE_INT);
+
+if ($legacyRequestId) {
+    redirect('/admin/work-request-view?request=' . (int) $legacyRequestId);
+}
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+?>
+<section class="admin-section customer-lookup-page customer-view-page">
+    <div class="container admin-requests-container">
+        <div class="admin-header">
+            <div>
+                <p class="eyebrow">Admin munkaközpont</p>
+                <h1>Régi MiniCRM munkaközpont karbantartás alatt</h1>
+                <p>A régi MiniCRM munkaközpont ideiglenesen karbantartás alatt van. Kérjük, használd a könnyű munkaadatlapot vagy az ügyfélkeresőt.</p>
+            </div>
+            <div class="form-actions">
+                <a class="button" href="<?= h(url_path('/admin/customer-lookup')); ?>">Ügyfélkereső megnyitása</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/dashboard')); ?>">Vezérlőpult</a>
+            </div>
+        </div>
+    </div>
+</section>
+<?php
+return;
+
 $schemaErrors = minicrm_import_schema_errors();
 $electricianSchemaErrors = electrician_schema_errors();
 $deps = dependency_status();

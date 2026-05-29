@@ -289,7 +289,7 @@ $dashboardCards = [
         'label' => 'Ügyfelek',
         'value' => $customerCount ?? '-',
         'description' => 'Ügyféladatok megtekintése, javítása és új ügyfelek rögzítése.',
-        'href' => '/admin/minicrm-import',
+        'href' => '/admin/customer-lookup',
         'variant' => 'primary',
     ],
     [
@@ -298,7 +298,7 @@ $dashboardCards = [
         'description' => $canManageMvmDocuments
             ? 'Beküldött munkaigények, fájlok, ajánlatfeltöltés és MVM dokumentumok.'
             : 'Beküldött munkaigények, fájlok és ajánlatfeltöltés.',
-        'href' => '/admin/minicrm-import',
+        'href' => '/admin/customer-lookup',
         'variant' => 'accent',
     ],
     [
@@ -326,7 +326,7 @@ $dashboardCards = [
         'label' => 'MiniCRM munkák',
         'value' => $minicrmImportCount ?? '-',
         'description' => 'Excel exportból áthozott munkaállomány és MiniCRM dokumentumlinkek.',
-        'href' => '/admin/minicrm-import',
+        'href' => '/admin/customer-lookup',
         'variant' => 'system',
     ],
     [
@@ -343,7 +343,7 @@ $dashboardCards = [
         'label' => 'Munkaközpont',
         'value' => ($standaloneConnectionRequestCount ?? 0) + ($minicrmImportCount ?? 0),
         'description' => 'MiniCRM importok, portálos munkák, ügyféladatok, ajánlatok és dokumentumok egy helyen.',
-        'href' => '/admin/minicrm-import',
+        'href' => '/admin/customer-lookup',
         'variant' => 'accent',
     ],
     [
@@ -621,7 +621,7 @@ if ($canManageAdminUsers) {
 
                 <div class="admin-workflow-board dashboard-workflow-board">
                     <?php foreach ($workflowStages as $stageKey => $stage): ?>
-                        <a class="admin-workflow-card admin-workflow-card-<?= h((string) $stage['variant']); ?>" href="<?= h(url_path('/admin/minicrm-import') . '#portal-works'); ?>">
+                        <a class="admin-workflow-card admin-workflow-card-<?= h((string) $stage['variant']); ?>" href="<?= h(url_path('/admin/customer-lookup')); ?>">
                             <span><?= (int) $stage['number']; ?></span>
                             <strong><?= h((string) $stage['title']); ?></strong>
                             <em><?= (int) ($workflowStageCounts[$stageKey] ?? 0); ?> igény</em>
