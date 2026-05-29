@@ -285,6 +285,10 @@ $routes = [
         'title' => 'Ugyfel adatlap',
         'file' => PAGE_PATH . '/admin/customer-view.php',
     ],
+    'admin/work-request-view' => [
+        'title' => 'Munka adatlap',
+        'file' => PAGE_PATH . '/admin/work-request-view.php',
+    ],
     'admin/customers/edit' => [
         'title' => 'Ügyfél szerkesztése',
         'file' => PAGE_PATH . '/admin/customer-form.php',

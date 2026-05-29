@@ -259,7 +259,7 @@ try {
                             $customerUrl = url_path('/admin/customer-view') . '?customer=' . $customerId;
                             $legacyCustomerUrl = url_path('/admin/customers') . '?customer=' . $customerId . '#customer-' . $customerId;
                             $latestRequestUrl = $latestRequestId > 0
-                                ? url_path('/admin/minicrm-import') . '?request=' . $latestRequestId . '#portal-work-' . $latestRequestId
+                                ? url_path('/admin/work-request-view') . '?request=' . $latestRequestId
                                 : '';
                             ?>
                             <tr>

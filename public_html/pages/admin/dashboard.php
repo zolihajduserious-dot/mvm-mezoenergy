@@ -53,7 +53,7 @@ function dashboard_request_admin_url(array $request): string
 {
     $requestId = (int) ($request['id'] ?? 0);
 
-    return url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+    return url_path('/admin/work-request-view') . '?request=' . $requestId;
 }
 
 function dashboard_request_display_name(array $request): string

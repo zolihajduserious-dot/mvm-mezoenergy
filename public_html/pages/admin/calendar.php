@@ -361,7 +361,7 @@ $weekdayLabels = [
                                         <?php
                                         $status = (string) ($event['status'] ?? '');
                                         $requestId = (int) ($event['request_id'] ?? 0);
-                                        $requestUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+                                        $requestUrl = url_path('/admin/work-request-view') . '?request=' . $requestId;
                                         $siteAddress = trim((string) ($event['site_postal_code'] ?? '') . ' ' . (string) ($event['site_address'] ?? ''));
                                         ?>
                                         <a class="admin-calendar-event admin-calendar-event-<?= h($status); ?>" href="<?= h($requestUrl); ?>">
@@ -402,7 +402,7 @@ $weekdayLabels = [
                                 <?php foreach ($events as $event): ?>
                                     <?php
                                     $requestId = (int) ($event['request_id'] ?? 0);
-                                    $requestUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+                                    $requestUrl = url_path('/admin/work-request-view') . '?request=' . $requestId;
                                     $siteAddress = trim((string) ($event['site_postal_code'] ?? '') . ' ' . (string) ($event['site_address'] ?? ''));
                                     $status = (string) ($event['status'] ?? '');
                                     ?>

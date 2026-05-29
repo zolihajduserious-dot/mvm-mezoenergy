@@ -266,7 +266,7 @@ $mailingAddress = trim((string) ($customer['mailing_address'] ?? ''));
                                 <?php foreach ($requests as $request): ?>
                                     <?php
                                     $requestId = (int) ($request['id'] ?? 0);
-                                    $requestUrl = url_path('/admin/minicrm-import') . '?request=' . $requestId . '#portal-work-' . $requestId;
+                                    $requestUrl = url_path('/admin/work-request-view') . '?request=' . $requestId;
                                     $siteAddress = trim((string) ($request['site_postal_code'] ?? '') . ' ' . (string) ($request['site_address'] ?? ''));
                                     ?>
                                     <tr>

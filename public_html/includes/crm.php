@@ -3419,8 +3419,8 @@ function notify_admin_quote_response(int $quoteId, string $response, string $mes
     $quoteRequestId = (int) ($quote['connection_request_id'] ?? 0);
     $quoteCustomerId = (int) ($quote['customer_id'] ?? 0);
     $quoteContextPath = $quoteRequestId > 0
-        ? '/admin/minicrm-import?request=' . $quoteRequestId . '#portal-work-' . $quoteRequestId
-        : '/admin/customers' . ($quoteCustomerId > 0 ? '?customer=' . $quoteCustomerId . '#customer-' . $quoteCustomerId : '');
+        ? '/admin/work-request-view?request=' . $quoteRequestId
+        : '/admin/customer-view' . ($quoteCustomerId > 0 ? '?customer=' . $quoteCustomerId : '');
     $emailActions = [
         ['label' => 'Ügyfél adatlap megnyitása', 'url' => absolute_url($quoteContextPath)],
         ['label' => 'Ajánlat szerkesztése', 'url' => absolute_url('/admin/quotes/edit?id=' . (int) $quote['id'])],
@@ -4947,7 +4947,7 @@ function send_verified_registration_admin_notification(array $user): array
         $latestRequestId = (int) $requestSummary['latest_request_id'];
         $adminActions[] = [
             'label' => 'Utolsó munka megnyitása',
-            'url' => absolute_url('/admin/minicrm-import?request=' . $latestRequestId . '#portal-work-' . $latestRequestId),
+            'url' => absolute_url('/admin/work-request-view?request=' . $latestRequestId),
         ];
     }
 
@@ -11079,7 +11079,7 @@ function send_connection_request_file_upload_notification(int $requestId, array 
         ],
     ];
     $emailActions = [
-        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
+        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . $requestId)],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
     $replyToEmail = !empty($request['contractor_email']) ? (string) $request['contractor_email'] : (string) $request['email'];
@@ -11135,7 +11135,7 @@ function send_electrician_work_stage_notification(int $requestId, string $stage)
         ],
     ];
     $actions = [
-        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
+        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . $requestId)],
     ];
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
 
@@ -18632,7 +18632,7 @@ function connection_request_email_body(array $request, array $files): string
         'Új mérőhelyi munkaigény érkezett',
         'Új igénybejelentést rögzítettek a weboldalon. Az adatok és a csatolt fájlok az alábbi összefoglalóban találhatók.',
         connection_request_email_sections($request, $files),
-        [['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . (int) $request['id'] . '#portal-work-' . (int) $request['id'])]]
+        [['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . (int) $request['id'])]]
     );
 }
 
@@ -18660,7 +18660,7 @@ function send_connection_request_email(int $requestId, bool $finalized = false):
         : 'Új igénybejelentést rögzítettek a weboldalon. Az adatok és a csatolt fájlok az alábbi összefoglalóban találhatók.';
     $emailSections = connection_request_email_sections($request, $files);
     $emailActions = [
-        ['label' => 'Munkák megnyitása', 'url' => absolute_url('/admin/minicrm-import?request=' . $requestId . '#portal-work-' . $requestId)],
+        ['label' => 'Munka megnyitása', 'url' => absolute_url('/admin/work-request-view?request=' . $requestId)],
     ];
 
     if (!empty($request['contractor_name'])) {
