@@ -277,6 +277,10 @@ $routes = [
         'title' => 'Ugyfelek',
         'file' => PAGE_PATH . '/admin/customers.php',
     ],
+    'admin/customer-lookup' => [
+        'title' => 'Ugyfelkereso',
+        'file' => PAGE_PATH . '/admin/customer-lookup.php',
+    ],
     'admin/customers/edit' => [
         'title' => 'Ügyfél szerkesztése',
         'file' => PAGE_PATH . '/admin/customer-form.php',
@@ -470,6 +474,7 @@ try {
                     <?php if (is_staff_user()): ?>
                         <a href="<?= h(url_path('/admin/dashboard')); ?>">Admin</a>
                         <?php if (is_admin_user()): ?>
+                            <a href="<?= h(url_path('/admin/customer-lookup')); ?>">Ügyfélkereső</a>
                             <a href="<?= h(url_path('/electrician/app')); ?>">Szerel&#337; app</a>
                         <?php endif; ?>
                         <a href="<?= h(url_path('/admin/calendar')); ?>">Naptár</a>

@@ -392,6 +392,14 @@ $dashboardCards = [
 
 if ($canManageAdminUsers) {
     $dashboardCards[] = [
+        'label' => 'Ügyfélkereső',
+        'value' => 'read-only',
+        'description' => 'Regisztrált ügyfelek keresése név, email vagy telefonszám alapján.',
+        'href' => '/admin/customer-lookup',
+        'variant' => 'primary',
+    ];
+
+    $dashboardCards[] = [
         'label' => 'Szuper riport',
         'value' => '7 nap',
         'description' => 'Ügyindítások, elfogadott árajánlatok, díjbekérők és státuszváltozások egy helyen.',

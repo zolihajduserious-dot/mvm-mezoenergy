@@ -4901,6 +4901,51 @@ function send_verified_registration_admin_notification(array $user): array
     }
 
     $customer = !empty($user['customer_id']) ? find_customer((int) $user['customer_id']) : null;
+    $customerId = $customer !== null ? (int) $customer['id'] : (int) ($user['customer_id'] ?? 0);
+    $verifiedAt = trim((string) ($user['email_verified_at'] ?? ''));
+    $customerEmail = (string) ($customer['email'] ?? $email);
+    $customerPhone = (string) ($customer['phone'] ?? '-');
+    $requestSummary = [
+        'request_count' => 0,
+        'latest_request_id' => null,
+    ];
+
+    if ($customerId > 0 && db_table_exists('connection_requests')) {
+        $requestSummaryRow = db_query(
+            'SELECT COUNT(*) AS `request_count`, MAX(`id`) AS `latest_request_id`
+             FROM `connection_requests`
+             WHERE `customer_id` = ?',
+            [$customerId]
+        )->fetch();
+
+        if (is_array($requestSummaryRow)) {
+            $requestSummary = [
+                'request_count' => (int) ($requestSummaryRow['request_count'] ?? 0),
+                'latest_request_id' => !empty($requestSummaryRow['latest_request_id']) ? (int) $requestSummaryRow['latest_request_id'] : null,
+            ];
+        }
+    }
+
+    $adminSearchUrl = absolute_url('/admin/customer-lookup?search=' . rawurlencode($customerEmail));
+    $adminActions = [
+        ['label' => 'Ügyfélkereső megnyitása', 'url' => $adminSearchUrl],
+        ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+    ];
+
+    if ($customerId > 0) {
+        array_unshift($adminActions, [
+            'label' => 'Ügyfél adatlap megnyitása',
+            'url' => absolute_url('/admin/customers?customer=' . $customerId . '#customer-' . $customerId),
+        ]);
+    }
+
+    if (!empty($requestSummary['latest_request_id'])) {
+        $latestRequestId = (int) $requestSummary['latest_request_id'];
+        $adminActions[] = [
+            'label' => 'Utolsó munka megnyitása',
+            'url' => absolute_url('/admin/minicrm-import?request=' . $latestRequestId . '#portal-work-' . $latestRequestId),
+        ];
+    }
 
     return send_admin_activity_notification(
         'Új ügyfél emailt erősített meg',
@@ -4910,15 +4955,23 @@ function send_verified_registration_admin_notification(array $user): array
                 'title' => 'Ügyfél adatai',
                 'rows' => [
                     ['label' => 'Név', 'value' => $customer['requester_name'] ?? $name],
-                    ['label' => 'Email', 'value' => $customer['email'] ?? $email],
-                    ['label' => 'Telefon', 'value' => $customer['phone'] ?? '-'],
+                    ['label' => 'Email', 'value' => $customerEmail],
+                    ['label' => 'Telefon', 'value' => $customerPhone],
+                    ['label' => 'Customer ID', 'value' => $customerId > 0 ? '#' . $customerId : '-'],
+                    ['label' => 'User ID', 'value' => '#' . (int) ($user['id'] ?? 0)],
+                    ['label' => 'Email megerősítés ideje', 'value' => $verifiedAt !== '' ? $verifiedAt : date('Y-m-d H:i:s')],
+                    ['label' => 'Forrás', 'value' => $customer['source'] ?? 'Ügyfél regisztráció'],
+                    [
+                        'label' => 'Portálmunkák',
+                        'value' => (int) $requestSummary['request_count'] > 0
+                            ? (int) $requestSummary['request_count'] . ' db kapcsolódó munkaigény'
+                            : 'Ehhez a regisztrációhoz még nem tartozik munkaigény.',
+                    ],
                     ['label' => 'Cím', 'value' => trim((string) ($customer['postal_code'] ?? '') . ' ' . (string) ($customer['city'] ?? '') . ' ' . (string) ($customer['postal_address'] ?? ''))],
                 ],
             ],
         ],
-        [
-            ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
-        ],
+        $adminActions,
         ['email' => $email, 'name' => $name],
         null,
         'Ügyfél regisztráció'
