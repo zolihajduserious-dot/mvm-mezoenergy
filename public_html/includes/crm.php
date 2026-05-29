@@ -4929,15 +4929,8 @@ function send_verified_registration_admin_notification(array $user): array
     $adminSearchUrl = absolute_url('/admin/customer-lookup?search=' . rawurlencode($customerEmail));
     $adminActions = [
         ['label' => 'Ügyfélkereső megnyitása', 'url' => $adminSearchUrl],
-        ['label' => 'Ügyfelek megnyitása', 'url' => absolute_url('/admin/customers')],
+        ['label' => 'Admin vezérlőpult', 'url' => absolute_url('/admin/dashboard')],
     ];
-
-    if ($customerId > 0) {
-        array_unshift($adminActions, [
-            'label' => 'Ügyfél adatlap megnyitása',
-            'url' => absolute_url('/admin/customers?customer=' . $customerId . '#customer-' . $customerId),
-        ]);
-    }
 
     if (!empty($requestSummary['latest_request_id'])) {
         $latestRequestId = (int) $requestSummary['latest_request_id'];
