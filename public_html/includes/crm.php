@@ -4935,8 +4935,12 @@ function send_verified_registration_admin_notification(array $user): array
     if ($customerId > 0) {
         array_unshift($adminActions, [
             'label' => 'Ügyfél adatlap megnyitása',
-            'url' => absolute_url('/admin/customers?customer=' . $customerId . '#customer-' . $customerId),
+            'url' => absolute_url('/admin/customer-view?customer=' . $customerId),
         ]);
+        $adminActions[] = [
+            'label' => 'Régi CRM nézet',
+            'url' => absolute_url('/admin/customers?customer=' . $customerId . '#customer-' . $customerId),
+        ];
     }
 
     if (!empty($requestSummary['latest_request_id'])) {
