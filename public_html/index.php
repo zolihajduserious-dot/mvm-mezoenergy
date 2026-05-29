@@ -281,6 +281,10 @@ $routes = [
         'title' => 'Ugyfelkereso',
         'file' => PAGE_PATH . '/admin/customer-lookup.php',
     ],
+    'admin/customer-view' => [
+        'title' => 'Ugyfel adatlap',
+        'file' => PAGE_PATH . '/admin/customer-view.php',
+    ],
     'admin/customers/edit' => [
         'title' => 'Ügyfél szerkesztése',
         'file' => PAGE_PATH . '/admin/customer-form.php',

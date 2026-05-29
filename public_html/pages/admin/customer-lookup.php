@@ -256,6 +256,8 @@ try {
                             $userId = (int) ($row['user_id'] ?? 0);
                             $requestCount = (int) ($row['request_count'] ?? 0);
                             $latestRequestId = (int) ($row['latest_request_id'] ?? 0);
+                            $customerUrl = url_path('/admin/customer-view') . '?customer=' . $customerId;
+                            $legacyCustomerUrl = url_path('/admin/customers') . '?customer=' . $customerId . '#customer-' . $customerId;
                             $latestRequestUrl = $latestRequestId > 0
                                 ? url_path('/admin/minicrm-import') . '?request=' . $latestRequestId . '#portal-work-' . $latestRequestId
                                 : '';
@@ -287,7 +289,8 @@ try {
                                     <?php if ($latestRequestId > 0): ?><span>utolsó munka: #<?= $latestRequestId; ?></span><?php endif; ?>
                                 </td>
                                 <td class="table-actions stacked">
-                                    <span>Az ügyfél részletes adatlapja ideiglenesen karbantartás alatt van. Az alapadatok a keresőlistában láthatók.</span>
+                                    <a href="<?= h($customerUrl); ?>">Ügyfél adatlap</a>
+                                    <a href="<?= h($legacyCustomerUrl); ?>">Régi CRM nézet</a>
                                     <?php if ($latestRequestUrl !== ''): ?>
                                         <a href="<?= h($latestRequestUrl); ?>">Utolsó munka</a>
                                     <?php else: ?>

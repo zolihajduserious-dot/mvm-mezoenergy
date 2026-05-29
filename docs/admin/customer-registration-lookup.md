@@ -4,10 +4,13 @@
 
 - Read-only ügyfélkereső: `/admin/customer-lookup`
 - Előtöltött keresés email alapján: `/admin/customer-lookup?search=<email>`
-- Részletes ügyfél CRM adatlap: `/admin/customers?customer=<customer_id>#customer-<customer_id>`
+- Elsődleges read-only ügyfél adatlap: `/admin/customer-view?customer=<customer_id>`
+- Régi CRM nézet, opcionális: `/admin/customers?customer=<customer_id>#customer-<customer_id>`
 - Kapcsolódó munka közvetlen linkje, ha van: `/admin/minicrm-import?request=<request_id>#portal-work-<request_id>`
 
-Az `/admin/customer-lookup` csak főadmin jogosultsággal nyitható meg. Nem tartalmaz törlés, export, import vagy emailküldés funkciót.
+Az `/admin/customer-lookup` és az `/admin/customer-view` csak főadmin jogosultsággal nyitható meg. Nem tartalmaznak törlés, export, import vagy emailküldés funkciót.
+
+Az `/admin/customer-view` egyetlen `customer_id` alapján tölt be adatot, read-only, és nem futtatja a teljes régi CRM ügyféllista betöltését. Ez az elsődleges link az emailt megerősített ügyfelek gyors admin megnyitásához.
 
 ## Normál ügyfélregisztrációs flow
 
