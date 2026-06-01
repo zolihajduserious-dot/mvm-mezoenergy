@@ -5,6 +5,9 @@ require_role(['admin']);
 
 $flash = get_flash();
 $search = trim((string) ($_GET['search'] ?? ''));
+$mode = strtolower(trim((string) ($_GET['mode'] ?? 'all')));
+$recentOnly = $search === '' && $mode === 'recent';
+$lookupLimit = $recentOnly ? 50 : 1000;
 $results = [];
 $lookupErrors = [];
 
@@ -61,7 +64,7 @@ function admin_customer_lookup_rows(string $search, int $limit = 50): array
         throw new RuntimeException('A customers tábla nem érhető el.');
     }
 
-    $limit = max(1, min(100, $limit));
+    $limit = max(1, min(1000, $limit));
     $hasUsers = users_table_exists();
     $hasEmailVerification = $hasUsers && user_email_verification_column_exists();
     $hasVerificationCodes = email_verification_table_exists();
@@ -176,7 +179,7 @@ function admin_customer_lookup_rows(string $search, int $limit = 50): array
 }
 
 try {
-    $results = admin_customer_lookup_rows($search, 50);
+    $results = admin_customer_lookup_rows($search, $lookupLimit);
 } catch (Throwable $exception) {
     $lookupErrors[] = APP_DEBUG ? $exception->getMessage() : 'Az ügyfélkereső betöltése sikertelen.';
 }
@@ -206,13 +209,15 @@ try {
         <?php endif; ?>
 
         <form class="auth-panel" method="get" action="<?= h(url_path('/admin/customer-lookup')); ?>">
+            <input type="hidden" name="mode" value="all">
             <div class="form-grid compact">
                 <label for="customer_lookup_search">Keresés név, email vagy telefon alapján</label>
                 <input id="customer_lookup_search" name="search" type="search" value="<?= h($search); ?>" placeholder="pl. név, email, +36...">
             </div>
             <div class="form-actions">
                 <button class="button" type="submit">Keresés</button>
-                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup')); ?>">Legutóbbi 50</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup')); ?>">Összes ügyfél</a>
+                <a class="button button-secondary" href="<?= h(url_path('/admin/customer-lookup') . '?mode=recent'); ?>">Legutóbbi 50</a>
             </div>
         </form>
 
@@ -220,7 +225,15 @@ try {
             <article>
                 <span>Találatok</span>
                 <strong><?= count($results); ?></strong>
-                <p><?= $search !== '' ? 'A megadott keresés első 50 találata.' : 'A legutóbb létrejött 50 ügyfél.'; ?></p>
+                <p><?php
+                    if ($search !== '') {
+                        echo 'A keresés a teljes ügyfélállományban fut, legfeljebb 1000 találatig.';
+                    } elseif ($recentOnly) {
+                        echo 'A legutóbb létrejött 50 ügyfél.';
+                    } else {
+                        echo 'A teljes ügyfélállomány látható, legfeljebb 1000 sorig.';
+                    }
+                ?></p>
             </article>
             <article>
                 <span>Keresési mezők</span>
