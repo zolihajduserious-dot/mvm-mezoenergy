@@ -11,11 +11,16 @@
 - Allitsd be a kezi admin import backend configot:
   - `GOOGLE_SHEET_IMPORT_WEBAPP_URL`
   - `GOOGLE_SHEET_IMPORT_WEBAPP_TOKEN`
+- Javasolt mod: GitHub Secrets + `deploy-google-sheet-import-secret.yml` workflow.
+- A workflow kulon `storage/config/google-sheet-import.secret.php` fajlt deployol, es nem modositja a `storage/config/local.secret.php` fajlt.
+- Az Apps Script Web App `health` teszt csak akkor elfogadott, ha JSON valasz jon: HTTP 200, `status: OK`, `action: health`.
 - Jelenlegi mukodo production API URL: `https://mvm-mezoenergy.hu/api/import/facebook-lead`.
 - A `mezoenergy.hu` vegleges domainre valtas csak akkor tortenjen meg az Apps Scriptben, ha a `mezoenergy.hu` API endpoint mar redirect nelkul ad 401-et wrong-token tesztre.
 - Nethelyen a token vagy szerver oldali kornyezeti valtozo legyen, vagy az ignore-olt `storage/config/local.secret.php` fajlban szerepeljen.
+- A manualis admin import Web App URL/token parja inkabb az ignore-olt `storage/config/google-sheet-import.secret.php` fajlba keruljon GitHub Actions secret deployjal.
 - Ellenorizd, hogy `storage/config/local.php` nem tracked secret fajl, es nem tartalmaz valodi titkot a repoban.
 - Ellenorizd, hogy `storage/config/local.secret.php` nincs trackelve.
+- Ellenorizd, hogy `storage/config/google-sheet-import.secret.php` nincs trackelve.
 - Futtasd: `.\docs\google-sheet-import\check_secrets_before_commit.ps1`.
 - Ellenorizd, hogy nincs secret a `git diff` vagy staged diff tartalmaban.
 - `git status` legyen tiszta a deployra szant commit utan, kiveve tudatosan lokalis / ignored fajlokat.
@@ -49,6 +54,7 @@
 - Regi / nem importalando sorok statusza legyen `NEM_IMPORTÁL` vagy `ELUTASÍTVA`.
 - Egy tesztsort allits `IMPORTÁLANDÓ` statuszra.
 - Admin oldal: `/admin/google-sheet-import`.
+- Elso admin hasznalat elott: Web App `health` JSON OK legyen.
 - Futtasd adminbol: `Állapot lekérdezése`.
 - Csak kontrollalt tesztnel futtasd adminbol: `Jóváhagyott sorok importálása`.
 - Ellenorizd:
@@ -59,6 +65,7 @@
   - `mezo_duplicate`
   - `mezo_api_response`
 - Ne futtasd: `installMezoFiveMinuteTrigger()`. Idozitett trigger nincs hasznalatban.
+- `run-approved` import csak kulon dontes es sikeres health/config ellenorzes utan fusson.
 
 ## Biztonsag
 
